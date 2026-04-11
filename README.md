@@ -1,5 +1,10 @@
 # skill-detector
 
+[![CI](https://img.shields.io/github/actions/workflow/status/velzepooz/skill-detector/ci.yml?branch=main&label=ci)](https://github.com/velzepooz/skill-detector/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/velzepooz/skill-detector)](https://github.com/velzepooz/skill-detector/releases/latest)
+[![License](https://img.shields.io/github/license/velzepooz/skill-detector)](./LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/velzepooz/skill-detector)](./go.mod)
+
 > CLI to spot risky AI skill packages before you install them.
 
 Scans AI skill folders (Anthropic Claude Skills, Codex skills, and similar
