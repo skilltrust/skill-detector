@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a bug, false positive, or missed threat
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in as much as you can —
+        "it doesn't work" without reproduction steps is hard to act on.
+
+  - type: input
+    id: version
+    attributes:
+      label: skill-detector version
+      description: Output of `skill-detector version`
+      placeholder: "e.g. 0.1.0 (6 rules, checksum abc...)"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. macOS 14.2 (arm64), Ubuntu 22.04 (amd64)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Bug category
+      options:
+        - "False positive (rule flagged a safe skill)"
+        - "Missed threat (rule should have flagged something)"
+        - "Crash or error"
+        - "Incorrect output or exit code"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      description: Paste the exact command. Include all flags.
+      render: shell
+      placeholder: "skill-detector scan ./some-skill --fail-on high"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Paste the full output (or the relevant portion) and any error messages.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: skill
+    attributes:
+      label: Skill contents (if applicable)
+      description: |
+        If the bug is about a specific skill being mis-scanned, paste the skill's files here (or attach them).
+        Redact anything sensitive. A minimal reproduction goes a long way.
+    validations:
+      required: false

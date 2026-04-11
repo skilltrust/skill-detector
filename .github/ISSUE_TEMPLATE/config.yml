@@ -1,0 +1,7 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/velzepooz/skill-detector/security/advisories/new
+    about: |
+      Found a vulnerability in skill-detector itself? Please file a private
+      security advisory — do not open a public issue.
