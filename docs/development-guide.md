@@ -140,13 +140,104 @@ Triggered by pushing a version tag (`v*`):
 2. Creates a GitHub Release with artifacts
 3. Updates the Homebrew tap (`velzepooz/homebrew-tap`)
 
-### Creating a Release
+## Releasing
+
+Releases are cut via Git tags. Pushing a `v*` tag triggers the release
+workflow (`.github/workflows/release.yml`), which runs GoReleaser to build
+cross-platform binaries and update the Homebrew cask in the tap repo.
+
+### One-time setup
+
+Already in place — only re-do these if something breaks:
+
+1. **Public tap repo:** `github.com/velzepooz/homebrew-tap` holds the
+   `Casks/skill-detector.rb` file that Homebrew installs from.
+2. **Personal Access Token:** fine-grained PAT scoped to
+   `velzepooz/homebrew-tap`, permission `Contents: Read and write`. This is
+   needed because the default `GITHUB_TOKEN` only has write access to the
+   current repo, not to a separate tap repo.
+3. **Repo secret:** `HOMEBREW_TAP_GITHUB_TOKEN` stored under Settings →
+   Secrets and variables → Actions on `velzepooz/skill-detector`. Referenced
+   in both `.goreleaser.yml` and `.github/workflows/release.yml`.
+
+If a release fails at the Homebrew step with a `403` or "resource not
+accessible by integration" error, rotate the PAT and update the secret.
+
+### Cutting a release
+
+Use the Makefile target:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
-# GitHub Actions will build and publish automatically
+make release VERSION=v0.2.0
 ```
+
+Safety checks run before the tag is pushed:
+
+- `VERSION` is provided and matches `vMAJOR.MINOR.PATCH[-prerelease]`
+- Working tree is clean (no staged or unstaged changes)
+- Currently on the `main` branch
+- Local `HEAD` equals `origin/main` (in sync with the remote)
+- Tag does not already exist
+
+If any check fails, the target aborts before touching Git. On success it
+creates an annotated tag and pushes it to `origin`. Watch the workflow at:
+
+```
+https://github.com/velzepooz/skill-detector/actions
+```
+
+### Versioning
+
+The project follows [semver](https://semver.org):
+
+- `v0.X.Y` — early-stage. Breaking changes allowed between minor versions.
+- `v1.0.0` — first stable release. Breaking changes require a major bump.
+- Prerelease suffixes (`v0.2.0-rc1`, `v0.2.0-beta.1`) are allowed and accepted
+  by the `make release` validator.
+
+Rough guidance for picking the bump:
+
+| Change                          | Bump  |
+| ------------------------------- | ----- |
+| Bug fix, false-positive tweak   | patch |
+| New rule, new CLI flag          | minor |
+| Breaking rule output / exit code | major |
+
+### Dry-running a release locally
+
+Before tagging — especially after editing `.goreleaser.yml` — you can build
+exactly what the pipeline would build without publishing anything:
+
+```bash
+goreleaser release --snapshot --clean --skip=publish
+```
+
+Inspect `dist/` to see the generated archives, checksums, and
+`dist/homebrew/Casks/skill-detector.rb`. Requires `brew install goreleaser`.
+
+### If a release fails
+
+**Workflow fails before the GitHub Release is created** (build or lint errors):
+fix the issue on `main`, then delete the bad tag locally and remotely and
+re-cut:
+
+```bash
+git tag -d v0.2.0
+git push --delete origin v0.2.0
+# fix, commit, push, then:
+make release VERSION=v0.2.0
+```
+
+**Workflow fails at the Homebrew step but the GitHub Release was created:**
+binaries are already published — only the cask update failed. Fix the root
+cause (usually the PAT or `.goreleaser.yml`), push the fix to `main`, then
+re-run just the failed job from the Actions UI. Do not delete the GitHub
+Release unless the binaries themselves are bad.
+
+**Bad release already published and users installed it:** do *not*
+force-overwrite an existing tag. Cut a new patch version with the fix. Tag
+immutability keeps user installs reproducible — a user who installed
+`v0.2.0` yesterday should get the same bits tomorrow.
 
 ## Configuration
 
