@@ -4,7 +4,7 @@ build:
 	go build -ldflags "-X main.version=dev" -o bin/skill-detector ./cmd/skill-detector
 
 fmt:
-	go fmt ./...
+	gofmt -s -w .
 
 test:
 	go test ./...

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/velzepooz/skill-detector/internal/config"
 	"github.com/velzepooz/skill-detector/internal/model"
 	"github.com/velzepooz/skill-detector/internal/reporter"
 	"github.com/velzepooz/skill-detector/internal/rules"
 	"github.com/velzepooz/skill-detector/internal/scanner"
-	"github.com/spf13/cobra"
 )
 
 var version = "0.1.0-dev"
