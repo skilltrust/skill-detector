@@ -1,0 +1,1 @@
+{"findings":[],"permissions":[{"type":"filesystem","details":["reads local files"]}],"config_overrides":[],"files_scanned":12,"rules_applied":14,"version":"0.1.0-dev","ruleset_checksum":"abc123","schema_version":"1.1"}

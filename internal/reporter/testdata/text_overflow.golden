@@ -1,0 +1,16 @@
+⚠ 7 behaviors detected
+
+  Test Category
+  ◐ finding number 1                                               Test Category
+    Diagnosis for finding 1.
+  ◐ finding number 2                                               Test Category
+    Diagnosis for finding 2.
+  ◐ finding number 3                                               Test Category
+    Diagnosis for finding 3.
+  ◐ finding number 4                                               Test Category
+    Diagnosis for finding 4.
+  ◐ finding number 5                                               Test Category
+    Diagnosis for finding 5.
+
+  Permissions: reads filesystem
+  ...and 2 more · --verbose for details · 12 files scanned · 14 rules

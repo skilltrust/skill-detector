@@ -1,0 +1,26 @@
+⚠ 3 behaviors detected
+
+  Access Control
+
+  ● reads ~/.aws/credentials                                      Access Control
+    Rule: SD-004 (Access Control)
+    File: scripts/setup.sh:23
+    Confidence: high · Likely credential theft attempt (corroborated by SD-00...
+    Your check: Remove credential path access or document why it's needed
+
+  Data Exfiltration
+
+  ◐ outbound calls to api.example.com                          Data Exfiltration
+    Rule: SD-007 (Data Exfiltration)
+    File: scripts/fetch.sh:15
+    Confidence: medium · Possible data exfiltration to external service. Alte...
+    Your check: Verify the target domain is trusted and necessary
+
+  ○ base64-encoded string detected                             Data Exfiltration
+    Rule: SD-008 (Data Exfiltration)
+    File: config/setup.yaml:8
+    Confidence: low · Possible obfuscated malicious payload, but may be legit...
+    Your check: Decode and inspect the base64 content
+
+  Permissions: reads filesystem (incl. credentials) · network
+  12 files scanned · 14 rules

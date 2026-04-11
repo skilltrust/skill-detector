@@ -1,0 +1,57 @@
+version: 2
+
+builds:
+  - main: ./cmd/skill-detector
+    binary: skill-detector
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: velzepooz
+    name: skill-detector
+
+homebrew_casks:
+  - name: skill-detector
+    repository:
+      owner: velzepooz
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/velzepooz/skill-detector"
+    description: "Detect security threats in AI skill packages"
+    license: MIT
+    url:
+      verified: github.com/velzepooz/skill-detector
+    # Unsigned binary → macOS Gatekeeper quarantines on install.
+    # Hook strips quarantine flag so the CLI runs without a prompt.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/skill-detector"]
+          end

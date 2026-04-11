@@ -1,0 +1,19 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - gosec
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+    rules:
+      - linters:
+          - gosec
+        path: _test\.go
+        text: "G101"
+
+run:
+  timeout: 5m

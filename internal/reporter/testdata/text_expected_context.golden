@@ -1,0 +1,14 @@
+⚠ 3 behaviors detected
+
+  Access Control
+  ● reads ~/.aws/credentials                                      Access Control
+    Likely credential theft attempt (corroborated by SD-007). Alternative: le...
+
+  Data Exfiltration
+  ○ base64-encoded string detected                             Data Exfiltration
+    Possible obfuscated malicious payload, but may be legitimate data encodin...
+  ◐ outbound calls to api.example.com               Data Exfiltration (expected)
+    Possible data exfiltration to external service. Alternative: legitimate A...
+
+  Permissions: reads filesystem (incl. credentials) · network
+  12 files scanned · 14 rules

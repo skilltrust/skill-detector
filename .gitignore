@@ -1,0 +1,17 @@
+# Build output
+bin/
+dist/
+
+# macOS
+.DS_Store
+
+# Vendor (if used)
+vendor/
+
+.codex/
+.claude/
+.opencode/
+_bmad/
+_bmad-output/
+AGENTS.md
+CLAUDE.md
