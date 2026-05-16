@@ -8,7 +8,7 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/reporter"
-	"github.com/velzepooz/skill-detector/internal/rules"
+	"github.com/velzepooz/skill-detector/pkg/rules"
 	"github.com/velzepooz/skill-detector/internal/scanner"
 )
 
@@ -39,14 +39,7 @@ func newRootCmd() *cobra.Command {
 }
 
 func newRegistry() *rules.RuleRegistry {
-	registry := rules.NewRegistry()
-	rules.RegisterInjectionRules(registry)
-	rules.RegisterAccessControlRules(registry)
-	rules.RegisterMisconfigurationRules(registry)
-	rules.RegisterExfiltrationRules(registry)
-	rules.RegisterSupplyChainRules(registry)
-	rules.RegisterIntegrityRules(registry)
-	return registry
+	return rules.DefaultRegistry()
 }
 
 func newVersionCmd() *cobra.Command {

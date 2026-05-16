@@ -7,7 +7,7 @@ import (
 
 	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
-	"github.com/velzepooz/skill-detector/internal/rules"
+	"github.com/velzepooz/skill-detector/pkg/rules"
 )
 
 func newTestRegistry() *rules.RuleRegistry {

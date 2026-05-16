@@ -53,3 +53,18 @@ func (r *RuleRegistry) RulesFor(ext string) []Rule {
 	}
 	return matched
 }
+
+// All returns all registered rules.
+func (r *RuleRegistry) All() []Rule { return r.rules }
+
+// DefaultRegistry returns a RuleRegistry pre-loaded with all built-in rule groups.
+func DefaultRegistry() *RuleRegistry {
+	r := NewRegistry()
+	RegisterInjectionRules(r)
+	RegisterAccessControlRules(r)
+	RegisterMisconfigurationRules(r)
+	RegisterExfiltrationRules(r)
+	RegisterSupplyChainRules(r)
+	RegisterIntegrityRules(r)
+	return r
+}
