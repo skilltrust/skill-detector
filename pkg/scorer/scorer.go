@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/velzepooz/skill-detector/internal/config"
+	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
