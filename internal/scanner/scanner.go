@@ -10,7 +10,7 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/permission"
 	"github.com/velzepooz/skill-detector/internal/rules"
-	"github.com/velzepooz/skill-detector/internal/scorer"
+	"github.com/velzepooz/skill-detector/pkg/scorer"
 )
 
 // Scanner orchestrates the scan pipeline.
