@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/velzepooz/skill-detector/internal/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
-	"github.com/velzepooz/skill-detector/internal/reporter"
+	"github.com/velzepooz/skill-detector/pkg/reporter"
 	"github.com/velzepooz/skill-detector/internal/rules"
 	"github.com/velzepooz/skill-detector/internal/scanner"
 )
