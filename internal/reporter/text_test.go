@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 var update = flag.Bool("update", false, "update golden files")

@@ -1,6 +1,6 @@
 package config
 
-import "github.com/velzepooz/skill-detector/internal/model"
+import "github.com/velzepooz/skill-detector/pkg/model"
 
 // DefaultConfig returns a Config with bundled defaults:
 // fail_on: critical, all rules enabled, empty allowlists.

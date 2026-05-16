@@ -3,7 +3,7 @@ package reporter
 import (
 	"io"
 
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 // Reporter formats and writes a ScanResult.

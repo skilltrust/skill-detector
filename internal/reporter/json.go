@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 // JSONReporter writes scan results as JSON.

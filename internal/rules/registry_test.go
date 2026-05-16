@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 // fakeRule is a minimal Rule implementation for testing the registry.

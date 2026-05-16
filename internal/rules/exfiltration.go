@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 // SD-007: Outbound network call patterns.

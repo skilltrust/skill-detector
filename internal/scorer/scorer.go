@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/velzepooz/skill-detector/internal/config"
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 // diagnosisEntry maps a rule ID to its threat hypothesis and benign alternative.

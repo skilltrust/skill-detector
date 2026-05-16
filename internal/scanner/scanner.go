@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/velzepooz/skill-detector/internal/config"
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/internal/permission"
 	"github.com/velzepooz/skill-detector/internal/rules"
 	"github.com/velzepooz/skill-detector/internal/scorer"

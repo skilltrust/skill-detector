@@ -1,6 +1,6 @@
 package rules
 
-import "github.com/velzepooz/skill-detector/internal/model"
+import "github.com/velzepooz/skill-detector/pkg/model"
 
 // Rule is the interface that all detection rules must implement.
 type Rule interface {

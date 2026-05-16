@@ -3,7 +3,7 @@ package permission
 import (
 	"testing"
 
-	"github.com/velzepooz/skill-detector/internal/model"
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 func finding(ruleID, desc string) model.Finding {
