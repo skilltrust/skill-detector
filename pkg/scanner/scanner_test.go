@@ -1,6 +1,7 @@
-package scanner
+package scanner_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/rules"
+	"github.com/velzepooz/skill-detector/pkg/scanner"
 )
 
 func newTestRegistry() *rules.RuleRegistry {
@@ -23,12 +25,23 @@ func newTestRegistry() *rules.RuleRegistry {
 
 func boolPtr(b bool) *bool { return &b }
 
-func TestScanner_CleanScan(t *testing.T) {
-	s := New("../../testdata/clean/simple-skill", newTestRegistry(), nil, "test")
-	result, err := s.Run()
+func newScanner(t *testing.T, cfg *config.Config) *scanner.Scanner {
+	t.Helper()
+	return scanner.New(newTestRegistry(), scanner.Options{Config: cfg, Version: "test"})
+}
+
+func runScan(t *testing.T, s *scanner.Scanner, path string) *model.ScanResult {
+	t.Helper()
+	res, err := s.Scan(context.Background(), dirInput(path))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return res
+}
+
+func TestScanner_CleanScan(t *testing.T) {
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/clean/simple-skill")
 	if len(result.Findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(result.Findings))
 		for _, f := range result.Findings {
@@ -62,11 +75,8 @@ func TestScanner_CleanScan(t *testing.T) {
 }
 
 func TestScanner_MaliciousScan(t *testing.T) {
-	s := New("../../testdata/malicious/credential-theft", newTestRegistry(), nil, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/malicious/credential-theft")
 	if len(result.Findings) == 0 {
 		t.Error("expected findings for malicious skill")
 	}
@@ -87,11 +97,8 @@ func TestScanner_MaliciousScan(t *testing.T) {
 }
 
 func TestScanner_MalformedYAML(t *testing.T) {
-	s := New("../../testdata/edge-cases/malformed-yaml", newTestRegistry(), nil, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatalf("malformed file should not crash scanner: %v", err)
-	}
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/edge-cases/malformed-yaml")
 	// Scan completes successfully — malformed YAML is scanned as raw bytes
 	if result.FileCount == 0 {
 		t.Error("expected at least 1 file discovered")
@@ -99,15 +106,9 @@ func TestScanner_MalformedYAML(t *testing.T) {
 }
 
 func TestScanner_Deterministic(t *testing.T) {
-	s := New("../../testdata/malicious/credential-theft", newTestRegistry(), nil, "test")
-	r1, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	r2, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, nil)
+	r1 := runScan(t, s, "../../testdata/malicious/credential-theft")
+	r2 := runScan(t, s, "../../testdata/malicious/credential-theft")
 	if len(r1.Findings) != len(r2.Findings) {
 		t.Fatalf("non-deterministic finding count: %d vs %d", len(r1.Findings), len(r2.Findings))
 	}
@@ -136,33 +137,24 @@ func TestScanner_Deterministic(t *testing.T) {
 }
 
 func TestScanner_ResultHasChecksum(t *testing.T) {
-	s := New("../../testdata/clean/simple-skill", newTestRegistry(), nil, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/clean/simple-skill")
 	if result.Checksum == "" {
 		t.Error("expected non-empty checksum in scan result")
 	}
 }
 
 func TestScanner_CleanScan_HasNoConfigOverrides(t *testing.T) {
-	s := New("../../testdata/clean/simple-skill", newTestRegistry(), nil, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/clean/simple-skill")
 	if len(result.ConfigOverrides) != 0 {
 		t.Errorf("expected 0 config overrides for clean scan, got %d", len(result.ConfigOverrides))
 	}
 }
 
 func TestScanner_EmptyDir(t *testing.T) {
-	s := New("../../testdata/edge-cases/empty-dir", newTestRegistry(), nil, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatalf("empty dir should not error: %v", err)
-	}
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/edge-cases/empty-dir")
 	if len(result.Findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(result.Findings))
 	}
@@ -185,11 +177,8 @@ func makeCfgWithDisabledRule(ruleID string) *config.Config {
 
 func TestScanner_NilConfig_AllRulesRun(t *testing.T) {
 	// nil config → backward-compatible, all rules run.
-	s := New("../../testdata/malicious/credential-theft", newTestRegistry(), nil, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/malicious/credential-theft")
 	if len(result.Findings) == 0 {
 		t.Error("expected findings with nil config (all rules enabled)")
 	}
@@ -203,11 +192,8 @@ func TestScanner_ExplicitEnabledTrue_RuleRuns(t *testing.T) {
 			"SD-004": {Enabled: boolPtr(true)},
 		},
 	}
-	s := New("../../testdata/malicious/credential-theft", newTestRegistry(), cfg, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, cfg)
+	result := runScan(t, s, "../../testdata/malicious/credential-theft")
 	hasSD004 := false
 	for _, f := range result.Findings {
 		if f.RuleID == "SD-004" {
@@ -233,11 +219,8 @@ func TestScanner_AllRulesDisabled_ZeroFindings(t *testing.T) {
 	}
 	cfg := &config.Config{FailOn: model.SeverityCritical, Rules: rulesMap}
 
-	s := New("../../testdata/malicious/credential-theft", newTestRegistry(), cfg, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, cfg)
+	result := runScan(t, s, "../../testdata/malicious/credential-theft")
 	if len(result.Findings) != 0 {
 		t.Errorf("expected 0 findings with all rules disabled, got %d", len(result.Findings))
 	}
@@ -245,19 +228,13 @@ func TestScanner_AllRulesDisabled_ZeroFindings(t *testing.T) {
 
 func TestScanner_RuleCount_ReflectsActiveRules(t *testing.T) {
 	// With all rules enabled (nil config), RuleCount = total distinct rules that matched files.
-	sAll := New("../../testdata/malicious/credential-theft", newTestRegistry(), nil, "test")
-	rAll, err := sAll.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	sAll := newScanner(t, nil)
+	rAll := runScan(t, sAll, "../../testdata/malicious/credential-theft")
 
 	// Disable one rule that fires on this testdata (SD-004 credential access).
 	cfg := makeCfgWithDisabledRule("SD-004")
-	sLess := New("../../testdata/malicious/credential-theft", newTestRegistry(), cfg, "test")
-	rLess, err := sLess.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	sLess := newScanner(t, cfg)
+	rLess := runScan(t, sLess, "../../testdata/malicious/credential-theft")
 
 	// Active rule count should be <= all rules count (SD-004 removed from active set).
 	if rLess.RuleCount > rAll.RuleCount {
@@ -281,11 +258,8 @@ func TestScanner_AllowlistedFindings_RemoveConfigOverrides(t *testing.T) {
 		},
 	}
 
-	s := New(dir, newTestRegistry(), cfg, "test")
-	result, err := s.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := newScanner(t, cfg)
+	result := runScan(t, s, dir)
 	if len(result.Findings) != 0 {
 		t.Fatalf("expected allowlist to suppress all findings, got %d", len(result.Findings))
 	}
@@ -303,11 +277,8 @@ func TestScanner_DisabledRule_ProducesNoFindings(t *testing.T) {
 	}
 
 	// Without disabling SD-005 → should find it.
-	sAll := New(dir, newTestRegistry(), nil, "test")
-	rAll, err := sAll.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	sAll := newScanner(t, nil)
+	rAll := runScan(t, sAll, dir)
 	hasSD005 := false
 	for _, f := range rAll.Findings {
 		if f.RuleID == "SD-005" {
@@ -321,11 +292,8 @@ func TestScanner_DisabledRule_ProducesNoFindings(t *testing.T) {
 
 	// With SD-005 disabled → no SD-005 findings.
 	cfg := makeCfgWithDisabledRule("SD-005")
-	sDisabled := New(dir, newTestRegistry(), cfg, "test")
-	rDisabled, err := sDisabled.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	sDisabled := newScanner(t, cfg)
+	rDisabled := runScan(t, sDisabled, dir)
 	for _, f := range rDisabled.Findings {
 		if f.RuleID == "SD-005" {
 			t.Error("expected no SD-005 findings when rule is disabled")

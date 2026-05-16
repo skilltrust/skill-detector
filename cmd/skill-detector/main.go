@@ -9,7 +9,7 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/reporter"
 	"github.com/velzepooz/skill-detector/pkg/rules"
-	"github.com/velzepooz/skill-detector/internal/scanner"
+	"github.com/velzepooz/skill-detector/pkg/scanner"
 )
 
 var version = "0.1.0-dev"
@@ -101,8 +101,11 @@ func newScanCmd() *cobra.Command {
 				return fmt.Errorf("scan: ruleset checksum mismatch: expected %s, got %s", expectedChecksum, checksum)
 			}
 
-			s := scanner.New(path, registry, cfg, version)
-			result, err := s.Run()
+			s := scanner.New(registry, scanner.Options{
+				Config:  cfg,
+				Version: version,
+			})
+			result, err := s.Scan(cmd.Context(), cliInput{p: path})
 			if err != nil {
 				return err
 			}
@@ -130,11 +133,11 @@ func newScanCmd() *cobra.Command {
 				}
 			}
 
-			if err := rep.Report(result, cmd.OutOrStdout()); err != nil {
+			if err := rep.Report(*result, cmd.OutOrStdout()); err != nil {
 				return err
 			}
 
-			scanExitCode = exitCode(result, cfg.FailOn)
+			scanExitCode = exitCode(*result, cfg.FailOn)
 			return nil
 		},
 	}

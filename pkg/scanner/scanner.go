@@ -2,9 +2,11 @@ package scanner
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -13,26 +15,49 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/scorer"
 )
 
-// Scanner orchestrates the scan pipeline.
-type Scanner struct {
-	root     string
-	registry *rules.RuleRegistry
-	cfg      *config.Config
-	version  string
+// Input is anything that can be resolved to a local directory path.
+// The caller owns the lifecycle of that path (create + clean up).
+type Input interface {
+	Path() string
 }
 
-// New creates a Scanner for the given root path.
-// cfg may be nil for backward compatibility (all rules enabled, no overrides).
-func New(root string, registry *rules.RuleRegistry, cfg *config.Config, version string) *Scanner {
-	return &Scanner{root: root, registry: registry, cfg: cfg, version: version}
+// Options configures a Scanner instance.
+type Options struct {
+	Config  *config.Config // nil = defaults
+	Version string         // recorded in result metadata
+	Timeout time.Duration  // 0 = no per-scan timeout
+}
+
+// Scanner runs the rule registry against an Input.
+type Scanner struct {
+	reg  *rules.RuleRegistry
+	opts Options
+}
+
+// New constructs a Scanner.
+func New(reg *rules.RuleRegistry, opts Options) *Scanner {
+	return &Scanner{reg: reg, opts: opts}
+}
+
+// Scan runs every rule in the registry against in.Path().
+// It must not write outside in.Path() and must not make network calls.
+// Cancel via ctx; if opts.Timeout > 0, an inner ctx with that deadline is used.
+func (s *Scanner) Scan(ctx context.Context, in Input) (*model.ScanResult, error) {
+	if s.opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.opts.Timeout)
+		defer cancel()
+	}
+	return s.run(ctx, in.Path())
 }
 
 // isRuleDisabled reports whether ruleID is explicitly disabled in config.
 func (s *Scanner) isRuleDisabled(ruleID string) bool {
-	if s.cfg == nil || len(s.cfg.Rules) == 0 {
+	cfg := s.opts.Config
+	if cfg == nil || len(cfg.Rules) == 0 {
 		return false
 	}
-	if rcfg, ok := s.cfg.Rules[ruleID]; ok {
+	if rcfg, ok := cfg.Rules[ruleID]; ok {
 		if rcfg.Enabled != nil && !*rcfg.Enabled {
 			return true
 		}
@@ -40,17 +65,25 @@ func (s *Scanner) isRuleDisabled(ruleID string) bool {
 	return false
 }
 
-// Run executes the full scan pipeline and returns a ScanResult.
-func (s *Scanner) Run() (model.ScanResult, error) {
-	files, err := Discover(s.root)
+// run executes the full scan pipeline against root and returns a ScanResult.
+// It is the unexported core invoked by Scan after ctx/timeout setup.
+func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	files, err := Discover(root)
 	if err != nil {
-		return model.ScanResult{}, fmt.Errorf("scanner: %w", err)
+		return nil, fmt.Errorf("scanner: %w", err)
 	}
 
 	var findings []model.Finding
 	activeRules := make(map[string]bool)
 	for _, file := range files {
-		matched := s.registry.RulesFor(file.Ext)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		matched := s.reg.RulesFor(file.Ext)
 		for _, rule := range matched {
 			if s.isRuleDisabled(rule.ID()) {
 				continue
@@ -61,11 +94,17 @@ func (s *Scanner) Run() (model.ScanResult, error) {
 		}
 	}
 
-	findings = scorer.Score(findings)
-	findings, overrides := scorer.ApplyOverrides(findings, s.cfg)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
-	if s.cfg != nil {
-		findings = ApplyAllowlists(findings, s.cfg.Allow)
+	cfg := s.opts.Config
+
+	findings = scorer.Score(findings)
+	findings, overrides := scorer.ApplyOverrides(findings, cfg)
+
+	if cfg != nil {
+		findings = ApplyAllowlists(findings, cfg.Allow)
 		overrides = filterConfigOverrides(findings, overrides)
 	}
 
@@ -82,14 +121,14 @@ func (s *Scanner) Run() (model.ScanResult, error) {
 
 	perms := permission.Extract(findings, files)
 
-	return model.ScanResult{
+	return &model.ScanResult{
 		Findings:        findings,
 		Permissions:     perms,
 		ConfigOverrides: overrides,
 		FileCount:       len(files),
 		RuleCount:       len(activeRules),
-		Version:         s.version,
-		Checksum:        s.registry.Checksum(),
+		Version:         s.opts.Version,
+		Checksum:        s.reg.Checksum(),
 		SchemaVersion:   "1.1",
 	}, nil
 }
