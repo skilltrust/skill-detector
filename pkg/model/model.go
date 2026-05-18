@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/velzepooz/skill-detector/pkg/axes"
 )
 
 // Severity levels — ordered from most to least severe.
@@ -121,6 +123,7 @@ type Finding struct {
 	Confidence  Confidence `json:"confidence"`
 	Diagnosis   string     `json:"diagnosis"`
 	Remediation string     `json:"remediation"`
+	Axis        axes.Axis  `json:"axis,omitempty"`
 }
 
 // ConfigOverride — records a user-configured severity adjustment for a rule.

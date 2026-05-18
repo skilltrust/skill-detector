@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/velzepooz/skill-detector/pkg/axes"
 )
 
 func TestSeverityString(t *testing.T) {
@@ -212,5 +214,15 @@ func TestScanResultHasConfigOverrides(t *testing.T) {
 	}
 	if entry["override"] != "MEDIUM" {
 		t.Errorf("override = %v, want MEDIUM", entry["override"])
+	}
+}
+
+func TestFindingHasAxisField(t *testing.T) {
+	f := Finding{
+		RuleID: "test",
+		Axis:   axes.Security,
+	}
+	if f.Axis != axes.Security {
+		t.Errorf("Axis = %q, want %q", f.Axis, axes.Security)
 	}
 }
