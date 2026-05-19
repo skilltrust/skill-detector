@@ -3,6 +3,7 @@ package rules
 import (
 	"bytes"
 	"regexp"
+	"strings"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -32,6 +33,7 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
 		return nil
 	}
+	docFile := isDocFile(ctx.Path)
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -57,7 +59,7 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 				"Remove or restrict outbound network calls; document why external access is needed"))
 			continue
 		}
-		if urlMatch != nil {
+		if urlMatch != nil && !docFile {
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"outbound network reference to "+string(urlMatch),
 				"Remove or restrict outbound network references; document why external access is needed"))
@@ -107,6 +109,15 @@ func (r *base64ObfuscationRule) Match(content []byte, ctx model.FileContext) []m
 		}
 	}
 	return findings
+}
+
+// isDocFile reports whether the path looks like a documentation file
+// where a bare URL reference is expected noise, not an executable call.
+func isDocFile(path string) bool {
+	p := strings.ToLower(path)
+	return strings.HasSuffix(p, ".md") ||
+		strings.HasSuffix(p, ".txt") ||
+		strings.HasSuffix(p, ".rst")
 }
 
 // RegisterExfiltrationRules registers all exfiltration detection rules.
