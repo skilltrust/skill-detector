@@ -14,6 +14,31 @@ e.g. from [skills.sh](https://skills.sh) — without reading every line by hand.
 
 > ⚠️ **Status:** Early-stage (v0.x). Usable, but rules and flags may change before 1.0.
 
+## What's new in v0.2.0 (SP-1: Multi-Axis Engine)
+
+Every scan now produces a 4-axis A–F **Trust Score** alongside the
+familiar findings list:
+
+```
+Trust Score
+  Security             D   High-severity issue: …
+  Permission hygiene   A   no findings on this axis
+  Transparency         A   no findings on this axis
+  Quality              A   no findings on this axis
+```
+
+Seven new rules target `.claude/CLAUDE.md`, `.claude/settings.json`,
+hooks, and MCP server configs — the configuration surface where
+several named 2026 CVEs lived. New CLI flags:
+
+- `--fail-on-axis <axis>=<grade>` — fail CI on an axis-grade
+  threshold (e.g. `--fail-on-axis security=B`).
+- `--strict-mcp` — treat external MCP server URLs as High severity.
+- `--axes-only` — emit just the Trust Score block on stdout
+  (findings go to stderr). Pipeable.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full v0.2.0 entry.
+
 ## Why
 
 Installing a skill from a third-party source means running someone else's code
