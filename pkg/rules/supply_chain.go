@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -121,6 +122,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Supply Chain",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&runtimeDownloadRule{
@@ -130,6 +132,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Supply Chain",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&vulnerableDepsRule{
@@ -139,6 +142,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Supply Chain",
 			types:    []string{".yaml", ".yml", ".json", ".toml", ".txt", ".md", ".sh", ".bash", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 }

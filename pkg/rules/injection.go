@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -131,6 +132,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Injection",
 			types:    []string{".sh", ".bash"},
+			axis:     axes.Security,
 		},
 	})
 
@@ -141,6 +143,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Injection",
 			types:    []string{".md", ".txt", ".yaml", ".yml", ".json", ".toml"},
+			axis:     axes.Security,
 		},
 	})
 }

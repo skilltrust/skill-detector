@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -98,6 +99,7 @@ func RegisterMisconfigurationRules(registry *RuleRegistry) {
 			severity: model.SeverityMedium,
 			category: "Security Misconfiguration",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 	registry.Register(&hardcodedSecretRule{
@@ -107,6 +109,7 @@ func RegisterMisconfigurationRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Security Misconfiguration",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -94,6 +95,7 @@ func RegisterAccessControlRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Broken Access Control",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 
@@ -104,6 +106,7 @@ func RegisterAccessControlRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Broken Access Control",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -118,6 +119,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			severity: model.SeverityMedium,
 			category: "Integrity",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&persistenceRule{
@@ -127,6 +129,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Integrity",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&gitHookRule{
@@ -136,6 +139,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Integrity",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 }

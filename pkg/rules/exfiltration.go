@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -111,6 +112,7 @@ func RegisterExfiltrationRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "SSRF / Data Exfiltration",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&base64ObfuscationRule{
@@ -120,6 +122,7 @@ func RegisterExfiltrationRules(registry *RuleRegistry) {
 			severity: model.SeverityMedium,
 			category: "SSRF / Data Exfiltration",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 }

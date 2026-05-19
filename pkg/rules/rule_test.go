@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -22,5 +23,45 @@ func TestBaseRuleAxisStamping(t *testing.T) {
 	}
 	if b.Axis() != axes.Security {
 		t.Errorf("Axis() = %q, want %q", b.Axis(), axes.Security)
+	}
+}
+
+func TestExistingRulesHaveAxisAssigned(t *testing.T) {
+	r := DefaultRegistry()
+	for _, rule := range r.All() {
+		if rule.Axis() == "" {
+			t.Errorf("rule %s has no axis assigned", rule.ID())
+		}
+	}
+}
+
+func TestRuleAxisMappings(t *testing.T) {
+	r := DefaultRegistry()
+	expected := map[string]axes.Axis{
+		"injection":                    axes.Security,
+		"supply chain":                 axes.Security,
+		"supply_chain":                 axes.Security,
+		"supplychain":                  axes.Security,
+		"exfiltration":                 axes.Security,
+		"ssrf / data exfiltration":     axes.Security,
+		"integrity":                    axes.Security,
+		"security misconfiguration":    axes.PermissionHygiene,
+		"misconfiguration":             axes.PermissionHygiene,
+		"broken access control":        axes.PermissionHygiene,
+		"access control":               axes.PermissionHygiene,
+		"access_control":               axes.PermissionHygiene,
+		"accesscontrol":                axes.PermissionHygiene,
+	}
+	for _, rule := range r.All() {
+		cat := strings.ToLower(rule.Category())
+		wanted, ok := expected[cat]
+		if !ok {
+			t.Errorf("rule %s has uncategorized Category() %q (test needs updating)", rule.ID(), rule.Category())
+			continue
+		}
+		if rule.Axis() != wanted {
+			t.Errorf("rule %s (category %q) has axis %q, want %q",
+				rule.ID(), rule.Category(), rule.Axis(), wanted)
+		}
 	}
 }
