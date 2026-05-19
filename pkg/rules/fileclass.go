@@ -66,3 +66,32 @@ func IsMCPConfig(path string) bool {
 
 	return false
 }
+
+// IsSkillManifest returns true for SKILL.md or skill.yaml — the original
+// product scope before SP-1 expanded it.
+func IsSkillManifest(path string) bool {
+	base := filepath.Base(filepath.ToSlash(path))
+	return base == "SKILL.md" || base == "skill.yaml"
+}
+
+// IsAgentFile is the union predicate covering every file class the product
+// inspects: skill manifests + CLAUDE.md + .claude/settings.json + .mcp.json.
+// Use this as the default gate in rules that don't need to discriminate
+// between agent file classes.
+func IsAgentFile(path string) bool {
+	return IsSkillManifest(path) || IsClaudeMD(path) ||
+		IsClaudeSettings(path) || IsMCPConfig(path)
+}
+
+// isInClaudeOrCodexDir returns true for any path under .claude/, .codex/,
+// or .opencode/. Used by rules that inspect arbitrary files in agent
+// config dirs (e.g., hook scripts at .claude/scripts/foo.sh).
+func isInClaudeOrCodexDir(path string) bool {
+	clean := filepath.ToSlash(path)
+	for _, d := range []string{".claude/", ".codex/", ".opencode/"} {
+		if strings.Contains(clean, "/"+d) || strings.HasPrefix(clean, d) {
+			return true
+		}
+	}
+	return false
+}
