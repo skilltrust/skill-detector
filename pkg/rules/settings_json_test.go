@@ -83,6 +83,34 @@ func TestSettingsJSON_SubcommandLimitBypass_Clean(t *testing.T) {
 	}
 }
 
+func TestSettingsJSON_UnsanctionedHook_Malicious(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "malicious", "settings-hook", ".claude", "settings.json"))
+	var count int
+	for _, f := range findings {
+		if f.RuleID == "SD-019" {
+			count++
+			if f.Severity != model.SeverityMedium {
+				t.Errorf("severity = %v, want Medium", f.Severity)
+			}
+			if f.Axis != axes.PermissionHygiene {
+				t.Errorf("axis = %q, want permission_hygiene", f.Axis)
+			}
+		}
+	}
+	if count < 2 {
+		t.Errorf("expected >=2 SD-019 findings, got %d. all: %+v", count, findings)
+	}
+}
+
+func TestSettingsJSON_UnsanctionedHook_Clean(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "clean", "settings-hook", ".claude", "settings.json"))
+	for _, f := range findings {
+		if f.RuleID == "SD-019" {
+			t.Errorf("clean fixture produced SD-019 finding: %+v", f)
+		}
+	}
+}
+
 func TestSettingsJSON_RuleIgnoresOtherJSON(t *testing.T) {
 	registry := NewRegistry()
 	RegisterSettingsJSONRules(registry)

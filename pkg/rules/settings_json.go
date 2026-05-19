@@ -114,6 +114,55 @@ func bashCommand(entry string) string {
 	return entry[len(prefix) : len(entry)-1]
 }
 
+type unsanctionedHookRule struct {
+	baseRule
+}
+
+type hookEntry struct {
+	Command string `json:"command"`
+}
+
+func (r *unsanctionedHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsClaudeSettings(ctx.Path) {
+		return nil
+	}
+	s, err := parseClaudeSettings(content)
+	if err != nil {
+		return nil
+	}
+	var findings []model.Finding
+	for hookName, raw := range s.Hooks {
+		var entries []hookEntry
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			continue
+		}
+		for _, e := range entries {
+			cmd := strings.TrimSpace(e.Command)
+			if cmd == "" {
+				continue
+			}
+			firstField := strings.Fields(cmd)
+			if len(firstField) == 0 {
+				continue
+			}
+			head := firstField[0]
+			isInRepo := strings.HasPrefix(cmd, "./") || strings.HasPrefix(cmd, "../") ||
+				(!strings.HasPrefix(head, "/") && !strings.Contains(head, "/"))
+			// Even an in-repo-looking command fails if it pipes to a shell.
+			if isInRepo && (strings.Contains(cmd, "| sh") || strings.Contains(cmd, "|sh") ||
+				strings.Contains(cmd, "| bash") || strings.Contains(cmd, "|bash")) {
+				isInRepo = false
+			}
+			if !isInRepo {
+				findings = append(findings, r.newFinding(ctx, 1,
+					"hook "+hookName+" runs unsanctioned command: "+cmd,
+					"Restrict hook commands to in-repo scripts (./scripts/...) or maintain an explicit allowlist"))
+			}
+		}
+	}
+	return findings
+}
+
 // RegisterSettingsJSONRules registers all .claude/settings.json-class rules.
 func RegisterSettingsJSONRules(registry *RuleRegistry) {
 	registry.Register(&bashCurlWildcardRule{
@@ -131,6 +180,16 @@ func RegisterSettingsJSONRules(registry *RuleRegistry) {
 			id:       "SD-018",
 			name:     "settings.json Subcommand Limit Bypass",
 			severity: model.SeverityHigh,
+			category: "SettingsJSON",
+			types:    []string{".json"},
+			axis:     axes.PermissionHygiene,
+		},
+	})
+	registry.Register(&unsanctionedHookRule{
+		baseRule: baseRule{
+			id:       "SD-019",
+			name:     "settings.json Unsanctioned Hook",
+			severity: model.SeverityMedium,
 			category: "SettingsJSON",
 			types:    []string{".json"},
 			axis:     axes.PermissionHygiene,

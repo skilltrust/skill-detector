@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "pre-tool-use": [
+      {"command": "./scripts/lint.sh"}
+    ]
+  }
+}
