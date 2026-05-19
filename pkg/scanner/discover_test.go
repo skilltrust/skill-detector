@@ -232,6 +232,94 @@ func TestIsBinary(t *testing.T) {
 	}
 }
 
+func TestDiscoverRespectsGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("secret.md\nignored-dir/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"SKILL.md":             "name: x",
+		"secret.md":            "shh",
+		"ignored-dir/inner.md": "skip me",
+		"kept-dir/inner.md":    "keep me",
+	}
+	for p, c := range files {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	discovered, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, f := range discovered {
+		got[filepath.ToSlash(f.Path)] = true
+	}
+	if !got["SKILL.md"] {
+		t.Error("SKILL.md should be discovered")
+	}
+	if got["secret.md"] {
+		t.Error("secret.md is gitignored, should be skipped")
+	}
+	if got["ignored-dir/inner.md"] {
+		t.Error("ignored-dir/inner.md is in gitignored dir, should be skipped")
+	}
+	if !got["kept-dir/inner.md"] {
+		t.Error("kept-dir/inner.md should be discovered")
+	}
+}
+
+func TestDiscoverGitignoreNegation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("*.md\n!CLAUDE.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"README.md", "CLAUDE.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	discovered, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, f := range discovered {
+		got[filepath.ToSlash(f.Path)] = true
+	}
+	if got["README.md"] {
+		t.Error("README.md should be gitignored")
+	}
+	if !got["CLAUDE.md"] {
+		t.Error("CLAUDE.md should be discovered (negation in .gitignore)")
+	}
+}
+
+func TestDiscoverMissingGitignoreOK(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Errorf("expected 1 discovered file, got %d", len(discovered))
+	}
+}
+
 func TestDiscoverSkipsHardcodedDirs(t *testing.T) {
 	dir := t.TempDir()
 	// Create files inside dirs that should always be skipped.

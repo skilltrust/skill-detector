@@ -54,6 +54,12 @@ func Discover(root string) ([]model.FileContext, error) {
 	}
 	defer osRoot.Close()
 
+	ignoreMatcher, ignoreErr := loadGitignore(root)
+	if ignoreErr != nil {
+		// Don't fail discovery on a broken .gitignore — treat as no-op.
+		ignoreMatcher = nil
+	}
+
 	var files []model.FileContext
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -68,6 +74,19 @@ func Discover(root string) ([]model.FileContext, error) {
 		// Skip hardcoded noise dirs (always, regardless of options).
 		if d.IsDir() && path != root && alwaysSkipDirs[d.Name()] {
 			return filepath.SkipDir
+		}
+
+		// Honor .gitignore (best-effort; missing/broken file = no-op).
+		if ignoreMatcher != nil {
+			relForIgnore, err := filepath.Rel(root, path)
+			if err == nil && relForIgnore != "." {
+				if ignoreMatcher.MatchesPath(filepath.ToSlash(relForIgnore)) {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			}
 		}
 
 		// Skip hidden directories (but not the root itself), except for an allowlist
