@@ -2,6 +2,24 @@
 
 ## v0.2.0 — 2026-05-19 (SP-1: Multi-Axis Engine)
 
+### Scope (BREAKING vs v0.1.x)
+- Scanner default behavior: walks only AI-agent configuration files
+  (SKILL.md, CLAUDE.md, .claude/settings*.json, .mcp.json) plus
+  arbitrary files inside .claude/, .codex/, .opencode/ dirs.
+- Honors .gitignore at the scan root (best-effort; missing or
+  malformed .gitignore is a no-op).
+- Hardcoded skip-list: node_modules, vendor, dist, build, target,
+  .next, .git — always skipped, regardless of .gitignore.
+- New --scan-all flag bypasses scope tightening and .gitignore
+  filtering. For migration or whole-repo audits.
+- All 14 pre-SP-1 rules now gate by path; they previously fired on
+  any file with a matching extension. This is a breaking change
+  vs. v0.1.x default behavior. --scan-all + the rules' built-in
+  path gating means walking more files won't reproduce v0.1.x
+  output exactly.
+- New dependency: github.com/sabhiram/go-gitignore (MIT, zero
+  transitive deps).
+
 ### Added
 - **Multi-axis trust score.** Every scan now emits four A–F grades:
   Security, Permission hygiene, Transparency, Quality. Rendered as
