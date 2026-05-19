@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/config"
+	"github.com/velzepooz/skill-detector/pkg/grade"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/permission"
 	"github.com/velzepooz/skill-detector/pkg/rules"
@@ -121,6 +123,11 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 
 	perms := permission.Extract(findings, files)
 
+	axesResult := make(map[axes.Axis]model.AxisResult, len(axes.Order))
+	for _, a := range axes.Order {
+		axesResult[a] = grade.Grade(a, findings)
+	}
+
 	return &model.ScanResult{
 		Findings:        findings,
 		Permissions:     perms,
@@ -130,6 +137,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		Version:         s.opts.Version,
 		Checksum:        s.reg.Checksum(),
 		SchemaVersion:   "1.1",
+		Axes:            axesResult,
 	}, nil
 }
 
