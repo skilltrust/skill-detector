@@ -496,7 +496,10 @@ func TestE2E_JSONNilSlicesNormalized(t *testing.T) {
 
 func TestE2E_JSONConfigOverrides(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/run.sh", []byte(sd007Content), 0o600); err != nil {
+	if err := os.MkdirAll(dir+"/.claude/scripts", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/.claude/scripts/run.sh", []byte(sd007Content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	configPath := writeConfigFile(t, "rules:\n  SD-007:\n    severity: medium\n")
@@ -777,7 +780,10 @@ func TestE2E_FailOnInfo_AllMaliciousExit2(t *testing.T) {
 
 func TestE2E_ContextExpected_TextOutput(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/run.sh", []byte(sd007Content), 0o600); err != nil {
+	if err := os.MkdirAll(dir+"/.claude/scripts", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/.claude/scripts/run.sh", []byte(sd007Content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	configPath := writeConfigFile(t, "rules:\n  SD-007:\n    context: expected\n")
@@ -797,7 +803,10 @@ func TestE2E_ContextExpected_TextOutput(t *testing.T) {
 
 func TestE2E_ContextExpected_JSONOutput(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/run.sh", []byte(sd007Content), 0o600); err != nil {
+	if err := os.MkdirAll(dir+"/.claude/scripts", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/.claude/scripts/run.sh", []byte(sd007Content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	configPath := writeConfigFile(t, "rules:\n  SD-007:\n    context: expected\n")
@@ -822,7 +831,10 @@ func TestE2E_ContextExpected_JSONOutput(t *testing.T) {
 
 func TestE2E_SeverityOverride_StillWorks(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/run.sh", []byte(sd007Content), 0o600); err != nil {
+	if err := os.MkdirAll(dir+"/.claude/scripts", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/.claude/scripts/run.sh", []byte(sd007Content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	configPath := writeConfigFile(t, "rules:\n  SD-007:\n    severity: medium\n")
@@ -837,7 +849,10 @@ func TestE2E_SeverityOverride_StillWorks(t *testing.T) {
 
 func TestE2E_ContextAndSeverity_ContextWins(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/run.sh", []byte(sd007Content), 0o600); err != nil {
+	if err := os.MkdirAll(dir+"/.claude/scripts", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/.claude/scripts/run.sh", []byte(sd007Content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	configPath := writeConfigFile(t, "rules:\n  SD-007:\n    severity: medium\n    context: expected\n")

