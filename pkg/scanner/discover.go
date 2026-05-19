@@ -20,6 +20,19 @@ var walkableHiddenDirs = map[string]bool{
 	".opencode": true,
 }
 
+// alwaysSkipDirs lists directory names always skipped during discovery
+// regardless of .gitignore or --scan-all. These are dirs that are never
+// the product's scope (build output, vendored deps, VCS metadata).
+var alwaysSkipDirs = map[string]bool{
+	"node_modules": true,
+	"vendor":       true,
+	"dist":         true,
+	"build":        true,
+	"target":       true,
+	".next":        true,
+	".git":         true,
+}
+
 // scannableExts defines file extensions that are relevant for security scanning.
 var scannableExts = map[string]bool{
 	".md": true, ".yaml": true, ".yml": true,
@@ -50,6 +63,11 @@ func Discover(root string) ([]model.FileContext, error) {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+
+		// Skip hardcoded noise dirs (always, regardless of options).
+		if d.IsDir() && path != root && alwaysSkipDirs[d.Name()] {
+			return filepath.SkipDir
 		}
 
 		// Skip hidden directories (but not the root itself), except for an allowlist

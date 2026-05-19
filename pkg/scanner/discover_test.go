@@ -231,3 +231,54 @@ func TestIsBinary(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscoverSkipsHardcodedDirs(t *testing.T) {
+	dir := t.TempDir()
+	// Create files inside dirs that should always be skipped.
+	skipped := []string{
+		"node_modules/eslint/package.json",
+		"vendor/lib/foo.md",
+		"dist/bundle.json",
+		"build/output.md",
+		"target/release.json",
+		".next/cache.md",
+	}
+	for _, p := range skipped {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// And a legit file at the root that should be discovered.
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("name: x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	for _, f := range files {
+		clean := filepath.ToSlash(f.Path)
+		for _, banned := range []string{"node_modules/", "vendor/", "dist/", "build/", "target/", ".next/"} {
+			if strings.Contains(clean, banned) {
+				t.Errorf("expected %q to be skipped, but it was discovered", f.Path)
+			}
+		}
+	}
+	// SKILL.md at root SHOULD be discovered.
+	var foundSkill bool
+	for _, f := range files {
+		if filepath.ToSlash(f.Path) == "SKILL.md" {
+			foundSkill = true
+			break
+		}
+	}
+	if !foundSkill {
+		t.Error("SKILL.md should still be discovered")
+	}
+}
