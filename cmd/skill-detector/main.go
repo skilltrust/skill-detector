@@ -100,11 +100,14 @@ func newScanCmd() *cobra.Command {
 	var configFlag string
 	var strictMCP bool
 	var axesOnly bool
+	var scanAll bool
 
 	cmd := &cobra.Command{
 		Use:   "scan <path>",
 		Short: "Scan a skill package for security threats",
-		Args:  cobra.ExactArgs(1),
+		Long: "Scans AI-agent configuration files (SKILL.md, CLAUDE.md, .claude/settings.json, .mcp.json) for security and trust issues. " +
+			"Respects .gitignore by default. Use --scan-all to scan all matching files regardless of scope.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			path := args[0]
@@ -144,6 +147,7 @@ func newScanCmd() *cobra.Command {
 			s := scanner.New(registry, scanner.Options{
 				Config:  cfg,
 				Version: version,
+				ScanAll: scanAll,
 			})
 			result, err := s.Scan(cmd.Context(), cliInput{p: path})
 			if err != nil {
@@ -227,6 +231,10 @@ func newScanCmd() *cobra.Command {
 		"Raise MCP external-domain rule severity from Medium to High")
 	cmd.Flags().BoolVar(&axesOnly, "axes-only", false,
 		"Text format only: print Trust Score to stdout, findings to stderr.")
+	cmd.Flags().BoolVar(&scanAll, "scan-all", false,
+		"Disable scope tightening and .gitignore filtering. "+
+			"Walks every scannable file in the tree. For migration "+
+			"from v0.1.x behavior or whole-repo audits.")
 
 	return cmd
 }

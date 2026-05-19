@@ -28,6 +28,7 @@ type Options struct {
 	Config  *config.Config // nil = defaults
 	Version string         // recorded in result metadata
 	Timeout time.Duration  // 0 = no per-scan timeout
+	ScanAll bool           // disable .gitignore filtering; walk every scannable file
 }
 
 // Scanner runs the rule registry against an Input.
@@ -74,7 +75,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		return nil, err
 	}
 
-	files, err := Discover(root)
+	files, err := DiscoverWithOptions(root, DiscoverOptions{ScanAll: s.opts.ScanAll})
 	if err != nil {
 		return nil, fmt.Errorf("scanner: %w", err)
 	}
