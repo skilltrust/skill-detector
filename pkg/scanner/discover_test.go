@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -156,6 +157,57 @@ func TestDiscoverSkipsNonScannableExtensions(t *testing.T) {
 	}
 }
 
+func TestDiscoverWalksClaudeDir(t *testing.T) {
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"permissions":{"allow":["Bash(curl *)"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	var found bool
+	for _, f := range files {
+		if filepath.ToSlash(f.Path) == ".claude/settings.json" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf(".claude/settings.json not discovered. Walked files: %+v", files)
+	}
+}
+
+func TestDiscoverStillSkipsGitDir(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitFile := filepath.Join(gitDir, "config")
+	if err := os.WriteFile(gitFile, []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(filepath.ToSlash(f.Path), ".git/") {
+			t.Errorf(".git/ should still be skipped, got walked file: %s", f.Path)
+		}
+	}
+}
+
 func TestIsBinary(t *testing.T) {
 	tests := []struct {
 		name string
@@ -177,5 +229,226 @@ func TestIsBinary(t *testing.T) {
 				t.Errorf("isBinary() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDiscoverRespectsGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("secret.md\nignored-dir/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"SKILL.md":             "name: x",
+		"secret.md":            "shh",
+		"ignored-dir/inner.md": "skip me",
+		"kept-dir/inner.md":    "keep me",
+	}
+	for p, c := range files {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	discovered, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, f := range discovered {
+		got[filepath.ToSlash(f.Path)] = true
+	}
+	if !got["SKILL.md"] {
+		t.Error("SKILL.md should be discovered")
+	}
+	if got["secret.md"] {
+		t.Error("secret.md is gitignored, should be skipped")
+	}
+	if got["ignored-dir/inner.md"] {
+		t.Error("ignored-dir/inner.md is in gitignored dir, should be skipped")
+	}
+	if !got["kept-dir/inner.md"] {
+		t.Error("kept-dir/inner.md should be discovered")
+	}
+}
+
+func TestDiscoverGitignoreNegation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("*.md\n!CLAUDE.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"README.md", "CLAUDE.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	discovered, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, f := range discovered {
+		got[filepath.ToSlash(f.Path)] = true
+	}
+	if got["README.md"] {
+		t.Error("README.md should be gitignored")
+	}
+	if !got["CLAUDE.md"] {
+		t.Error("CLAUDE.md should be discovered (negation in .gitignore)")
+	}
+}
+
+func TestDiscoverMissingGitignoreOK(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(discovered) != 1 {
+		t.Errorf("expected 1 discovered file, got %d", len(discovered))
+	}
+}
+
+func TestDiscoverScanAllOverridesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("secret.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secret.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default: secret.md gitignored, not discovered.
+	def, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	var foundDefault bool
+	for _, f := range def {
+		if filepath.ToSlash(f.Path) == "secret.md" {
+			foundDefault = true
+		}
+	}
+	if foundDefault {
+		t.Error("default Discover should not return gitignored secret.md")
+	}
+
+	// ScanAll: secret.md surfaces.
+	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions: %v", err)
+	}
+	var foundAll bool
+	for _, f := range all {
+		if filepath.ToSlash(f.Path) == "secret.md" {
+			foundAll = true
+		}
+	}
+	if !foundAll {
+		t.Error("DiscoverWithOptions(ScanAll: true) should return secret.md")
+	}
+}
+
+func TestScanAllStillSkipsGitDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions: %v", err)
+	}
+	for _, f := range all {
+		if strings.HasPrefix(filepath.ToSlash(f.Path), ".git/") {
+			t.Errorf(".git/ should be skipped even with ScanAll, got %s", f.Path)
+		}
+	}
+}
+
+func TestScanAllSkipsNodeModulesToo(t *testing.T) {
+	// node_modules is in alwaysSkipDirs. Even ScanAll should skip it.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "foo", "x.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions: %v", err)
+	}
+	for _, f := range all {
+		if strings.Contains(filepath.ToSlash(f.Path), "node_modules/") {
+			t.Errorf("node_modules should still be skipped under ScanAll, got %s", f.Path)
+		}
+	}
+}
+
+func TestDiscoverSkipsHardcodedDirs(t *testing.T) {
+	dir := t.TempDir()
+	// Create files inside dirs that should always be skipped.
+	skipped := []string{
+		"node_modules/eslint/package.json",
+		"vendor/lib/foo.md",
+		"dist/bundle.json",
+		"build/output.md",
+		"target/release.json",
+		".next/cache.md",
+	}
+	for _, p := range skipped {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// And a legit file at the root that should be discovered.
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("name: x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	for _, f := range files {
+		clean := filepath.ToSlash(f.Path)
+		for _, banned := range []string{"node_modules/", "vendor/", "dist/", "build/", "target/", ".next/"} {
+			if strings.Contains(clean, banned) {
+				t.Errorf("expected %q to be skipped, but it was discovered", f.Path)
+			}
+		}
+	}
+	// SKILL.md at root SHOULD be discovered.
+	var foundSkill bool
+	for _, f := range files {
+		if filepath.ToSlash(f.Path) == "SKILL.md" {
+			foundSkill = true
+			break
+		}
+	}
+	if !foundSkill {
+		t.Error("SKILL.md should still be discovered")
 	}
 }

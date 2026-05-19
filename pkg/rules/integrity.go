@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -35,6 +36,9 @@ type postInstallRule struct {
 }
 
 func (r *postInstallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -53,6 +57,9 @@ type persistenceRule struct {
 }
 
 func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -96,6 +103,9 @@ type gitHookRule struct {
 }
 
 func (r *gitHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -118,6 +128,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			severity: model.SeverityMedium,
 			category: "Integrity",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&persistenceRule{
@@ -127,6 +138,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Integrity",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&gitHookRule{
@@ -136,6 +148,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Integrity",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 }

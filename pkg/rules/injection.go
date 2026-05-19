@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -28,6 +29,9 @@ type shellInjectionRule struct {
 }
 
 func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -51,6 +55,9 @@ type promptInjectionRule struct {
 }
 
 func (r *promptInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsSkillManifest(ctx.Path) && !IsClaudeMD(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 
 	// Pre-pass: detect directives inside multi-line HTML comments.
@@ -131,6 +138,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Injection",
 			types:    []string{".sh", ".bash"},
+			axis:     axes.Security,
 		},
 	})
 
@@ -141,6 +149,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Injection",
 			types:    []string{".md", ".txt", ".yaml", ".yml", ".json", ".toml"},
+			axis:     axes.Security,
 		},
 	})
 }

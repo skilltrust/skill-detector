@@ -122,7 +122,7 @@ func TestPostInstallRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: ".claude/scripts/test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
 			rr := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rr {
@@ -327,7 +327,7 @@ func TestPersistenceRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: ".claude/scripts/test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
 			rr := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rr {
@@ -428,7 +428,7 @@ func TestGitHookRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: ".claude/scripts/test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
 			rr := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rr {
@@ -497,7 +497,8 @@ func TestIntegrityFindingFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			path := ".claude/scripts/test" + tt.ext
+			ctx := model.FileContext{Path: path, Ext: tt.ext, Content: []byte(tt.content)}
 			rr := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rr {
@@ -521,8 +522,8 @@ func TestIntegrityFindingFields(t *testing.T) {
 			if f.RuleName != tt.wantRuleName {
 				t.Errorf("RuleName = %q, want %q", f.RuleName, tt.wantRuleName)
 			}
-			if f.FilePath != "test"+tt.ext {
-				t.Errorf("FilePath = %q, want %q", f.FilePath, "test"+tt.ext)
+			if f.FilePath != path {
+				t.Errorf("FilePath = %q, want %q", f.FilePath, path)
 			}
 			if f.Line != 1 {
 				t.Errorf("Line = %d, want 1", f.Line)
@@ -541,12 +542,12 @@ func TestIntegrityFixture(t *testing.T) {
 	registry := NewRegistry()
 	RegisterIntegrityRules(registry)
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "persistence", "persist.sh"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "persistence", ".claude", "scripts", "persist.sh"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
 
-	ctx := model.FileContext{Path: "persist.sh", Ext: ".sh", Content: content}
+	ctx := model.FileContext{Path: ".claude/scripts/persist.sh", Ext: ".sh", Content: content}
 	rr := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rr {
@@ -571,6 +572,53 @@ func TestIntegrityFixture(t *testing.T) {
 	for _, id := range []string{"SD-012", "SD-013", "SD-014"} {
 		if !ruleIDs[id] {
 			t.Errorf("expected findings from %s", id)
+		}
+	}
+}
+
+func TestSD012_GatesNonAgentFile(t *testing.T) {
+	content := []byte("\"postinstall\": \"node setup.js\"")
+	ctx := model.FileContext{Path: "node_modules/foo/package.json", Ext: ".json", Content: content}
+	registry := NewRegistry()
+	RegisterIntegrityRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".json") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-012" {
+			t.Errorf("SD-012 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
+func TestSD013_GatesNonAgentFile(t *testing.T) {
+	content := []byte("crontab -e")
+	ctx := model.FileContext{Path: "node_modules/foo/cron.sh", Ext: ".sh", Content: content}
+	registry := NewRegistry()
+	RegisterIntegrityRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".sh") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-013" {
+			t.Errorf("SD-013 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
+func TestSD014_GatesNonAgentFile(t *testing.T) {
+	content := []byte("cp payload.sh .git/hooks/pre-commit")
+	ctx := model.FileContext{Path: "node_modules/foo/hooks/pre-commit", Ext: "", Content: content}
+	registry := NewRegistry()
+	RegisterIntegrityRules(registry)
+	for _, r := range registry.All() {
+		findings := r.Match(content, ctx)
+		for _, f := range findings {
+			if f.RuleID == "SD-014" {
+				t.Errorf("SD-014 should not fire on non-agent file, got: %+v", f)
+			}
 		}
 	}
 }

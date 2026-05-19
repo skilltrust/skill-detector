@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -33,6 +34,9 @@ type credentialAccessRule struct {
 }
 
 func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -55,6 +59,9 @@ type pathTraversalRule struct {
 }
 
 func (r *pathTraversalRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -94,6 +101,7 @@ func RegisterAccessControlRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Broken Access Control",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 
@@ -104,6 +112,7 @@ func RegisterAccessControlRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Broken Access Control",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 }

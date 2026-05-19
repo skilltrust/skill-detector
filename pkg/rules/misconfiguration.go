@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -27,6 +28,9 @@ type worldWritableRule struct {
 }
 
 func (r *worldWritableRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -49,6 +53,9 @@ type hardcodedSecretRule struct {
 }
 
 func (r *hardcodedSecretRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -98,6 +105,7 @@ func RegisterMisconfigurationRules(registry *RuleRegistry) {
 			severity: model.SeverityMedium,
 			category: "Security Misconfiguration",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 	registry.Register(&hardcodedSecretRule{
@@ -107,6 +115,7 @@ func RegisterMisconfigurationRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Security Misconfiguration",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.PermissionHygiene,
 		},
 	})
 }

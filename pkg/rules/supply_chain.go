@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -33,6 +34,9 @@ type curlBashRule struct {
 }
 
 func (r *curlBashRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -51,6 +55,9 @@ type runtimeDownloadRule struct {
 }
 
 func (r *runtimeDownloadRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -81,6 +88,9 @@ type vulnerableDepsRule struct {
 }
 
 func (r *vulnerableDepsRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -121,6 +131,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			severity: model.SeverityCritical,
 			category: "Supply Chain",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&runtimeDownloadRule{
@@ -130,6 +141,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Supply Chain",
 			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 	registry.Register(&vulnerableDepsRule{
@@ -139,6 +151,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			severity: model.SeverityHigh,
 			category: "Supply Chain",
 			types:    []string{".yaml", ".yml", ".json", ".toml", ".txt", ".md", ".sh", ".bash", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
 		},
 	})
 }

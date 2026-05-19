@@ -64,15 +64,19 @@ make fmt
 
 ```
 cmd/skill-detector/    → CLI entry point (Cobra)
-internal/config/       → Configuration loading
-internal/model/        → Shared domain types
-internal/scanner/      → File discovery & scan orchestration
-internal/rules/        → Security rule implementations
-internal/permission/   → Skill manifest permission extraction
-internal/scorer/       → Risk score computation
-internal/reporter/     → Output formatting (text/JSON/quiet)
-testdata/              → Test fixtures (clean, malicious, edge-cases)
+pkg/axes/              → Axis + Grade enums (wire-stable)
+pkg/grade/             → Per-axis worst-finding-wins aggregator
+pkg/config/            → Configuration loading
+pkg/model/             → Shared domain types (Finding, ScanResult, AxisResult)
+pkg/scanner/           → File discovery (incl. .gitignore) + scan orchestration
+pkg/rules/             → Security rules + file-class predicates (path gates)
+pkg/permission/        → Skill manifest permission extraction
+pkg/scorer/            → Legacy flat-score (backward compat)
+pkg/reporter/          → Output formatting (text with Trust Score block, JSON, quiet)
+testdata/              → Test fixtures (clean, malicious, cve, edge-cases)
 ```
+
+Public packages live under `pkg/` because downstream consumers (e.g. `skillmoss-go`) import the scanner, rules, and grade aggregator as a library.
 
 ## Testing
 
@@ -84,17 +88,22 @@ make test
 go test -v ./...
 
 # Run tests for a specific package
-go test -v ./internal/rules/...
+go test -v ./pkg/rules/...
 
 # Run a specific test
-go test -v -run TestScanner_CleanScan ./internal/scanner/
+go test -v -run TestScanner_CleanScan ./pkg/scanner/
+
+# Run CVE reproducer tests (Go-API + binary E2E)
+go test -v -run TestCVE ./cmd/skill-detector/
 ```
 
 ### Test Fixture Structure
 
 - **`testdata/clean/`** — Skills that should pass with zero findings
-- **`testdata/malicious/`** — Skills that should trigger specific security rules
-  - `credential-theft/`, `shell-injection/`, `prompt-injection/`, `exfiltration/`, `supply-chain/`, `persistence/`
+- **`testdata/malicious/`** — Agent-file-shaped fixtures that should trigger specific rules
+  - Paths must satisfy `IsAgentFile()` or `isInClaudeOrCodexDir()` (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/<orig>.sh`) so path-gated rules can fire
+  - Subdirs: `credential-theft/`, `shell-injection/`, `prompt-injection/`, `exfiltration/`, `supply-chain/`, `persistence/`, `claude-md-sql/`, `claude-md-cnc/`, `settings-bash-curl/`, `settings-bypass/`, `settings-hook/`, `hooks-interp/`, `mcp-domain/`
+- **`testdata/cve/`** — Minimal CVE reproducer repos used by `cmd/skill-detector/cve_repro_test.go` for both Go-API and binary E2E paths
 - **`testdata/edge-cases/`** — Boundary conditions
   - `empty-skill/`, `malformed-yaml/`, `hidden-dir/`, `binary-file/`
 
@@ -114,12 +123,16 @@ Configuration is in `.golangci.yml`:
 
 ## Adding a New Security Rule
 
-1. Create a new file in `internal/rules/` (e.g., `new_threat.go`)
-2. Implement the Rule interface defined in `internal/rules/rule.go`
-3. Register the rule in the registry (`internal/rules/registry.go`)
-4. Add test fixtures in `testdata/malicious/` for the new threat type
-5. Write tests in `internal/rules/new_threat_test.go`
-6. Run `make test` and `make lint` to verify
+1. Create a new file in `pkg/rules/` (e.g., `new_threat.go`)
+2. Implement the Rule interface defined in `pkg/rules/rule.go`. Embed `baseRule` and set the `axis` field at registration so `baseRule.newFinding` can stamp `Finding.Axis` automatically.
+3. **Add a path gate as the FIRST statement of `Match()`** — typically `if !IsAgentFile(ctx.Path) { return nil }`, or compose with `isInClaudeOrCodexDir(ctx.Path)` if the rule should also fire on arbitrary files inside `.claude/`, `.codex/`, `.opencode/` dirs. Without a gate, the rule will fire on every file with a matching extension and balloon the noise floor on real-world repos.
+4. Register the rule in `pkg/rules/registry.go::DefaultRegistry()` AND in `cmd/skill-detector/main.go::newRegistry()`.
+5. Add test fixtures in `testdata/malicious/<rule>/` at agent-file-shaped paths (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/foo.sh`) so the path gate doesn't block them.
+6. Write tests in `pkg/rules/new_threat_test.go`. Each rule needs:
+   - A paired clean fixture test (must NOT trigger on benign content)
+   - A `TestSDxxx_GatesNonAgentFile` test (must NOT fire on `node_modules/.../README.md` or similar non-agent paths)
+7. Run `make test` and `make lint` to verify
+8. The new rule's `(ID, Name, Severity, Category, Axis)` changes the registry checksum — release artifacts pinned to a previous checksum will refuse to load this binary until the new value is baked in
 
 ## CI/CD
 
@@ -244,4 +257,4 @@ immutability keeps user installs reproducible — a user who installed
 The tool reads configuration from a YAML file. Configuration supports:
 - Per-rule enable/disable toggles
 - Allowlists for suppressing known-safe findings
-- Default values are provided in `internal/config/defaults.go`
+- Default values are provided in `pkg/config/defaults.go`

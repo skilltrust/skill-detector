@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/rules"
 	"github.com/velzepooz/skill-detector/pkg/scanner"
 )
@@ -64,6 +65,28 @@ func TestScanHonorsTimeoutOption(t *testing.T) {
 	_, err := s.Scan(context.Background(), in)
 	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+}
+
+func TestScanResultPopulatesAxesForAllFour(t *testing.T) {
+	in := dirInput("../../testdata/clean")
+	s := scanner.New(rules.DefaultRegistry(), scanner.Options{Version: "test"})
+	res, err := s.Scan(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(res.Axes) != 4 {
+		t.Fatalf("Axes has %d entries, want 4. got: %+v", len(res.Axes), res.Axes)
+	}
+	for _, a := range axes.Order {
+		got, ok := res.Axes[a]
+		if !ok {
+			t.Errorf("missing axis %q in result", a)
+			continue
+		}
+		if got.Grade != axes.GradeA {
+			t.Errorf("clean fixture axis %q grade = %q, want A", a, got.Grade)
+		}
 	}
 }
 

@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/config"
+	"github.com/velzepooz/skill-detector/pkg/grade"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/permission"
 	"github.com/velzepooz/skill-detector/pkg/rules"
@@ -26,6 +28,7 @@ type Options struct {
 	Config  *config.Config // nil = defaults
 	Version string         // recorded in result metadata
 	Timeout time.Duration  // 0 = no per-scan timeout
+	ScanAll bool           // disable .gitignore filtering; walk every scannable file
 }
 
 // Scanner runs the rule registry against an Input.
@@ -72,7 +75,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		return nil, err
 	}
 
-	files, err := Discover(root)
+	files, err := DiscoverWithOptions(root, DiscoverOptions{ScanAll: s.opts.ScanAll})
 	if err != nil {
 		return nil, fmt.Errorf("scanner: %w", err)
 	}
@@ -121,6 +124,11 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 
 	perms := permission.Extract(findings, files)
 
+	axesResult := make(map[axes.Axis]model.AxisResult, len(axes.Order))
+	for _, a := range axes.Order {
+		axesResult[a] = grade.Grade(a, findings)
+	}
+
 	return &model.ScanResult{
 		Findings:        findings,
 		Permissions:     perms,
@@ -129,7 +137,8 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		RuleCount:       len(activeRules),
 		Version:         s.opts.Version,
 		Checksum:        s.reg.Checksum(),
-		SchemaVersion:   "1.1",
+		SchemaVersion:   "1.2",
+		Axes:            axesResult,
 	}, nil
 }
 

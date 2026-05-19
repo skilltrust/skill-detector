@@ -3,6 +3,7 @@ package rules
 import (
 	"testing"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -118,5 +119,31 @@ func TestChecksum_NonEmpty(t *testing.T) {
 	}
 	if len(cs) != 16 {
 		t.Errorf("checksum should be 16 chars, got %d: %s", len(cs), cs)
+	}
+}
+
+func TestChecksumChangesOnAxisFlip(t *testing.T) {
+	r1 := NewRegistry()
+	r1.Register(&shellInjectionRule{baseRule: baseRule{
+		id: "X", name: "X", severity: model.SeverityHigh, category: "C",
+		types: []string{".sh"}, axis: axes.Security,
+	}})
+
+	r2 := NewRegistry()
+	r2.Register(&shellInjectionRule{baseRule: baseRule{
+		id: "X", name: "X", severity: model.SeverityHigh, category: "C",
+		types: []string{".sh"}, axis: axes.Quality, // flipped
+	}})
+
+	if r1.Checksum() == r2.Checksum() {
+		t.Error("checksum should differ when axis is flipped")
+	}
+}
+
+func TestChecksumStableOnUnchangedRegistry(t *testing.T) {
+	r1 := DefaultRegistry()
+	r2 := DefaultRegistry()
+	if r1.Checksum() != r2.Checksum() {
+		t.Errorf("checksum should be stable, got %s vs %s", r1.Checksum(), r2.Checksum())
 	}
 }

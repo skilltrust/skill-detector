@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "local-fs": {"command": "mcp-server-filesystem", "args": ["./data"]}
+  }
+}
