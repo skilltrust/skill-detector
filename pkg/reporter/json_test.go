@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -472,3 +473,43 @@ func TestJSONReporter_SingleJSONObject(t *testing.T) {
 		t.Error("output contains extra content after JSON object")
 	}
 }
+func TestJSONReporterEmitsAxesField(t *testing.T) {
+	r := &JSONReporter{}
+	res := model.ScanResult{
+		Findings: []model.Finding{
+			{RuleID: "SD-017", Severity: model.SeverityHigh, EffSeverity: model.SeverityHigh, Axis: axes.PermissionHygiene},
+		},
+		Axes: map[axes.Axis]model.AxisResult{
+			axes.Security:          {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.PermissionHygiene: {Grade: axes.GradeD, Rationale: "High-severity issue"},
+			axes.Transparency:      {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.Quality:           {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := r.Report(res, &buf); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	var parsed struct {
+		Axes map[string]struct {
+			Grade     string `json:"grade"`
+			Rationale string `json:"rationale"`
+		} `json:"axes"`
+		Findings []struct {
+			Axis string `json:"axis"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal: %v\noutput: %s", err, buf.String())
+	}
+	if parsed.Axes["security"].Grade != "A" {
+		t.Errorf("axes.security.grade = %q, want A", parsed.Axes["security"].Grade)
+	}
+	if parsed.Axes["permission_hygiene"].Grade != "D" {
+		t.Errorf("axes.permission_hygiene.grade = %q, want D", parsed.Axes["permission_hygiene"].Grade)
+	}
+	if len(parsed.Findings) != 1 || parsed.Findings[0].Axis != "permission_hygiene" {
+		t.Errorf("findings[0].axis = %q, want permission_hygiene", parsed.Findings[0].Axis)
+	}
+}
+
