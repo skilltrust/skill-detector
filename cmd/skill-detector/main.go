@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/reporter"
@@ -61,6 +63,7 @@ func newScanCmd() *cobra.Command {
 	var format string
 	var quiet bool
 	var failOn string
+	var failOnAxis []string
 	var configFlag string
 
 	cmd := &cobra.Command{
@@ -138,6 +141,14 @@ func newScanCmd() *cobra.Command {
 			}
 
 			scanExitCode = exitCode(*result, cfg.FailOn)
+
+			// --fail-on-axis: exit 2 if any axis grade is worse than its threshold.
+			if axisExceeded, err := checkFailOnAxis(failOnAxis, result.Axes); err != nil {
+				return err
+			} else if axisExceeded && scanExitCode < 2 {
+				scanExitCode = 2
+			}
+
 			return nil
 		},
 	}
@@ -147,9 +158,43 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Show full finding details")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "Severity threshold for non-zero exit (critical, high, medium, low, info)")
+	cmd.Flags().StringArrayVar(&failOnAxis, "fail-on-axis", nil,
+		"Fail if axis grade is worse than threshold. Format: axis=grade (e.g. security=B). Repeatable.")
 	cmd.Flags().StringVar(&configFlag, "config", "", "Path to config file (skip cascading lookup)")
 
 	return cmd
+}
+
+// gradeRank maps letter grade to numeric rank (lower = better).
+var gradeRank = map[string]int{"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
+
+// checkFailOnAxis evaluates --fail-on-axis specs against axisResults.
+// Returns (true, nil) if any axis grade is strictly worse than its threshold.
+// Returns (false, error) if a spec is malformed.
+func checkFailOnAxis(specs []string, axisResults map[axes.Axis]model.AxisResult) (bool, error) {
+	for _, spec := range specs {
+		parts := strings.SplitN(spec, "=", 2)
+		if len(parts) != 2 {
+			return false, fmt.Errorf("scan: invalid --fail-on-axis spec %q (want axis=grade)", spec)
+		}
+		threshold, ok := gradeRank[strings.ToUpper(parts[1])]
+		if !ok {
+			return false, fmt.Errorf("scan: invalid grade %q in --fail-on-axis (want A, B, C, D, or F)", parts[1])
+		}
+		a := axes.Axis(parts[0])
+		res, ok := axisResults[a]
+		if !ok {
+			continue
+		}
+		actual, ok := gradeRank[string(res.Grade)]
+		if !ok {
+			continue
+		}
+		if actual > threshold {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func exitCode(result model.ScanResult, threshold model.Severity) int {

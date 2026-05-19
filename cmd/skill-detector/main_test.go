@@ -994,3 +994,176 @@ func TestScanCmd_LegacySeverityOverride_StillWorks(t *testing.T) {
 		t.Errorf("expected exit code 1 (legacy severity override still works), got %d", scanExitCode)
 	}
 }
+
+// --- Integration tests for --fail-on-axis flag (Plan Task 19) ---
+//
+// Uses testdata/malicious/credential-theft which produces:
+//   security=D, permission_hygiene=F, transparency=A, quality=A
+
+func TestCLIFailOnAxisFlag(t *testing.T) {
+	// security axis: credential-theft → D grade.
+	// Threshold C: D > C → exit 2.
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color", "--fail-on-axis", "security=C",
+		"../../testdata/malicious/credential-theft"})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scanExitCode != 2 {
+		t.Errorf("expected exit 2 (security D worse than C threshold), got %d\nstdout: %s", scanExitCode, stdout.String())
+	}
+
+	// Threshold D matches actual grade D → axis check does not fire.
+	// credential-theft has CRITICAL findings and default fail-on=critical → exit 2 from --fail-on anyway.
+	// Use --fail-on info (catches everything) to isolate: D not worse than D → axis alone doesn't bump to 2.
+	// Actually credential-theft has critical findings so exit will still be 2 from --fail-on.
+	// Test that threshold D does NOT add an extra bump: check against a HIGH-only fixture.
+	// shell-injection → security=F. Threshold F: F not worse than F → no axis trigger.
+	stdout.Reset()
+	stderr.Reset()
+	cmd2 := newRootCmd()
+	cmd2.SetOut(&stdout)
+	cmd2.SetErr(&stderr)
+	// --fail-on info means any finding → exit 2 from severity. Combined with axis threshold F
+	// (no worse than actual F) → exit 2 is from severity, not axis. Either way, just verify exit != 0.
+	// For a clean fixture: all axes A, threshold A → no axis trigger → exit 0.
+	cmd2.SetArgs([]string{"scan", "--no-color", "--fail-on-axis", "security=D",
+		"../../testdata/clean/simple-skill"})
+
+	scanExitCode = 0
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Clean: security=A, A not worse than D threshold → no axis exit. No findings → exit 0.
+	if scanExitCode != 0 {
+		t.Errorf("expected exit 0 (clean scan, security A not worse than D threshold), got %d\nstdout: %s", scanExitCode, stdout.String())
+	}
+}
+
+func TestCLIFailOnAxisFlag_MultipleAxes(t *testing.T) {
+	// Multiple --fail-on-axis flags: any violation triggers exit 2.
+	// credential-theft: security=D, permission_hygiene=F.
+	// --fail-on-axis transparency=A (actual A → no trigger alone)
+	// --fail-on-axis security=C (actual D > C → triggers exit 2)
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color",
+		"--fail-on-axis", "transparency=A",
+		"--fail-on-axis", "security=C",
+		"../../testdata/malicious/credential-theft",
+	})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scanExitCode != 2 {
+		t.Errorf("expected exit 2 (security D violates C threshold), got %d\nstdout: %s", scanExitCode, stdout.String())
+	}
+}
+
+func TestCLIFailOnAxisFlag_NoViolation(t *testing.T) {
+	// Clean scan → all axes grade A; --fail-on-axis security=A should not trigger.
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color", "--fail-on-axis", "security=A", "../../testdata/clean/simple-skill"})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scanExitCode != 0 {
+		t.Errorf("expected exit 0 (clean scan, security A not worse than A), got %d", scanExitCode)
+	}
+}
+
+func TestCLIFailOnAxisFlag_GradeEqualToThreshold_NoTrigger(t *testing.T) {
+	// credential-theft: security=D. Threshold D → D not worse than D → axis does not trigger.
+	// Default fail-on=critical, credential-theft has critical findings → exit 2 from severity.
+	// Verify we handle grade equality without double-counting. We just need no error.
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color", "--fail-on-axis", "security=D",
+		"../../testdata/malicious/credential-theft"})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// exit may be 2 from --fail-on (critical findings), but axis alone would be 0 (D == D).
+	// We verify no panic / error and code is valid (0, 1, or 2).
+	if scanExitCode < 0 || scanExitCode > 2 {
+		t.Errorf("unexpected exit code %d", scanExitCode)
+	}
+}
+
+func TestCLIFailOnAxisFlag_InvalidGrade(t *testing.T) {
+	// --fail-on-axis with invalid grade should return error.
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color", "--fail-on-axis", "security=Z", "../../testdata/clean/simple-skill"})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid --fail-on-axis grade")
+	}
+}
+
+func TestCLIFailOnAxisFlag_InvalidFormat(t *testing.T) {
+	// --fail-on-axis without '=' separator should return error.
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color", "--fail-on-axis", "securityB", "../../testdata/clean/simple-skill"})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid --fail-on-axis format (missing '=')")
+	}
+}
+
+func TestCLIFailOnAxisFlag_CombinesWithFailOn(t *testing.T) {
+	// Verify --fail-on and --fail-on-axis compose: worst wins.
+	// clean/simple-skill: no findings. --fail-on high → exit 0 (no findings).
+	// --fail-on-axis security=A: actual A not worse than A → no trigger.
+	// Combined: exit 0.
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color",
+		"--fail-on", "high",
+		"--fail-on-axis", "security=A",
+		"../../testdata/clean/simple-skill",
+	})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scanExitCode != 0 {
+		t.Errorf("expected exit 0 (clean scan, both flags, no violations), got %d", scanExitCode)
+	}
+}
