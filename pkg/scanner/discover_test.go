@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -153,6 +154,57 @@ func TestDiscoverSkipsNonScannableExtensions(t *testing.T) {
 	}
 	if files[0].Path != "readme.md" {
 		t.Errorf("path = %q, want %q", files[0].Path, "readme.md")
+	}
+}
+
+func TestDiscoverWalksClaudeDir(t *testing.T) {
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"permissions":{"allow":["Bash(curl *)"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	var found bool
+	for _, f := range files {
+		if filepath.ToSlash(f.Path) == ".claude/settings.json" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf(".claude/settings.json not discovered. Walked files: %+v", files)
+	}
+}
+
+func TestDiscoverStillSkipsGitDir(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitFile := filepath.Join(gitDir, "config")
+	if err := os.WriteFile(gitFile, []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.HasPrefix(filepath.ToSlash(f.Path), ".git/") {
+			t.Errorf(".git/ should still be skipped, got walked file: %s", f.Path)
+		}
 	}
 }
 

@@ -10,6 +10,16 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
+// walkableHiddenDirs lists hidden directories that should still be walked
+// despite the general hidden-dir skip. These contain AI-agent configuration
+// files (CLAUDE.md, settings.json, MCP configs) that are core to the
+// skill-detector scope.
+var walkableHiddenDirs = map[string]bool{
+	".claude":   true,
+	".codex":    true,
+	".opencode": true,
+}
+
 // scannableExts defines file extensions that are relevant for security scanning.
 var scannableExts = map[string]bool{
 	".md": true, ".yaml": true, ".yml": true,
@@ -42,9 +52,12 @@ func Discover(root string) ([]model.FileContext, error) {
 			return nil
 		}
 
-		// Skip hidden directories (but not the root itself).
+		// Skip hidden directories (but not the root itself), except for an allowlist
+		// of hidden dirs that contain security-relevant config.
 		if d.IsDir() && path != root && d.Name()[0] == '.' {
-			return filepath.SkipDir
+			if !walkableHiddenDirs[d.Name()] {
+				return filepath.SkipDir
+			}
 		}
 
 		// Only process regular files.
