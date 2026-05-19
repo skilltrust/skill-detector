@@ -13,7 +13,11 @@ linters:
       - linters:
           - gosec
         path: _test\.go
-        text: "G101"
+        # G101: hardcoded creds in test fixtures
+        # G301/G306: file/dir permission modes in t.TempDir() fixtures — irrelevant outside prod
+        # G122: race-prone path in filepath.Walk callback — irrelevant in test temp dirs
+        # G703: path-traversal taint analysis on test-helper file writes — controlled by t.TempDir()
+        text: "G101|G301|G306|G122|G703"
 
 run:
   timeout: 5m
