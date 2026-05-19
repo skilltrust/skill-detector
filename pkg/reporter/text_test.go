@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -1555,6 +1556,45 @@ func goldenFindingsResult() model.ScanResult {
 		Checksum:        "abc123",
 		SchemaVersion:   "1.1",
 		ConfigOverrides: []model.ConfigOverride{},
+	}
+}
+
+func TestTextReporterEmitsTrustScoreBlock(t *testing.T) {
+	res := model.ScanResult{
+		Findings: []model.Finding{
+			{
+				RuleID:      "SD-017",
+				Severity:    model.SeverityHigh,
+				Axis:        axes.PermissionHygiene,
+				Description: "broad shell permission granted: Bash(curl *)",
+				FilePath:    ".claude/settings.json",
+				Line:        1,
+			},
+		},
+		Axes: map[axes.Axis]model.AxisResult{
+			axes.Security:          {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.PermissionHygiene: {Grade: axes.GradeD, Rationale: "High-severity issue: broad shell permission granted: Bash(curl *)"},
+			axes.Transparency:      {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.Quality:           {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+		},
+	}
+	var buf bytes.Buffer
+	r := &TextReporter{Theme: NewTheme(true)}
+	if err := r.Report(res, &buf); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Trust Score") {
+		t.Errorf("output missing Trust Score header: %s", out)
+	}
+	if !strings.Contains(out, "Security") {
+		t.Errorf("output missing Security label: %s", out)
+	}
+	if !strings.Contains(out, "Permission hygiene") {
+		t.Errorf("output missing Permission hygiene label: %s", out)
+	}
+	if !strings.Contains(out, "D") {
+		t.Errorf("output missing the D grade: %s", out)
 	}
 }
 

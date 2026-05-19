@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -58,6 +59,25 @@ func (t *TextReporter) Report(result model.ScanResult, w io.Writer) error {
 		fmt.Fprintln(w, t.Theme.VerdictIcon(clean, findingCount)+" · "+formatInlinePermissions(result.Permissions))
 	} else {
 		fmt.Fprintln(w, t.Theme.VerdictIcon(clean, findingCount))
+	}
+
+	// Trust Score block: 4-axis grid above findings list.
+	if len(result.Axes) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, t.Theme.Colorize("Trust Score", ansiBold))
+		for _, a := range axes.Order {
+			ar := result.Axes[a]
+			label := axisLabel(a)
+			grade := string(ar.Grade)
+			if !t.Theme.NoColor {
+				grade = t.colorizeGrade(grade)
+			}
+			rationale := ar.Rationale
+			if rationale == "" {
+				rationale = "no findings on this axis"
+			}
+			fmt.Fprintf(w, "  %-20s %s   %s\n", label, grade, rationale)
+		}
 	}
 
 	// Finding rows.
@@ -376,6 +396,33 @@ func extractCredentialPath(details []string) string {
 		}
 	}
 	return ""
+}
+
+// axisLabel returns the human-readable display label for an axis.
+func axisLabel(a axes.Axis) string {
+	switch a {
+	case axes.Security:
+		return "Security"
+	case axes.PermissionHygiene:
+		return "Permission hygiene"
+	case axes.Transparency:
+		return "Transparency"
+	case axes.Quality:
+		return "Quality"
+	}
+	return string(a)
+}
+
+// colorizeGrade applies ANSI color to a grade letter.
+func (t *TextReporter) colorizeGrade(g string) string {
+	switch g {
+	case "A", "B":
+		return t.Theme.Colorize(g, ansiGreen)
+	case "C":
+		return t.Theme.Colorize(g, ansiYellow)
+	default:
+		return t.Theme.Colorize(g, ansiRed)
+	}
 }
 
 func truncate(s string, maxLen int) string {
