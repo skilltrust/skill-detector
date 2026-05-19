@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+
+	"github.com/velzepooz/skill-detector/pkg/grade"
 )
 
 // RuleRegistry holds registered rules and supports lookup by file type.
@@ -28,11 +30,15 @@ func (r *RuleRegistry) Count() int {
 }
 
 // Checksum computes a deterministic hash of all registered rules.
-// The hash is based on sorted rule metadata (ID, Name, Severity, Category).
+// The hash is based on sorted rule metadata (ID, Name, Severity, Category, Axis)
+// plus the canonical form of the grade package's cap table + rationale
+// templates. Any tampering with rule registration, axis assignment, cap-table
+// thresholds, or template strings changes the checksum.
 func (r *RuleRegistry) Checksum() string {
 	entries := make([]string, len(r.rules))
 	for i, rule := range r.rules {
-		entries[i] = fmt.Sprintf("%s:%s:%d:%s", rule.ID(), rule.Name(), rule.Severity(), rule.Category())
+		entries[i] = fmt.Sprintf("%s:%s:%d:%s:%s",
+			rule.ID(), rule.Name(), rule.Severity(), rule.Category(), rule.Axis())
 	}
 	sort.Strings(entries)
 
@@ -40,6 +46,7 @@ func (r *RuleRegistry) Checksum() string {
 	for _, entry := range entries {
 		h.Write([]byte(entry + "\n"))
 	}
+	h.Write([]byte("\nGRADE:" + grade.CanonicalMetadata()))
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }
 
