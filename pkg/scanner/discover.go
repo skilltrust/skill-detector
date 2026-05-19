@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	ignore "github.com/sabhiram/go-gitignore"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -42,9 +43,26 @@ var scannableExts = map[string]bool{
 	".ini": true, ".xml": true,
 }
 
-// Discover walks the root directory and returns a slice of FileContext entries
-// for all scannable, non-binary files. Hidden directories are skipped.
+// DiscoverOptions controls walker behavior.
+type DiscoverOptions struct {
+	// ScanAll disables .gitignore filtering. Hardcoded skip-dirs
+	// (node_modules, .git, etc.) still apply.
+	ScanAll bool
+}
+
+// Discover walks the root directory and returns scannable files using
+// default options (honor .gitignore, skip hardcoded noise dirs).
 func Discover(root string) ([]model.FileContext, error) {
+	return discoverImpl(root, DiscoverOptions{})
+}
+
+// DiscoverWithOptions is the option-aware sibling of Discover. Discover()
+// remains for callers that want default behavior.
+func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext, error) {
+	return discoverImpl(root, opts)
+}
+
+func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error) {
 	root = filepath.Clean(root)
 
 	// Open a scoped root to prevent symlink TOCTOU traversal (gosec G122).
@@ -54,10 +72,13 @@ func Discover(root string) ([]model.FileContext, error) {
 	}
 	defer osRoot.Close()
 
-	ignoreMatcher, ignoreErr := loadGitignore(root)
-	if ignoreErr != nil {
-		// Don't fail discovery on a broken .gitignore — treat as no-op.
-		ignoreMatcher = nil
+	var ignoreMatcher *ignore.GitIgnore
+	if !opts.ScanAll {
+		ignoreMatcher, err = loadGitignore(root)
+		if err != nil {
+			// Don't fail discovery on a broken .gitignore — treat as no-op.
+			ignoreMatcher = nil
+		}
 	}
 
 	var files []model.FileContext

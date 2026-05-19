@@ -320,6 +320,88 @@ func TestDiscoverMissingGitignoreOK(t *testing.T) {
 	}
 }
 
+func TestDiscoverScanAllOverridesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"),
+		[]byte("secret.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secret.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default: secret.md gitignored, not discovered.
+	def, err := Discover(dir)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	var foundDefault bool
+	for _, f := range def {
+		if filepath.ToSlash(f.Path) == "secret.md" {
+			foundDefault = true
+		}
+	}
+	if foundDefault {
+		t.Error("default Discover should not return gitignored secret.md")
+	}
+
+	// ScanAll: secret.md surfaces.
+	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions: %v", err)
+	}
+	var foundAll bool
+	for _, f := range all {
+		if filepath.ToSlash(f.Path) == "secret.md" {
+			foundAll = true
+		}
+	}
+	if !foundAll {
+		t.Error("DiscoverWithOptions(ScanAll: true) should return secret.md")
+	}
+}
+
+func TestScanAllStillSkipsGitDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions: %v", err)
+	}
+	for _, f := range all {
+		if strings.HasPrefix(filepath.ToSlash(f.Path), ".git/") {
+			t.Errorf(".git/ should be skipped even with ScanAll, got %s", f.Path)
+		}
+	}
+}
+
+func TestScanAllSkipsNodeModulesToo(t *testing.T) {
+	// node_modules is in alwaysSkipDirs. Even ScanAll should skip it.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "foo", "x.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	if err != nil {
+		t.Fatalf("DiscoverWithOptions: %v", err)
+	}
+	for _, f := range all {
+		if strings.Contains(filepath.ToSlash(f.Path), "node_modules/") {
+			t.Errorf("node_modules should still be skipped under ScanAll, got %s", f.Path)
+		}
+	}
+}
+
 func TestDiscoverSkipsHardcodedDirs(t *testing.T) {
 	dir := t.TempDir()
 	// Create files inside dirs that should always be skipped.
