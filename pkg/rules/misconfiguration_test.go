@@ -101,7 +101,7 @@ func TestWorldWritableRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: "skill.yaml", Ext: tt.ext, Content: []byte(tt.content)}
 			rules := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rules {
@@ -218,7 +218,7 @@ func TestHardcodedSecretRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: "skill.yaml", Ext: tt.ext, Content: []byte(tt.content)}
 			rules := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rules {
@@ -247,7 +247,7 @@ func TestWorldWritableFindingFields(t *testing.T) {
 	registry := NewRegistry()
 	RegisterMisconfigurationRules(registry)
 
-	ctx := model.FileContext{Path: "setup.sh", Ext: ".sh", Content: []byte("chmod 777 /tmp/data")}
+	ctx := model.FileContext{Path: "skill.yaml", Ext: ".sh", Content: []byte("chmod 777 /tmp/data")}
 	rules := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rules {
@@ -273,8 +273,8 @@ func TestWorldWritableFindingFields(t *testing.T) {
 	if f.RuleName != "World-Writable Permissions" {
 		t.Errorf("RuleName = %q, want %q", f.RuleName, "World-Writable Permissions")
 	}
-	if f.FilePath != "setup.sh" {
-		t.Errorf("FilePath = %q, want %q", f.FilePath, "setup.sh")
+	if f.FilePath != "skill.yaml" {
+		t.Errorf("FilePath = %q, want %q", f.FilePath, "skill.yaml")
 	}
 	if f.Line != 1 {
 		t.Errorf("Line = %d, want 1", f.Line)
@@ -287,11 +287,43 @@ func TestWorldWritableFindingFields(t *testing.T) {
 	}
 }
 
+func TestSD005_GatesNonAgentFile(t *testing.T) {
+	content := []byte("chmod 777 /tmp/data")
+	ctx := model.FileContext{Path: "node_modules/foo/config.yaml", Ext: ".yaml", Content: content}
+	registry := NewRegistry()
+	RegisterMisconfigurationRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".yaml") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-005" {
+			t.Errorf("SD-005 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
+func TestSD006_GatesNonAgentFile(t *testing.T) {
+	content := []byte(`api_key="aVeryLongSecretValue1234567890abcdef"`)
+	ctx := model.FileContext{Path: "node_modules/foo/config.json", Ext: ".json", Content: content}
+	registry := NewRegistry()
+	RegisterMisconfigurationRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".json") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-006" {
+			t.Errorf("SD-006 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
 func TestHardcodedSecretFindingFields(t *testing.T) {
 	registry := NewRegistry()
 	RegisterMisconfigurationRules(registry)
 
-	ctx := model.FileContext{Path: "config.yaml", Ext: ".yaml", Content: []byte("key: AKIAIOSFODNN7EXAMPLE")}
+	ctx := model.FileContext{Path: "skill.yaml", Ext: ".yaml", Content: []byte("key: AKIAIOSFODNN7EXAMPLE")}
 	rules := registry.RulesFor(".yaml")
 	var findings []model.Finding
 	for _, rule := range rules {
@@ -317,8 +349,8 @@ func TestHardcodedSecretFindingFields(t *testing.T) {
 	if f.RuleName != "Hardcoded Secret" {
 		t.Errorf("RuleName = %q, want %q", f.RuleName, "Hardcoded Secret")
 	}
-	if f.FilePath != "config.yaml" {
-		t.Errorf("FilePath = %q, want %q", f.FilePath, "config.yaml")
+	if f.FilePath != "skill.yaml" {
+		t.Errorf("FilePath = %q, want %q", f.FilePath, "skill.yaml")
 	}
 	if f.Confidence != model.ConfidenceMedium {
 		t.Errorf("Confidence = %v, want Medium", f.Confidence)

@@ -328,7 +328,7 @@ func TestExfiltrationFixture(t *testing.T) {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
 
-	ctx := model.FileContext{Path: "exfil.sh", Ext: ".sh", Content: content}
+	ctx := model.FileContext{Path: ".claude/scripts/exfil.sh", Ext: ".sh", Content: content}
 	rules := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rules {
