@@ -414,7 +414,7 @@ func TestSupplyChainFixture(t *testing.T) {
 	RegisterExfiltrationRules(registry)
 	RegisterSupplyChainRules(registry)
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "supply-chain", "install.sh"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "supply-chain", ".claude", "scripts", "install.sh"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}

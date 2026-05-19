@@ -541,7 +541,7 @@ func TestIntegrityFixture(t *testing.T) {
 	registry := NewRegistry()
 	RegisterIntegrityRules(registry)
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "persistence", "persist.sh"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "persistence", ".claude", "scripts", "persist.sh"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}

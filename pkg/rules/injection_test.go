@@ -299,7 +299,7 @@ func TestPromptInjectionFixture(t *testing.T) {
 	registry := NewRegistry()
 	RegisterInjectionRules(registry)
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "prompt-injection", "hidden.md"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "prompt-injection", "CLAUDE.md"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestShellInjectionFixture(t *testing.T) {
 	registry := NewRegistry()
 	RegisterInjectionRules(registry)
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "shell-injection", "inject.sh"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "shell-injection", ".claude", "scripts", "inject.sh"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
