@@ -81,6 +81,7 @@ func newScanCmd() *cobra.Command {
 	var failOnAxis []string
 	var configFlag string
 	var strictMCP bool
+	var axesOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "scan <path>",
@@ -144,6 +145,25 @@ func newScanCmd() *cobra.Command {
 							noColor = true
 						}
 					}
+					if axesOnly {
+						// Trust Score block → stdout; findings (no Trust Score) → stderr.
+						reporter.WriteTrustScoreBlock(cmd.OutOrStdout(), *result, noColor)
+						errRep := &reporter.TextReporter{
+							Theme:          reporter.NewTheme(noColor),
+							Verbose:        verbose,
+							OmitTrustScore: true,
+						}
+						if err := errRep.Report(*result, cmd.ErrOrStderr()); err != nil {
+							return err
+						}
+						scanExitCode = exitCode(*result, cfg.FailOn)
+						if axisExceeded, err := checkFailOnAxis(failOnAxis, result.Axes); err != nil {
+							return err
+						} else if axisExceeded && scanExitCode < 2 {
+							scanExitCode = 2
+						}
+						return nil
+					}
 					rep = &reporter.TextReporter{Theme: reporter.NewTheme(noColor), Verbose: verbose}
 				case "json":
 					rep = &reporter.JSONReporter{}
@@ -179,6 +199,8 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&configFlag, "config", "", "Path to config file (skip cascading lookup)")
 	cmd.Flags().BoolVar(&strictMCP, "strict-mcp", false,
 		"Raise MCP external-domain rule severity from Medium to High")
+	cmd.Flags().BoolVar(&axesOnly, "axes-only", false,
+		"Print only the Trust Score block on stdout; findings emitted to stderr")
 
 	return cmd
 }

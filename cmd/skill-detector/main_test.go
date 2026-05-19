@@ -1203,3 +1203,35 @@ func TestCLIStrictMCPRaisesSeverity(t *testing.T) {
 		t.Errorf("expected HIGH severity with --strict-mcp, got: %s", stdoutStrict.String())
 	}
 }
+
+// --- Integration tests for --axes-only flag (Plan Task 21) ---
+
+func TestCLIAxesOnlyMode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"scan", "--no-color", "--axes-only", "../../testdata/malicious/claude-md-sql"})
+
+	scanExitCode = 0
+	_ = cmd.Execute()
+
+	stdoutStr := stdout.String()
+	stderrStr := stderr.String()
+
+	if !strings.Contains(stdoutStr, "Trust Score") {
+		t.Errorf("stdout missing Trust Score block: %q", stdoutStr)
+	}
+	// stdout must NOT contain findings content
+	if strings.Contains(stdoutStr, "behaviors detected") || strings.Contains(stdoutStr, "ClaudeMD") {
+		t.Errorf("stdout should NOT contain findings list: %q", stdoutStr)
+	}
+	// stderr must contain findings
+	if !strings.Contains(stderrStr, "ClaudeMD") && !strings.Contains(stderrStr, "SQL") {
+		t.Errorf("stderr should contain findings list: %q", stderrStr)
+	}
+	// Trust Score must NOT be duplicated on stderr
+	if strings.Contains(stderrStr, "Trust Score") {
+		t.Errorf("stderr should NOT contain Trust Score block: %q", stderrStr)
+	}
+}
