@@ -36,6 +36,9 @@ type postInstallRule struct {
 }
 
 func (r *postInstallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -54,6 +57,9 @@ type persistenceRule struct {
 }
 
 func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
@@ -97,6 +103,9 @@ type gitHookRule struct {
 }
 
 func (r *gitHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+		return nil
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
