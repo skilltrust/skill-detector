@@ -55,6 +55,34 @@ func TestSettingsJSON_BashCurlWildcard_Clean(t *testing.T) {
 	}
 }
 
+func TestSettingsJSON_SubcommandLimitBypass_Malicious(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "malicious", "settings-bypass", ".claude", "settings.json"))
+	var got bool
+	for _, f := range findings {
+		if f.RuleID == "SD-018" {
+			got = true
+			if f.Severity != model.SeverityHigh {
+				t.Errorf("severity = %v, want High", f.Severity)
+			}
+			if f.Axis != axes.PermissionHygiene {
+				t.Errorf("axis = %q, want permission_hygiene", f.Axis)
+			}
+		}
+	}
+	if !got {
+		t.Errorf("expected SD-018 finding, got: %+v", findings)
+	}
+}
+
+func TestSettingsJSON_SubcommandLimitBypass_Clean(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "clean", "settings-bypass", ".claude", "settings.json"))
+	for _, f := range findings {
+		if f.RuleID == "SD-018" {
+			t.Errorf("clean fixture produced SD-018 finding: %+v", f)
+		}
+	}
+}
+
 func TestSettingsJSON_RuleIgnoresOtherJSON(t *testing.T) {
 	registry := NewRegistry()
 	RegisterSettingsJSONRules(registry)

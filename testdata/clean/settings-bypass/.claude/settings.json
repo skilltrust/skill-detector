@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Bash(git status)", "Bash(git diff)"],
+    "deny":  ["Bash(rm -rf *)"]
+  }
+}
