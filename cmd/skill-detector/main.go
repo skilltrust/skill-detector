@@ -40,8 +40,23 @@ func newRootCmd() *cobra.Command {
 	return rootCmd
 }
 
-func newRegistry() *rules.RuleRegistry {
-	return rules.DefaultRegistry()
+func newRegistry(strictMCP bool) *rules.RuleRegistry {
+	r := rules.NewRegistry()
+	rules.RegisterInjectionRules(r)
+	rules.RegisterAccessControlRules(r)
+	rules.RegisterMisconfigurationRules(r)
+	rules.RegisterExfiltrationRules(r)
+	rules.RegisterSupplyChainRules(r)
+	rules.RegisterIntegrityRules(r)
+	rules.RegisterClaudeMDRules(r)
+	rules.RegisterSettingsJSONRules(r)
+	rules.RegisterHooksRules(r)
+	if strictMCP {
+		rules.RegisterMCPRulesStrict(r)
+	} else {
+		rules.RegisterMCPRules(r)
+	}
+	return r
 }
 
 func newVersionCmd() *cobra.Command {
@@ -49,7 +64,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the version of skill-detector",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			registry := newRegistry()
+			registry := newRegistry(false)
 			fmt.Fprintf(cmd.OutOrStdout(), "skill-detector version %s (%d rules, checksum %s)\n",
 				version, registry.Count(), registry.Checksum())
 			return nil
@@ -65,6 +80,7 @@ func newScanCmd() *cobra.Command {
 	var failOn string
 	var failOnAxis []string
 	var configFlag string
+	var strictMCP bool
 
 	cmd := &cobra.Command{
 		Use:   "scan <path>",
@@ -96,7 +112,7 @@ func newScanCmd() *cobra.Command {
 				cfg.FailOn = sev
 			}
 
-			registry := newRegistry()
+			registry := newRegistry(strictMCP)
 
 			// Verify ruleset integrity (AC3).
 			checksum := registry.Checksum()
@@ -161,6 +177,8 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&failOnAxis, "fail-on-axis", nil,
 		"Fail if axis grade is worse than threshold. Format: axis=grade (e.g. security=B). Repeatable.")
 	cmd.Flags().StringVar(&configFlag, "config", "", "Path to config file (skip cascading lookup)")
+	cmd.Flags().BoolVar(&strictMCP, "strict-mcp", false,
+		"Raise MCP external-domain rule severity from Medium to High")
 
 	return cmd
 }

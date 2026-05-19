@@ -1167,3 +1167,39 @@ func TestCLIFailOnAxisFlag_CombinesWithFailOn(t *testing.T) {
 		t.Errorf("expected exit 0 (clean scan, both flags, no violations), got %d", scanExitCode)
 	}
 }
+
+// --- Integration tests for --strict-mcp flag (Plan Task 20) ---
+
+func TestCLIStrictMCPRaisesSeverity(t *testing.T) {
+	// Without --strict-mcp: SD-021 fires at MEDIUM severity.
+	var stdout bytes.Buffer
+	cmd := newRootCmd()
+	cmd.SetOut(&stdout)
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"scan", "--format", "json", "../../testdata/malicious/mcp-domain"})
+
+	scanExitCode = 0
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error (no --strict-mcp): %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"severity":"MEDIUM"`) {
+		t.Errorf("expected MEDIUM severity without --strict-mcp, got: %s", stdout.String())
+	}
+
+	// With --strict-mcp: SD-021 fires at HIGH severity.
+	var stdoutStrict bytes.Buffer
+	cmdStrict := newRootCmd()
+	cmdStrict.SetOut(&stdoutStrict)
+	cmdStrict.SetErr(new(bytes.Buffer))
+	cmdStrict.SetArgs([]string{"scan", "--format", "json", "--strict-mcp", "../../testdata/malicious/mcp-domain"})
+
+	scanExitCode = 0
+	err = cmdStrict.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error (--strict-mcp): %v", err)
+	}
+	if !strings.Contains(stdoutStrict.String(), `"severity":"HIGH"`) {
+		t.Errorf("expected HIGH severity with --strict-mcp, got: %s", stdoutStrict.String())
+	}
+}

@@ -94,3 +94,18 @@ func RegisterMCPRules(registry *RuleRegistry) {
 		},
 	})
 }
+
+// RegisterMCPRulesStrict registers the MCP rules with High severity instead of
+// Medium. Used by the --strict-mcp CLI flag.
+func RegisterMCPRulesStrict(registry *RuleRegistry) {
+	registry.Register(&mcpExternalDomainRule{
+		baseRule: baseRule{
+			id:       "SD-021",
+			name:     "MCP External Domain Reach",
+			severity: model.SeverityHigh,
+			category: "MCP",
+			types:    []string{".json"},
+			axis:     axes.PermissionHygiene,
+		},
+	})
+}
