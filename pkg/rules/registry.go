@@ -66,5 +66,9 @@ func DefaultRegistry() *RuleRegistry {
 	RegisterExfiltrationRules(r)
 	RegisterSupplyChainRules(r)
 	RegisterIntegrityRules(r)
+	RegisterClaudeMDRules(r)
+	RegisterSettingsJSONRules(r)
+	RegisterHooksRules(r)
+	RegisterMCPRules(r)
 	return r
 }
