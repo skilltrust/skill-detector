@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.1 — 2026-05-19
+
+### Fixed
+
+- **SD-007** no longer flags bare URLs inside `.md`, `.txt`, or `.rst` documentation files. The network-command (`curl`/`wget`/`nc`/`ncat`) and Python-requests branches continue to fire on those file types so real attack patterns (e.g., `curl ... | bash` instructions inside `CLAUDE.md`) are still caught. Documentation links such as `https://github.com/owner/repo.git` in `INSTALL.md` no longer produce high-severity false positives. Surfaced by the `skillmoss-go` SP-2 dogfood scan of `obra/superpowers`.
+
+---
+
 ## v0.2.0 — 2026-05-19 (SP-1: Multi-Axis Engine)
 
 ### Scope (BREAKING vs v0.1.x)
