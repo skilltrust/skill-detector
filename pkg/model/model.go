@@ -155,8 +155,8 @@ type Permission struct {
 
 // AxisResult — per-axis grade from the SP-1 multi-axis trust score work.
 type AxisResult struct {
-	Grade           axes.Grade      `json:"grade"`
-	Rationale       string          `json:"rationale"`
+	Grade           axes.Grade       `json:"grade"`
+	Rationale       string           `json:"rationale"`
 	DrivingFindings []DrivingFinding `json:"driving_findings"`
 }
 

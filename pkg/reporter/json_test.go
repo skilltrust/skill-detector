@@ -512,4 +512,3 @@ func TestJSONReporterEmitsAxesField(t *testing.T) {
 		t.Errorf("findings[0].axis = %q, want permission_hygiene", parsed.Findings[0].Axis)
 	}
 }
-

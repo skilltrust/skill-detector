@@ -4,15 +4,15 @@ import "testing"
 
 func TestIsClaudeMD(t *testing.T) {
 	cases := map[string]bool{
-		"CLAUDE.md":                          true,
-		".claude/CLAUDE.md":                  true,
-		"subdir/CLAUDE.md":                   true,
-		"a/b/c/CLAUDE.md":                    true,
-		"node_modules/foo/CLAUDE.md":         false,
-		".git/CLAUDE.md":                     false,
-		"vendor/x/CLAUDE.md":                 false,
-		"README.md":                          false,
-		"claude.md":                          false,
+		"CLAUDE.md":                  true,
+		".claude/CLAUDE.md":          true,
+		"subdir/CLAUDE.md":           true,
+		"a/b/c/CLAUDE.md":            true,
+		"node_modules/foo/CLAUDE.md": false,
+		".git/CLAUDE.md":             false,
+		"vendor/x/CLAUDE.md":         false,
+		"README.md":                  false,
+		"claude.md":                  false,
 	}
 	for path, want := range cases {
 		if got := IsClaudeMD(path); got != want {
