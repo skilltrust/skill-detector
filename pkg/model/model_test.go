@@ -226,3 +226,20 @@ func TestFindingHasAxisField(t *testing.T) {
 		t.Errorf("Axis = %q, want %q", f.Axis, axes.Security)
 	}
 }
+
+func TestScanResultHasAxesField(t *testing.T) {
+	r := ScanResult{
+		Axes: map[axes.Axis]AxisResult{
+			axes.Security: {
+				Grade:     "A",
+				Rationale: "no findings",
+				DrivingFindings: []DrivingFinding{
+					{RuleID: "x", Count: 1},
+				},
+			},
+		},
+	}
+	if r.Axes[axes.Security].Grade != "A" {
+		t.Errorf("ScanResult.Axes[Security].Grade = %q, want A", r.Axes[axes.Security].Grade)
+	}
+}
