@@ -246,8 +246,8 @@ func TestScanCmd_JSONFormatClean(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
-	if result.SchemaVersion != "1.1" {
-		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.1")
+	if result.SchemaVersion != "1.2" {
+		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.2")
 	}
 	if len(result.ConfigOverrides) != 0 {
 		t.Errorf("expected no config_overrides for clean scan, got %d", len(result.ConfigOverrides))
@@ -1169,6 +1169,17 @@ func TestCLIFailOnAxisFlag_CombinesWithFailOn(t *testing.T) {
 }
 
 // --- Integration tests for --strict-mcp flag (Plan Task 20) ---
+
+func TestStrictMCPDoesNotBreakChecksum(t *testing.T) {
+	// Registry must produce identical checksums regardless of strictMCP flag,
+	// so that pinned expectedChecksum ldflags work in strict mode.
+	rNormal := newRegistry(false)
+	rStrict := newRegistry(true)
+	if rNormal.Checksum() != rStrict.Checksum() {
+		t.Errorf("checksum differs between strict and normal modes: %s vs %s",
+			rNormal.Checksum(), rStrict.Checksum())
+	}
+}
 
 func TestCLIStrictMCPRaisesSeverity(t *testing.T) {
 	// Without --strict-mcp: SD-021 fires at MEDIUM severity.

@@ -281,8 +281,8 @@ func TestE2E_CleanSimpleSkill(t *testing.T) {
 	if result.RuleCount == 0 {
 		t.Error("expected rules to be loaded")
 	}
-	if result.SchemaVersion != "1.1" {
-		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.1")
+	if result.SchemaVersion != "1.2" {
+		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.2")
 	}
 	if len(result.ConfigOverrides) != 0 {
 		t.Errorf("expected no config overrides for clean scan, got %d", len(result.ConfigOverrides))
@@ -422,8 +422,8 @@ func TestE2E_VerboseShowsDiagnosis(t *testing.T) {
 func TestE2E_JSONSchemaFields(t *testing.T) {
 	result := runScanJSON(t, "../../testdata/malicious/credential-theft")
 
-	if result.SchemaVersion != "1.1" {
-		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.1")
+	if result.SchemaVersion != "1.2" {
+		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.2")
 	}
 	if result.Version == "" {
 		t.Error("expected non-empty version field")

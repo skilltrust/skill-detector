@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/config"
+	"github.com/velzepooz/skill-detector/pkg/grade"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/reporter"
 	"github.com/velzepooz/skill-detector/pkg/rules"
@@ -51,12 +52,29 @@ func newRegistry(strictMCP bool) *rules.RuleRegistry {
 	rules.RegisterClaudeMDRules(r)
 	rules.RegisterSettingsJSONRules(r)
 	rules.RegisterHooksRules(r)
-	if strictMCP {
-		rules.RegisterMCPRulesStrict(r)
-	} else {
-		rules.RegisterMCPRules(r)
-	}
+	// Always register MCP rules in default (non-strict) mode so that the
+	// registry checksum is stable regardless of --strict-mcp. Strict-mode
+	// severity is applied post-hoc on findings (see applyStrictMCP).
+	_ = strictMCP
+	rules.RegisterMCPRules(r)
 	return r
+}
+
+// applyStrictMCP upgrades SD-021 findings from Medium→High in-place and
+// returns a refreshed axes map.  Called only when --strict-mcp is set.
+func applyStrictMCP(result *model.ScanResult) {
+	for i := range result.Findings {
+		if result.Findings[i].RuleID == "SD-021" {
+			result.Findings[i].Severity = model.SeverityHigh
+			if result.Findings[i].EffSeverity == model.SeverityMedium {
+				result.Findings[i].EffSeverity = model.SeverityHigh
+			}
+		}
+	}
+	// Re-compute axis grades to reflect the upgraded severity.
+	for _, a := range axes.Order {
+		result.Axes[a] = grade.Grade(a, result.Findings)
+	}
 }
 
 func newVersionCmd() *cobra.Command {
@@ -116,6 +134,8 @@ func newScanCmd() *cobra.Command {
 			registry := newRegistry(strictMCP)
 
 			// Verify ruleset integrity (AC3).
+			// Registry is always built without --strict-mcp so the checksum
+			// is stable across strict/non-strict invocations.
 			checksum := registry.Checksum()
 			if expectedChecksum != "" && checksum != expectedChecksum {
 				return fmt.Errorf("scan: ruleset checksum mismatch: expected %s, got %s", expectedChecksum, checksum)
@@ -128,6 +148,12 @@ func newScanCmd() *cobra.Command {
 			result, err := s.Scan(cmd.Context(), cliInput{p: path})
 			if err != nil {
 				return err
+			}
+
+			// --strict-mcp: raise SD-021 severity post-hoc so the checksum
+			// baseline (computed above) remains unchanged.
+			if strictMCP {
+				applyStrictMCP(result)
 			}
 
 			var rep reporter.Reporter
@@ -200,7 +226,7 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&strictMCP, "strict-mcp", false,
 		"Raise MCP external-domain rule severity from Medium to High")
 	cmd.Flags().BoolVar(&axesOnly, "axes-only", false,
-		"Print only the Trust Score block on stdout; findings emitted to stderr")
+		"Text format only: print Trust Score to stdout, findings to stderr.")
 
 	return cmd
 }
