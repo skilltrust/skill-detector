@@ -104,7 +104,7 @@ func TestCredentialAccessRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: "skill.yaml", Ext: tt.ext, Content: []byte(tt.content)}
 			rules := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rules {
@@ -245,7 +245,7 @@ func TestPathTraversalRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := model.FileContext{Path: "test" + tt.ext, Ext: tt.ext, Content: []byte(tt.content)}
+			ctx := model.FileContext{Path: "skill.yaml", Ext: tt.ext, Content: []byte(tt.content)}
 			rules := registry.RulesFor(tt.ext)
 			var findings []model.Finding
 			for _, rule := range rules {
@@ -312,7 +312,7 @@ func TestCredentialAccessFindingFields(t *testing.T) {
 	registry := NewRegistry()
 	RegisterAccessControlRules(registry)
 
-	ctx := model.FileContext{Path: "run.sh", Ext: ".sh", Content: []byte("cat ~/.aws/credentials")}
+	ctx := model.FileContext{Path: "skill.yaml", Ext: ".sh", Content: []byte("cat ~/.aws/credentials")}
 	rules := registry.RulesFor(".sh")
 	var findings []model.Finding
 	for _, rule := range rules {
@@ -338,8 +338,8 @@ func TestCredentialAccessFindingFields(t *testing.T) {
 	if f.RuleName != "Credential Access" {
 		t.Errorf("RuleName = %q, want %q", f.RuleName, "Credential Access")
 	}
-	if f.FilePath != "run.sh" {
-		t.Errorf("FilePath = %q, want %q", f.FilePath, "run.sh")
+	if f.FilePath != "skill.yaml" {
+		t.Errorf("FilePath = %q, want %q", f.FilePath, "skill.yaml")
 	}
 	if f.Line != 1 {
 		t.Errorf("Line = %d, want 1", f.Line)
@@ -349,6 +349,38 @@ func TestCredentialAccessFindingFields(t *testing.T) {
 	}
 	if f.Remediation == "" {
 		t.Error("Remediation should not be empty")
+	}
+}
+
+func TestSD003_GatesNonAgentFile(t *testing.T) {
+	content := []byte("source: ../../etc/passwd")
+	ctx := model.FileContext{Path: "node_modules/foo/README.md", Ext: ".md", Content: content}
+	registry := NewRegistry()
+	RegisterAccessControlRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".md") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-003" {
+			t.Errorf("SD-003 should not fire on non-agent file, got: %+v", f)
+		}
+	}
+}
+
+func TestSD004_GatesNonAgentFile(t *testing.T) {
+	content := []byte("Read ~/.aws/credentials for config")
+	ctx := model.FileContext{Path: "node_modules/foo/README.md", Ext: ".md", Content: content}
+	registry := NewRegistry()
+	RegisterAccessControlRules(registry)
+	var findings []model.Finding
+	for _, r := range registry.RulesFor(".md") {
+		findings = append(findings, r.Match(content, ctx)...)
+	}
+	for _, f := range findings {
+		if f.RuleID == "SD-004" {
+			t.Errorf("SD-004 should not fire on non-agent file, got: %+v", f)
+		}
 	}
 }
 
