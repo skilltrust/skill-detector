@@ -37,6 +37,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newScanCmd())
+	rootCmd.AddCommand(newDeltaCmd())
 
 	return rootCmd
 }
