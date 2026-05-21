@@ -1,7 +1,7 @@
 package delta
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
@@ -24,9 +24,11 @@ type Delta struct {
 }
 
 // findingKey identifies a finding stably across runs.
-// Whitespace-only edits should not change the key.
+// Whitespace-only edits should not change the key. The hash is content-
+// addressing only — non-cryptographic use — so sha256 is overkill but
+// keeps the linter happy and is fast enough at our scan sizes.
 func findingKey(f model.Finding) string {
-	h := sha1.Sum([]byte(f.Description))
+	h := sha256.Sum256([]byte(f.Description))
 	return fmt.Sprintf("%s|%s|%d|%s", f.RuleID, f.FilePath, f.Line, hex.EncodeToString(h[:6]))
 }
 
