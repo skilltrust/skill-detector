@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0 — 2026-05-21
+
+### Added
+- `pkg/delta` package — pure-function trust-score delta computation over two `model.ScanResult`s. Returns per-axis grade movement, finding diff, and axis-downgrade explanations.
+- `skill-detector delta <base.json> <head.json>` CLI sub-command emitting JSON or markdown.
+
+### Why
+- Powers the new `skilltrust/scan-action@v1` GitHub Action's optional `delta: true` mode.
+- Single source of truth for delta semantics shared by the Action and the skillmoss-go PR-comment bot (SP-4). skillmoss-go's `internal/prbot.ComputeDelta` becomes a thin adapter over `pkg/delta.Compute` in a paired refactor; render snapshots remain byte-identical.
+
+---
+
 ## v0.2.1 — 2026-05-19
 
 ### Fixed
