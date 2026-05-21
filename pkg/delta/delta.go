@@ -1,9 +1,8 @@
 package delta
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -23,13 +22,15 @@ type Delta struct {
 	AxisExplanations map[axes.Axis]string // one-line WHY per downgraded axis
 }
 
-// findingKey identifies a finding stably across runs.
-// Whitespace-only edits should not change the key. The hash is content-
-// addressing only — non-cryptographic use — so sha256 is overkill but
-// keeps the linter happy and is fast enough at our scan sizes.
+// findingKey identifies a finding stably across runs for diff bucketing.
+// FNV-1a is used deliberately: this is content addressing, not security —
+// a crypto hash would mislead readers into thinking the key carries
+// integrity guarantees. The 64-bit FNV space is more than enough to
+// disambiguate findings within a single scan.
 func findingKey(f model.Finding) string {
-	h := sha256.Sum256([]byte(f.Description))
-	return fmt.Sprintf("%s|%s|%d|%s", f.RuleID, f.FilePath, f.Line, hex.EncodeToString(h[:6]))
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(f.Description))
+	return fmt.Sprintf("%s|%s|%d|%016x", f.RuleID, f.FilePath, f.Line, h.Sum64())
 }
 
 // gradeRank returns higher-is-better integer rank. Returns -1 for unknown.

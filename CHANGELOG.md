@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1 — 2026-05-21
+
+### Changed
+- `pkg/delta.findingKey` now uses `hash/fnv` (FNV-1a, 64-bit) instead of `crypto/sha256`. Behavior identical; the change signals that the hash is content-addressing only, not a cryptographic primitive. Hash output width widens from 12 to 16 hex chars — internal-only, no wire impact.
+
 ## v0.3.0 — 2026-05-21
 
 ### Added
