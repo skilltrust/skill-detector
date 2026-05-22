@@ -45,7 +45,7 @@ The tool follows a **pipeline architecture**:
 ## Repository Structure
 
 - **Single-part monolith** — All code lives in one cohesive Go module
-- **Standard Go layout** — `cmd/` for entry points, `pkg/` for public/library packages (importable by downstream consumers like `skillmoss-go`)
+- **Standard Go layout** — `cmd/` for entry points, `pkg/` for public/library packages (importable by downstream consumers like `skilltrust`)
 - **Test fixtures** — `testdata/` contains clean, malicious (agent-file-shaped), CVE reproducer, and edge-case samples
 - **Cross-platform** — Builds for linux/darwin/windows on amd64/arm64
 

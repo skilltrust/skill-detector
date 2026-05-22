@@ -76,7 +76,7 @@ pkg/reporter/          → Output formatting (text with Trust Score block, JSON,
 testdata/              → Test fixtures (clean, malicious, cve, edge-cases)
 ```
 
-Public packages live under `pkg/` because downstream consumers (e.g. `skillmoss-go`) import the scanner, rules, and grade aggregator as a library.
+Public packages live under `pkg/` because downstream consumers (e.g. `skilltrust`) import the scanner, rules, and grade aggregator as a library.
 
 ## Testing
 

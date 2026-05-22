@@ -115,7 +115,7 @@ cmd/skill-detector (main)
 ## Design Decisions
 
 ### Standard Go Layout with Exported `pkg/`
-Uses `cmd/` for entry points and `pkg/` for public/library packages, allowing external consumers (e.g., `skillmoss-go`) to import the scanner, rules, and grade-aggregator as a library.
+Uses `cmd/` for entry points and `pkg/` for public/library packages, allowing external consumers (e.g., `skilltrust`) to import the scanner, rules, and grade-aggregator as a library.
 
 ### Rule Registry Pattern with Path-Gating
 Rules are registered centrally. New rules are added by:
