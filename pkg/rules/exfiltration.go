@@ -142,4 +142,14 @@ func RegisterExfiltrationRules(registry *RuleRegistry) {
 			axis:     axes.Security,
 		},
 	})
+	registry.Register(&dnsExfilRule{
+		baseRule: baseRule{
+			id:       "SD-022",
+			name:     "DNS Exfiltration",
+			severity: model.SeverityHigh,
+			category: "SSRF / Data Exfiltration",
+			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			axis:     axes.Security,
+		},
+	})
 }
