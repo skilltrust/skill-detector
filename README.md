@@ -5,6 +5,7 @@
 [![License](https://img.shields.io/github/license/velzepooz/skill-detector)](./LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/velzepooz/skill-detector)](./go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/velzepooz/skill-detector)](https://goreportcard.com/report/github.com/velzepooz/skill-detector)
+[![Powers SkillTrust](https://img.shields.io/badge/engine_for-SkillTrust-0d9488?labelColor=1e293b)](https://skilltrust.app)
 
 > CLI to spot risky AI skill packages before you install them.
 
