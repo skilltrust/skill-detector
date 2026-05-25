@@ -32,7 +32,7 @@ checksum:
 
 release:
   github:
-    owner: velzepooz
+    owner: skilltrust
     name: skill-detector
 
 homebrew_casks:
@@ -42,11 +42,11 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
-    homepage: "https://github.com/velzepooz/skill-detector"
+    homepage: "https://github.com/skilltrust/skill-detector"
     description: "Detect security threats in AI skill packages"
     license: MIT
     url:
-      verified: github.com/velzepooz/skill-detector
+      verified: github.com/skilltrust/skill-detector
     # Unsigned binary → macOS Gatekeeper quarantines on install.
     # Hook strips quarantine flag so the CLI runs without a prompt.
     hooks:
