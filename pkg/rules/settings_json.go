@@ -163,8 +163,44 @@ func (r *unsanctionedHookRule) Match(content []byte, ctx model.FileContext) []mo
 	return findings
 }
 
+// unrestrictedGrantRule flags a bare "*" in permissions.allow — a grant of
+// every tool and command, the broadest possible permission. The Bash-wildcard
+// rule (SD-017) only catches specific Bash(...) patterns, so "*" slipped through.
+type unrestrictedGrantRule struct {
+	baseRule
+}
+
+func (r *unrestrictedGrantRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+	if !IsClaudeSettings(ctx.Path) {
+		return nil
+	}
+	s, err := parseClaudeSettings(content)
+	if err != nil {
+		return nil
+	}
+	var findings []model.Finding
+	for _, entry := range s.Permissions.Allow {
+		if strings.TrimSpace(entry) == "*" {
+			findings = append(findings, r.newFinding(ctx, 1,
+				`unrestricted permission grant: allow contains "*" (every tool and command permitted)`,
+				`Replace the "*" wildcard with an explicit allowlist of only the tools and subcommands the skill needs`))
+		}
+	}
+	return findings
+}
+
 // RegisterSettingsJSONRules registers all .claude/settings.json-class rules.
 func RegisterSettingsJSONRules(registry *RuleRegistry) {
+	registry.Register(&unrestrictedGrantRule{
+		baseRule: baseRule{
+			id:       "SD-023",
+			name:     "settings.json Unrestricted Permission Grant",
+			severity: model.SeverityHigh,
+			category: "SettingsJSON",
+			types:    []string{".json"},
+			axis:     axes.PermissionHygiene,
+		},
+	})
 	registry.Register(&bashCurlWildcardRule{
 		baseRule: baseRule{
 			id:       "SD-017",

@@ -111,13 +111,41 @@ func TestSettingsJSON_UnsanctionedHook_Clean(t *testing.T) {
 	}
 }
 
+func TestSettingsJSON_UnrestrictedGrant_Malicious(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "malicious", "settings-allow-all", ".claude", "settings.json"))
+	var got bool
+	for _, f := range findings {
+		if f.RuleID == "SD-023" {
+			got = true
+			if f.Axis != axes.PermissionHygiene {
+				t.Errorf("axis = %q, want permission_hygiene", f.Axis)
+			}
+			if f.Severity != model.SeverityHigh {
+				t.Errorf("severity = %v, want High", f.Severity)
+			}
+		}
+	}
+	if !got {
+		t.Errorf(`expected SD-023 for allow ["*"], got: %+v`, findings)
+	}
+}
+
+func TestSettingsJSON_UnrestrictedGrant_Clean(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "clean", "settings-allow-all", ".claude", "settings.json"))
+	for _, f := range findings {
+		if f.RuleID == "SD-023" {
+			t.Errorf("clean fixture produced SD-023 finding: %+v", f)
+		}
+	}
+}
+
 func TestSettingsJSON_RuleIgnoresOtherJSON(t *testing.T) {
 	registry := NewRegistry()
 	RegisterSettingsJSONRules(registry)
 	ctx := model.FileContext{
 		Path:    "package.json",
 		Ext:     ".json",
-		Content: []byte(`{"permissions":{"allow":["Bash(curl *)"]}}`),
+		Content: []byte(`{"permissions":{"allow":["*","Bash(curl *)"]}}`),
 	}
 	var findings []model.Finding
 	for _, rule := range registry.RulesFor(".json") {
