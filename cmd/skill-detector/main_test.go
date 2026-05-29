@@ -246,8 +246,8 @@ func TestScanCmd_JSONFormatClean(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
-	if result.SchemaVersion != "1.2" {
-		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.2")
+	if result.SchemaVersion != "1.3" {
+		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.3")
 	}
 	if len(result.ConfigOverrides) != 0 {
 		t.Errorf("expected no config_overrides for clean scan, got %d", len(result.ConfigOverrides))
