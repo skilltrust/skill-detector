@@ -300,3 +300,15 @@ func TestScanner_DisabledRule_ProducesNoFindings(t *testing.T) {
 		}
 	}
 }
+
+func TestScan_SchemaVersionIs13(t *testing.T) {
+	dir := t.TempDir()
+	s := scanner.New(rules.DefaultRegistry(), scanner.Options{})
+	res, err := s.Scan(context.Background(), dirInput(dir))
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if res.SchemaVersion != "1.3" {
+		t.Errorf("SchemaVersion = %q, want 1.3", res.SchemaVersion)
+	}
+}
