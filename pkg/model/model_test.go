@@ -243,3 +243,26 @@ func TestScanResultHasAxesField(t *testing.T) {
 		t.Errorf("ScanResult.Axes[Security].Grade = %q, want A", r.Axes[axes.Security].Grade)
 	}
 }
+
+func TestFinding_IsSuppressed(t *testing.T) {
+	cases := []struct {
+		name string
+		tv   *TriageVerdict
+		want bool
+	}{
+		{"nil triage", nil, false},
+		{"benign high conf", &TriageVerdict{Classification: "benign_example", Confidence: 0.9}, true},
+		{"benign at threshold", &TriageVerdict{Classification: "benign_example", Confidence: 0.85}, true},
+		{"benign below threshold", &TriageVerdict{Classification: "benign_example", Confidence: 0.84}, false},
+		{"real threat", &TriageVerdict{Classification: "real_threat", Confidence: 0.99}, false},
+		{"uncertain", &TriageVerdict{Classification: "uncertain"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := Finding{Triage: c.tv}
+			if got := f.IsSuppressed(); got != c.want {
+				t.Errorf("IsSuppressed() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

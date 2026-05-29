@@ -116,3 +116,43 @@ func TestRationaleIncludesRuleID(t *testing.T) {
 		t.Error("rationale should not be empty for a Critical finding")
 	}
 }
+
+func TestGrade_SuppressedFindingExcluded(t *testing.T) {
+	findings := []model.Finding{
+		{RuleID: "SD-009", Axis: axes.Security, Severity: model.SeverityCritical,
+			Triage: &model.TriageVerdict{Classification: "benign_example", Confidence: 0.9}},
+	}
+	got := grade.Grade(axes.Security, findings)
+	if got.Grade != axes.GradeA {
+		t.Errorf("grade = %s, want A", got.Grade)
+	}
+	if got.Rationale != "no findings on this axis (1 suppressed by triage)" {
+		t.Errorf("rationale = %q", got.Rationale)
+	}
+	if len(got.DrivingFindings) != 0 {
+		t.Errorf("want no driving findings, got %v", got.DrivingFindings)
+	}
+}
+
+func TestGrade_SuppressedDoesNotDriveWorstSeverity(t *testing.T) {
+	findings := []model.Finding{
+		{RuleID: "SD-009", Axis: axes.Security, Severity: model.SeverityCritical,
+			Triage: &model.TriageVerdict{Classification: "benign_example", Confidence: 0.9}},
+		{RuleID: "SD-008", Axis: axes.Security, Severity: model.SeverityMedium, Description: "base64"},
+	}
+	got := grade.Grade(axes.Security, findings)
+	// Security MEDIUM caps to C; the suppressed CRITICAL must not force F.
+	if got.Grade != axes.GradeC {
+		t.Errorf("grade = %s, want C", got.Grade)
+	}
+}
+
+func TestGrade_NilTriageUnchanged(t *testing.T) {
+	findings := []model.Finding{
+		{RuleID: "SD-009", Axis: axes.Security, Severity: model.SeverityCritical, Description: "curl|bash"},
+	}
+	got := grade.Grade(axes.Security, findings)
+	if got.Grade != axes.GradeF {
+		t.Errorf("grade = %s, want F (deterministic floor, no triage)", got.Grade)
+	}
+}

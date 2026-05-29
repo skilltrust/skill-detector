@@ -3,6 +3,7 @@
 package grade
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -12,18 +13,29 @@ import (
 // Grade computes the AxisResult for one axis given a slice of findings
 // (the function filters internally — caller may pass all findings).
 func Grade(axis axes.Axis, findings []model.Finding) model.AxisResult {
-	// Filter to this axis.
-	axisFindings := findings[:0:0]
+	// Filter to this axis, splitting triage-suppressed (benign-example)
+	// findings out of the grading pool while still counting them.
+	var axisFindings []model.Finding
+	suppressed := 0
 	for _, f := range findings {
-		if f.Axis == axis {
-			axisFindings = append(axisFindings, f)
+		if f.Axis != axis {
+			continue
 		}
+		if f.IsSuppressed() {
+			suppressed++
+			continue
+		}
+		axisFindings = append(axisFindings, f)
 	}
 
 	if len(axisFindings) == 0 {
+		rationale := "no findings on this axis"
+		if suppressed > 0 {
+			rationale = fmt.Sprintf("no findings on this axis (%d suppressed by triage)", suppressed)
+		}
 		return model.AxisResult{
 			Grade:           axes.GradeA,
-			Rationale:       "no findings on this axis",
+			Rationale:       rationale,
 			DrivingFindings: nil,
 		}
 	}

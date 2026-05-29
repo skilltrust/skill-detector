@@ -15,6 +15,7 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/permission"
 	"github.com/velzepooz/skill-detector/pkg/rules"
 	"github.com/velzepooz/skill-detector/pkg/scorer"
+	"github.com/velzepooz/skill-detector/pkg/triage"
 )
 
 // Input is anything that can be resolved to a local directory path.
@@ -25,10 +26,12 @@ type Input interface {
 
 // Options configures a Scanner instance.
 type Options struct {
-	Config  *config.Config // nil = defaults
-	Version string         // recorded in result metadata
-	Timeout time.Duration  // 0 = no per-scan timeout
-	ScanAll bool           // disable .gitignore filtering; walk every scannable file
+	Config        *config.Config  // nil = defaults
+	Version       string          // recorded in result metadata
+	Timeout       time.Duration   // 0 = no per-scan timeout
+	ScanAll       bool            // disable .gitignore filtering; walk every scannable file
+	Verifier      triage.Verifier // nil = deterministic floor (no triage; CLI default)
+	TriageTimeout time.Duration   // bounds the triage phase; 0 = no extra deadline
 }
 
 // Scanner runs the rule registry against an Input.
@@ -122,6 +125,8 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		return strings.Compare(a.RuleID, b.RuleID)
 	})
 
+	findings = s.applyTriage(ctx, findings, files)
+
 	perms := permission.Extract(findings, files)
 
 	axesResult := make(map[axes.Axis]model.AxisResult, len(axes.Order))
@@ -137,9 +142,88 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		RuleCount:       len(activeRules),
 		Version:         s.opts.Version,
 		Checksum:        s.reg.Checksum(),
-		SchemaVersion:   "1.2",
+		SchemaVersion:   "1.3",
 		Axes:            axesResult,
 	}, nil
+}
+
+// applyTriage runs the configured verifier over findings grouped by file and
+// writes a TriageVerdict into each Finding. It fails safe: on any verifier
+// error or deadline the affected findings are left un-demoted and stamped
+// "unavailable", so the grade stays conservative (never weaker than the
+// deterministic floor). No-op when no verifier is configured.
+func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, files []model.FileContext) []model.Finding {
+	if s.opts.Verifier == nil || len(findings) == 0 {
+		return findings
+	}
+
+	tctx := ctx
+	if s.opts.TriageTimeout > 0 {
+		var cancel context.CancelFunc
+		tctx, cancel = context.WithTimeout(ctx, s.opts.TriageTimeout)
+		defer cancel()
+	}
+
+	contentByPath := make(map[string]model.FileContext, len(files))
+	for _, f := range files {
+		contentByPath[f.Path] = f
+	}
+
+	idxByPath := make(map[string][]int)
+	for i := range findings {
+		idxByPath[findings[i].FilePath] = append(idxByPath[findings[i].FilePath], i)
+	}
+	paths := make([]string, 0, len(idxByPath))
+	for p := range idxByPath {
+		paths = append(paths, p)
+	}
+	slices.Sort(paths) // deterministic file iteration
+
+	markUnavailable := func(idxs []int) {
+		for _, i := range idxs {
+			findings[i].Triage = &model.TriageVerdict{Classification: "uncertain", Source: "unavailable"}
+		}
+	}
+
+	for _, p := range paths {
+		idxs := idxByPath[p]
+		if err := tctx.Err(); err != nil {
+			markUnavailable(idxs)
+			continue
+		}
+
+		batch := make([]model.Finding, len(idxs))
+		for j, i := range idxs {
+			batch[j] = findings[i]
+		}
+
+		verdicts, err := s.opts.Verifier.Classify(tctx, contentByPath[p], batch)
+		if err != nil {
+			markUnavailable(idxs)
+			continue
+		}
+
+		byKey := make(map[triage.VerdictKey]triage.Verdict, len(verdicts))
+		for _, v := range verdicts {
+			byKey[triage.VerdictKey{RuleID: v.RuleID, Line: v.Line}] = v
+		}
+		for _, i := range idxs {
+			f := &findings[i]
+			v, ok := byKey[triage.VerdictKey{RuleID: f.RuleID, Line: f.Line}]
+			if !ok {
+				// Hallucinated/missing verdict → fail safe.
+				f.Triage = &model.TriageVerdict{Classification: "uncertain", Source: "unavailable"}
+				continue
+			}
+			f.Triage = &model.TriageVerdict{
+				Classification: string(v.Classification),
+				Confidence:     v.Confidence,
+				Rationale:      v.Rationale,
+				Source:         v.Source,
+			}
+		}
+	}
+	return findings
 }
 
 func filterConfigOverrides(findings []model.Finding, overrides []model.ConfigOverride) []model.ConfigOverride {

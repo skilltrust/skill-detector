@@ -112,18 +112,43 @@ func (c *Confidence) UnmarshalJSON(data []byte) error {
 
 // Finding — flat struct, shared by rules, scorer, permission extractor, reporters.
 type Finding struct {
-	RuleID      string     `json:"rule_id"`
-	RuleName    string     `json:"rule_name"`
-	Severity    Severity   `json:"severity"`
-	EffSeverity Severity   `json:"effective_severity"`
-	Category    string     `json:"category"`
-	Description string     `json:"description"`
-	FilePath    string     `json:"file_path"`
-	Line        int        `json:"line"`
-	Confidence  Confidence `json:"confidence"`
-	Diagnosis   string     `json:"diagnosis"`
-	Remediation string     `json:"remediation"`
-	Axis        axes.Axis  `json:"axis,omitempty"`
+	RuleID      string         `json:"rule_id"`
+	RuleName    string         `json:"rule_name"`
+	Severity    Severity       `json:"severity"`
+	EffSeverity Severity       `json:"effective_severity"`
+	Category    string         `json:"category"`
+	Description string         `json:"description"`
+	FilePath    string         `json:"file_path"`
+	Line        int            `json:"line"`
+	Confidence  Confidence     `json:"confidence"`
+	Diagnosis   string         `json:"diagnosis"`
+	Remediation string         `json:"remediation"`
+	Axis        axes.Axis      `json:"axis,omitempty"`
+	Triage      *TriageVerdict `json:"triage,omitempty"`
+}
+
+// TriageVerdict enriches a Finding with an LLM-triage classification. It is nil
+// when no verifier ran (the deterministic floor / CLI default), so it never
+// appears in JSON for un-triaged scans.
+type TriageVerdict struct {
+	Classification string  `json:"classification"` // real_threat|benign_example|uncertain
+	Confidence     float64 `json:"confidence"`     // 0.0–1.0
+	Rationale      string  `json:"rationale"`
+	Source         string  `json:"source"` // e.g. "noop", "llm:<model>", "cache", "unavailable"
+}
+
+// TriageDemoteThreshold is the minimum triage confidence to demote a
+// benign_example finding out of axis grading. Tunable (see spec open questions).
+const TriageDemoteThreshold = 0.85
+
+// IsSuppressed reports whether triage has confidently classified this finding
+// as a benign example, so it must be excluded from axis grading. The literal
+// "benign_example" mirrors triage.ClassBenign (model cannot import triage —
+// that would create an import cycle).
+func (f Finding) IsSuppressed() bool {
+	return f.Triage != nil &&
+		f.Triage.Classification == "benign_example" &&
+		f.Triage.Confidence >= TriageDemoteThreshold
 }
 
 // ConfigOverride — records a user-configured severity adjustment for a rule.
