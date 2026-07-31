@@ -38,6 +38,26 @@ func TestHooks_ShellMetacharInterpolation_Malicious(t *testing.T) {
 	}
 }
 
+func TestSD020_NestedHookSchema(t *testing.T) {
+	content := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo $UNSANITIZED | sh"}]}]}}`)
+	registry := NewRegistry()
+	RegisterHooksRules(registry)
+	ctx := model.FileContext{Path: ".claude/settings.json", Ext: ".json", Content: content}
+	var findings []model.Finding
+	for _, rule := range registry.RulesFor(".json") {
+		findings = append(findings, rule.Match(content, ctx)...)
+	}
+	var count int
+	for _, f := range findings {
+		if f.RuleID == "SD-020" {
+			count++
+		}
+	}
+	if count == 0 {
+		t.Fatal("SD-020 must fire on nested hook schema with unquoted variable")
+	}
+}
+
 func TestHooks_ShellMetacharInterpolation_Clean(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "clean", "hooks-interp", ".claude", "settings.json"))
 	if err != nil {

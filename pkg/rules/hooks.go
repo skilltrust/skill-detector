@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"encoding/json"
 	"regexp"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -26,14 +25,10 @@ func (r *hookInterpolationRule) Match(content []byte, ctx model.FileContext) []m
 	}
 	var findings []model.Finding
 	for hookName, raw := range s.Hooks {
-		var entries []hookEntry
-		if err := json.Unmarshal(raw, &entries); err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if reUnquotedVar.MatchString(e.Command) {
+		for _, cmd := range hookCommands(raw) {
+			if reUnquotedVar.MatchString(cmd) {
 				findings = append(findings, r.newFinding(ctx, 1,
-					"hook "+hookName+" interpolates unquoted shell variable: "+e.Command,
+					"hook "+hookName+" interpolates unquoted shell variable: "+cmd,
 					"Quote all variable expansions: use \"${VAR}\" not $VAR; sanitize untrusted input before interpolation"))
 			}
 		}

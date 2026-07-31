@@ -122,6 +122,39 @@ type hookEntry struct {
 	Command string `json:"command"`
 }
 
+// nestedHookMatcher is one element of the real Claude Code hooks schema:
+// {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"..."}]}]}}
+type nestedHookMatcher struct {
+	Matcher string      `json:"matcher"`
+	Hooks   []hookEntry `json:"hooks"`
+}
+
+// hookCommands extracts command strings from a hooks entry, accepting both
+// the real nested shape and the flat shape ([{"command":"..."}]) used by
+// this repo's older fixtures.
+func hookCommands(raw json.RawMessage) []string {
+	var cmds []string
+	var nested []nestedHookMatcher
+	if err := json.Unmarshal(raw, &nested); err == nil {
+		for _, m := range nested {
+			for _, h := range m.Hooks {
+				if strings.TrimSpace(h.Command) != "" {
+					cmds = append(cmds, h.Command)
+				}
+			}
+		}
+	}
+	var flat []hookEntry
+	if err := json.Unmarshal(raw, &flat); err == nil {
+		for _, e := range flat {
+			if strings.TrimSpace(e.Command) != "" {
+				cmds = append(cmds, e.Command)
+			}
+		}
+	}
+	return cmds
+}
+
 func (r *unsanctionedHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
 	if !IsClaudeSettings(ctx.Path) {
 		return nil
@@ -132,12 +165,8 @@ func (r *unsanctionedHookRule) Match(content []byte, ctx model.FileContext) []mo
 	}
 	var findings []model.Finding
 	for hookName, raw := range s.Hooks {
-		var entries []hookEntry
-		if err := json.Unmarshal(raw, &entries); err != nil {
-			continue
-		}
-		for _, e := range entries {
-			cmd := strings.TrimSpace(e.Command)
+		for _, cmd := range hookCommands(raw) {
+			cmd = strings.TrimSpace(cmd)
 			if cmd == "" {
 				continue
 			}

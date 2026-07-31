@@ -4,7 +4,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          {"type": "command", "command": "echo $USER_INPUT | sh"}
+          {"type": "command", "command": "echo $UNSANITIZED | sh"}
         ]
       }
     ]
