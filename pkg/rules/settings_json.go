@@ -15,10 +15,15 @@ type claudeSettings struct {
 		Allow []string `json:"allow"`
 		Deny  []string `json:"deny"`
 	} `json:"permissions"`
-	Hooks      map[string]json.RawMessage `json:"hooks"`
+	Hooks map[string]json.RawMessage `json:"hooks"`
+	// MCPServers is NOT part of the real settings.json schema — MCP server
+	// definitions live in .mcp.json and ~/.claude.json only. This field is
+	// kept solely so the settings.json and .mcp.json decode paths stay
+	// symmetrical for mcpExternalDomainRule's fallback path.
 	MCPServers map[string]struct {
 		URL     string            `json:"url"`
 		Command string            `json:"command"`
+		Args    []string          `json:"args"`
 		Env     map[string]string `json:"env"`
 	} `json:"mcpServers"`
 }

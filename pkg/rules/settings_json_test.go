@@ -16,6 +16,7 @@ func findRule(t *testing.T, id string) Rule {
 	t.Helper()
 	registry := NewRegistry()
 	RegisterSettingsJSONRules(registry)
+	RegisterMCPRules(registry)
 	for _, rule := range registry.RulesFor(".json") {
 		if rule.ID() == id {
 			return rule
