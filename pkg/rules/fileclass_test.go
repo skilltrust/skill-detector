@@ -88,18 +88,52 @@ func TestIsAgentFile(t *testing.T) {
 	}
 }
 
-func TestIsInClaudeOrCodexDir(t *testing.T) {
+func TestIsInAgentConfigDir(t *testing.T) {
 	cases := map[string]bool{
-		".claude/scripts/foo.sh": true,
-		".codex/lib/x.sh":        true,
-		".opencode/util.sh":      true,
-		"a/b/.claude/x.sh":       true,
-		"src/main.ts":            false,
-		"claude/something.md":    false, // no leading dot
+		".claude/scripts/foo.sh":   true,
+		".codex/lib/x.sh":          true,
+		".opencode/util.sh":        true,
+		".cursor/rules/style.mdc":  true,
+		".gemini/hooks/pre.sh":     true,
+		".windsurf/scripts/x.sh":   true,
+		"a/b/.claude/x.sh":         true,
+		"src/main.ts":              false,
+		"claude/something.md":      false, // no leading dot
+		".github/workflows/ci.yml": false, // must NOT count as agent config dir
+		".vscode/mcp.json":         false, // must NOT count as agent config dir
 	}
 	for path, want := range cases {
-		if got := isInClaudeOrCodexDir(path); got != want {
-			t.Errorf("isInClaudeOrCodexDir(%q) = %v, want %v", path, got, want)
+		if got := isInAgentConfigDir(path); got != want {
+			t.Errorf("isInAgentConfigDir(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestIsInstructionFile_MultiHarness(t *testing.T) {
+	yes := []string{
+		"CLAUDE.md", "sub/CLAUDE.md", "AGENTS.md", "pkg/AGENTS.md", "GEMINI.md",
+		".cursorrules", ".windsurfrules",
+		".github/copilot-instructions.md", ".cursor/rules/style.mdc",
+	}
+	no := []string{
+		"README.md", "docs/agents.md", "node_modules/x/AGENTS.md", "style.mdc",
+	}
+	for _, p := range yes {
+		if !IsInstructionFile(p) {
+			t.Errorf("IsInstructionFile(%q) = false, want true", p)
+		}
+	}
+	for _, p := range no {
+		if IsInstructionFile(p) {
+			t.Errorf("IsInstructionFile(%q) = true, want false", p)
+		}
+	}
+}
+
+func TestIsMCPConfig_OtherHarnessLocations(t *testing.T) {
+	for _, p := range []string{".cursor/mcp.json", ".vscode/mcp.json"} {
+		if !IsMCPConfig(p) {
+			t.Errorf("IsMCPConfig(%q) = false, want true", p)
 		}
 	}
 }

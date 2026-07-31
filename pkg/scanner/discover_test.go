@@ -242,6 +242,43 @@ func TestDiscover_AgentDirScriptsAndExtensionless(t *testing.T) {
 	}
 }
 
+func TestDiscover_MultiHarnessFiles(t *testing.T) {
+	root := t.TempDir()
+	mustWrite := func(rel, content string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWrite(".cursorrules", "be helpful\n")
+	mustWrite(".cursor/rules/style.mdc", "# rules\n")
+	mustWrite(".github/copilot-instructions.md", "# instructions\n")
+	mustWrite("AGENTS.md", "# agents\n")
+	// os.Root (used by readFromRoot) rejects absolute symlink targets, so
+	// this uses a relative target — matching how `ln -s AGENTS.md CLAUDE.md`
+	// creates a real-world in-tree symlink.
+	if err := os.Symlink("AGENTS.md", filepath.Join(root, "CLAUDE.md")); err != nil {
+		t.Skip("symlinks unsupported on this platform")
+	}
+
+	files, err := DiscoverWithOptions(root, DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[filepath.ToSlash(f.Path)] = true
+	}
+	for _, want := range []string{".cursorrules", ".cursor/rules/style.mdc", ".github/copilot-instructions.md", "AGENTS.md", "CLAUDE.md"} {
+		if !got[want] {
+			t.Errorf("expected %s to be discovered", want)
+		}
+	}
+}
+
 func TestIsBinary(t *testing.T) {
 	tests := []struct {
 		name string

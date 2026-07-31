@@ -18,17 +18,25 @@ type mcpServer struct {
 	Args     []string `json:"args"`
 }
 
-// mcpFile is a minimal decoder for .mcp.json.
+// mcpFile is a minimal decoder for .mcp.json. Servers holds the "servers"
+// key, which VS Code's .vscode/mcp.json uses instead of "mcpServers".
 type mcpFile struct {
 	MCPServers map[string]mcpServer `json:"mcpServers"`
+	Servers    map[string]mcpServer `json:"servers"`
 }
 
-// decodeMCPServers decodes mcpServers from either .mcp.json or the
-// .claude/settings.json shape. Returns nil if neither decodes.
+// decodeMCPServers decodes mcpServers from either .mcp.json (mcpServers or,
+// for VS Code's .vscode/mcp.json, servers) or the .claude/settings.json
+// shape. Returns nil if none decode.
 func decodeMCPServers(content []byte) map[string]mcpServer {
 	var f mcpFile
-	if err := json.Unmarshal(content, &f); err == nil && len(f.MCPServers) > 0 {
-		return f.MCPServers
+	if err := json.Unmarshal(content, &f); err == nil {
+		if len(f.MCPServers) > 0 {
+			return f.MCPServers
+		}
+		if len(f.Servers) > 0 {
+			return f.Servers
+		}
 	}
 	// Fall back to claudeSettings.MCPServers from settings_json.go — that
 	// shape doesn't decode cleanly into mcpFile because its struct type

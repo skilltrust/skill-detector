@@ -27,7 +27,7 @@ type claudeMDSQLInjectionRule struct {
 }
 
 func (r *claudeMDSQLInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsClaudeMD(ctx.Path) {
+	if !IsInstructionFile(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -47,7 +47,7 @@ type claudeMDCommentAndControlRule struct {
 }
 
 func (r *claudeMDCommentAndControlRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsClaudeMD(ctx.Path) {
+	if !IsInstructionFile(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -75,7 +75,7 @@ func RegisterClaudeMDRules(registry *RuleRegistry) {
 			name:     "CLAUDE.md SQL Injection By Instruction",
 			severity: model.SeverityHigh,
 			category: "ClaudeMD",
-			types:    []string{".md"},
+			types:    []string{".md", ".mdc"},
 			axis:     axes.Security,
 		},
 	})
@@ -85,7 +85,7 @@ func RegisterClaudeMDRules(registry *RuleRegistry) {
 			name:     "CLAUDE.md Comment-and-Control",
 			severity: model.SeverityCritical,
 			category: "ClaudeMD",
-			types:    []string{".md"},
+			types:    []string{".md", ".mdc"},
 			axis:     axes.Security,
 		},
 	})

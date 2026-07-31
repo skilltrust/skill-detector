@@ -14,12 +14,21 @@ import (
 
 // walkableHiddenDirs lists hidden directories that should still be walked
 // despite the general hidden-dir skip. These contain AI-agent configuration
-// files (CLAUDE.md, settings.json, MCP configs) that are core to the
-// skill-detector scope.
+// files (CLAUDE.md, settings.json, MCP configs, per-harness instruction
+// files, and per-harness MCP configs) that are core to the skill-detector
+// scope. .github and .vscode are walkable so the gated predicates can match
+// copilot-instructions.md / mcp.json inside them, but they are deliberately
+// NOT agent config dirs (see inAgentDir) — walking .github/workflows/ or the
+// rest of .vscode/ must not run every content rule over arbitrary files.
 var walkableHiddenDirs = map[string]bool{
 	".claude":   true,
 	".codex":    true,
 	".opencode": true,
+	".cursor":   true,
+	".gemini":   true,
+	".windsurf": true,
+	".vscode":   true,
+	".github":   true,
 }
 
 // alwaysSkipDirs lists directory names always skipped during discovery
@@ -45,18 +54,29 @@ var scannableExts = map[string]bool{
 }
 
 // agentDirExtraExts are additionally scanned when the file lives inside an
-// agent config dir (.claude/, .codex/, .opencode/): script languages plus
+// agent config dir (.claude/, .codex/, .opencode/, .cursor/, .gemini/,
+// .windsurf/): script languages, Cursor's rule-file extension, plus
 // extensionless hook scripts. Outside those dirs the scannableExts allowlist
 // applies unchanged (noise control).
 var agentDirExtraExts = map[string]bool{
 	".py": true, ".js": true, ".ts": true, ".mjs": true,
 	".rb": true, ".pl": true, ".ps1": true, ".zsh": true,
-	"": true,
+	".mdc": true,
+	"":     true,
 }
 
+// instructionDotfiles are root-level agent instruction files with no
+// conventional extension (filepath.Ext(".cursorrules") returns
+// ".cursorrules" itself, which is never in scannableExts). Treated as
+// scannable regardless of extension or location.
+var instructionDotfiles = map[string]bool{".cursorrules": true, ".windsurfrules": true}
+
+// inAgentDir mirrors pkg/rules' isInAgentConfigDir (the scanner package must
+// not import pkg/rules). Deliberately excludes .github/ and .vscode/ — see
+// walkableHiddenDirs.
 func inAgentDir(rel string) bool {
 	clean := filepath.ToSlash(rel)
-	for _, d := range []string{".claude/", ".codex/", ".opencode/"} {
+	for _, d := range []string{".claude/", ".codex/", ".opencode/", ".cursor/", ".gemini/", ".windsurf/"} {
 		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
 			return true
 		}
@@ -139,8 +159,10 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error
 			}
 		}
 
-		// Only process regular files.
-		if !d.Type().IsRegular() {
+		// Only process regular files, plus symlinks (a symlink whose target
+		// escapes the scoped root errors out in readFromRoot below and is
+		// skipped there — see that function's doc comment).
+		if !d.Type().IsRegular() && d.Type()&fs.ModeSymlink == 0 {
 			return nil
 		}
 
@@ -150,10 +172,12 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error
 			return nil
 		}
 
-		// Check extension against scannable set. Inside agent config dirs,
-		// also scan script languages and extensionless hook scripts.
+		// Check extension against scannable set. Root-level instruction
+		// dotfiles (.cursorrules, .windsurfrules) have no conventional
+		// extension and are always in scope. Inside agent config dirs, also
+		// scan script languages and extensionless hook scripts.
 		ext := filepath.Ext(path)
-		if !scannableExts[ext] {
+		if !scannableExts[ext] && !instructionDotfiles[d.Name()] {
 			if !inAgentDir(relPath) || !agentDirExtraExts[ext] {
 				return nil
 			}
@@ -187,7 +211,12 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error
 	return files, nil
 }
 
-// readFromRoot reads file content through the scoped os.Root to avoid TOCTOU races.
+// readFromRoot reads file content through the scoped os.Root to avoid TOCTOU
+// races. os.Root also refuses to follow a symlink whose target escapes the
+// root, so admitting symlinks into the walk above stays traversal-safe: an
+// escaping symlink errors here and is skipped by the caller. A symlink whose
+// target is also scanned in-tree yields findings on both paths, which is
+// acceptable.
 func readFromRoot(root *os.Root, relPath string) ([]byte, error) {
 	f, err := root.Open(relPath)
 	if err != nil {

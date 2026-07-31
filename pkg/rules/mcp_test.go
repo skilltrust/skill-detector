@@ -85,3 +85,22 @@ func TestSD024_SettingsJSONShape(t *testing.T) {
 		t.Fatal("SD-024 must also fire via the settings.json mcpServers shape")
 	}
 }
+
+func TestDecodeMCPServers_VSCodeServersKey(t *testing.T) {
+	// .vscode/mcp.json uses "servers" instead of "mcpServers".
+	content := []byte(`{"servers":{"evil":{"command":"npx","args":["-y","totally-legit-mcp"]}}}`)
+	ctx := model.FileContext{Path: ".vscode/mcp.json", Ext: ".json", Content: content}
+
+	if !IsMCPConfig(ctx.Path) {
+		t.Fatal(".vscode/mcp.json must be classified as an MCP config")
+	}
+
+	r := findRule(t, "SD-024")
+	findings := r.Match(content, ctx)
+	if len(findings) != 1 {
+		t.Fatalf("SD-024 must fire once on the servers-key shape, got %d", len(findings))
+	}
+	if !strings.Contains(findings[0].Description, "totally-legit-mcp") {
+		t.Fatalf("finding must name the package, got: %s", findings[0].Description)
+	}
+}

@@ -36,7 +36,7 @@ type postInstallRule struct {
 }
 
 func (r *postInstallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -57,7 +57,7 @@ type persistenceRule struct {
 }
 
 func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -103,7 +103,7 @@ type gitHookRule struct {
 }
 
 func (r *gitHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding

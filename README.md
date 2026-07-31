@@ -9,9 +9,11 @@
 
 > CLI to spot risky AI skill packages before you install them.
 
-Scans AI skill folders (Anthropic Claude Skills, Codex skills, and similar
-file-based formats) for security threats so you can vet third-party skills —
-e.g. from [skills.sh](https://skills.sh) — without reading every line by hand.
+Scans AI skill folders and agent-instruction files — Claude Code, Codex CLI,
+OpenCode, Cursor, Gemini CLI, GitHub Copilot, Windsurf, and similar
+file-based formats — for security threats so you can vet third-party
+skills — e.g. from [skills.sh](https://skills.sh) — without reading every
+line by hand.
 
 > ⚠️ **Status:** Early-stage (v0.x). Usable, but rules and flags may change before 1.0.
 
@@ -38,12 +40,24 @@ several named 2026 CVEs lived. New CLI flags:
 - `--axes-only` — emit just the Trust Score block on stdout
   (findings go to stderr). Pipeable.
 
-**Scope (also new in v0.2.0):** the scanner now defaults to inspecting only
-AI-agent configuration files (`SKILL.md`, `CLAUDE.md`, `.claude/settings.json`,
-`.mcp.json`) plus arbitrary files inside `.claude/`, `.codex/`, `.opencode/`
+**Scope (also new in v0.2.0):** the scanner defaults to inspecting only
+AI-agent configuration files: skill manifests (`SKILL.md`, `skill.yaml`),
+per-harness instruction files (`CLAUDE.md`, `AGENTS.md` — Codex CLI/OpenCode,
+`GEMINI.md`, `.cursorrules`, `.cursor/rules/*.mdc`,
+`.github/copilot-instructions.md`, `.windsurfrules`), and MCP/settings
+configs (`.claude/settings.json`, `.mcp.json`, `.claude/mcp.json`,
+`.cursor/mcp.json`, `.vscode/mcp.json`) — plus arbitrary files inside
+`.claude/`, `.codex/`, `.opencode/`, `.cursor/`, `.gemini/`, `.windsurf/`
 directories. It honors `.gitignore` and skips `node_modules`, `vendor`, `dist`,
 `build`, `target`, `.next`, `.git`. Pass `--scan-all` to bypass this and walk
 every scannable file (v0.1.x behavior).
+
+The content rules above (injection, access control, exfiltration, etc.) run
+uniformly across every harness's instruction files — the checks aren't
+Claude-specific. Parsing each harness's own *structural* config format
+(Codex `config.toml`, `opencode.json` permissions, Gemini CLI `settings.json`
+specifics, Copilot org policies) is on the roadmap; today only Claude Code's
+`.claude/settings.json` gets structural checks (SD-017..SD-020).
 
 See [CHANGELOG.md](CHANGELOG.md) for the full v0.2.0 entry.
 

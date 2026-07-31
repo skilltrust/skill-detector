@@ -29,7 +29,7 @@ type shellInjectionRule struct {
 }
 
 func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -55,7 +55,7 @@ type promptInjectionRule struct {
 }
 
 func (r *promptInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsSkillManifest(ctx.Path) && !IsClaudeMD(ctx.Path) {
+	if !IsSkillManifest(ctx.Path) && !IsInstructionFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -148,7 +148,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			name:     "Prompt Injection",
 			severity: model.SeverityCritical,
 			category: "Injection",
-			types:    []string{".md", ".txt", ".yaml", ".yml", ".json", ".toml"},
+			types:    []string{".md", ".mdc", ".txt", ".yaml", ".yml", ".json", ".toml"},
 			axis:     axes.Security,
 		},
 	})

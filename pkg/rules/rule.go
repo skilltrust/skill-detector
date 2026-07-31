@@ -20,7 +20,7 @@ type Rule interface {
 // every scannable config/doc extension plus script languages and the empty
 // extension (extensionless hook scripts inside agent config dirs).
 var ContentScanTypes = []string{
-	".sh", ".bash", ".zsh", ".md", ".yaml", ".yml", ".txt", ".json", ".toml",
+	".sh", ".bash", ".zsh", ".md", ".mdc", ".yaml", ".yml", ".txt", ".json", ".toml",
 	".env", ".cfg", ".conf", ".ini", ".xml",
 	".py", ".js", ".ts", ".mjs", ".rb", ".pl", ".ps1", "",
 }
