@@ -13,7 +13,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/velzepooz/skill-detector.git
+git clone https://github.com/skilltrust/skill-detector.git
 cd skill-detector
 
 # Build the binary
@@ -50,6 +50,14 @@ make lint
 
 # Example: scan a clean skill
 ./bin/skill-detector scan ./testdata/clean/simple-skill
+
+# Print version, rule count and the registry checksum
+./bin/skill-detector version
+
+# Diff two scan results (grade movement + finding diff)
+./bin/skill-detector scan ./base --format json > base.json
+./bin/skill-detector scan ./head --format json > head.json
+./bin/skill-detector delta base.json head.json --format markdown
 ```
 
 ## Formatting
@@ -63,17 +71,19 @@ make fmt
 ## Project Structure
 
 ```
-cmd/skill-detector/    → CLI entry point (Cobra)
+cmd/skill-detector/    → CLI entry point (Cobra): scan + delta sub-commands
 pkg/axes/              → Axis + Grade enums (wire-stable)
 pkg/grade/             → Per-axis worst-finding-wins aggregator
 pkg/config/            → Configuration loading
-pkg/model/             → Shared domain types (Finding, ScanResult, AxisResult)
+pkg/model/             → Shared domain types (Finding, ScanResult, FileContext, AxisResult)
 pkg/scanner/           → File discovery (incl. .gitignore) + scan orchestration
 pkg/rules/             → Security rules + file-class predicates (path gates)
+pkg/triage/            → Pluggable Verifier seam (inert in the CLI)
+pkg/delta/             → Scan-to-scan grade movement + finding diff
 pkg/permission/        → Skill manifest permission extraction
 pkg/scorer/            → Legacy flat-score (backward compat)
 pkg/reporter/          → Output formatting (text with Trust Score block, JSON, quiet)
-testdata/              → Test fixtures (clean, malicious, cve, edge-cases)
+testdata/              → Test fixtures (clean, malicious, cve, bench, edge-cases)
 ```
 
 Public packages live under `pkg/` because downstream consumers (e.g. `skilltrust`) import the scanner, rules, and grade aggregator as a library.
@@ -95,6 +105,9 @@ go test -v -run TestScanner_CleanScan ./pkg/scanner/
 
 # Run CVE reproducer tests (Go-API + binary E2E)
 go test -v -run TestCVE ./cmd/skill-detector/
+
+# Run the recall tripwire (known attacks must still be flagged)
+go test -v -run TestBenchRecall ./cmd/skill-detector/
 ```
 
 ### Test Fixture Structure
@@ -104,6 +117,7 @@ go test -v -run TestCVE ./cmd/skill-detector/
   - Paths must satisfy `IsAgentFile()` or `isInClaudeOrCodexDir()` (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/<orig>.sh`) so path-gated rules can fire
   - Subdirs: `credential-theft/`, `shell-injection/`, `prompt-injection/`, `exfiltration/`, `supply-chain/`, `persistence/`, `claude-md-sql/`, `claude-md-cnc/`, `settings-bash-curl/`, `settings-bypass/`, `settings-hook/`, `hooks-interp/`, `mcp-domain/`
 - **`testdata/cve/`** — Minimal CVE reproducer repos used by `cmd/skill-detector/cve_repro_test.go` for both Go-API and binary E2E paths
+- **`testdata/bench/`** — Curated malicious slice for the recall tripwire (`cmd/skill-detector/bench_recall_test.go`); every case must stay flagged
 - **`testdata/edge-cases/`** — Boundary conditions
   - `empty-skill/`, `malformed-yaml/`, `hidden-dir/`, `binary-file/`
 
@@ -170,7 +184,7 @@ Already in place — only re-do these if something breaks:
    needed because the default `GITHUB_TOKEN` only has write access to the
    current repo, not to a separate tap repo.
 3. **Repo secret:** `HOMEBREW_TAP_GITHUB_TOKEN` stored under Settings →
-   Secrets and variables → Actions on `velzepooz/skill-detector`. Referenced
+   Secrets and variables → Actions on `skilltrust/skill-detector`. Referenced
    in both `.goreleaser.yml` and `.github/workflows/release.yml`.
 
 If a release fails at the Homebrew step with a `403` or "resource not
@@ -196,7 +210,7 @@ If any check fails, the target aborts before touching Git. On success it
 creates an annotated tag and pushes it to `origin`. Watch the workflow at:
 
 ```
-https://github.com/velzepooz/skill-detector/actions
+https://github.com/skilltrust/skill-detector/actions
 ```
 
 ### Versioning
@@ -215,6 +229,10 @@ Rough guidance for picking the bump:
 | Bug fix, false-positive tweak   | patch |
 | New rule, new CLI flag          | minor |
 | Breaking rule output / exit code | major |
+
+A new rule — or any change to a rule's severity, category or axis — also moves
+the registry checksum reported by `./bin/skill-detector version`. Note the new
+value in the CHANGELOG entry: it is the signal that grading behavior changed.
 
 ### Dry-running a release locally
 
