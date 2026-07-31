@@ -1,5 +1,88 @@
 # Changelog
 
+## v0.4.0 — 2026-05-29
+
+### Added
+- **Triage seam (`pkg/triage`).** A pluggable `Verifier` interface the scanner
+  can call to reclassify findings as `real_threat`, `benign_example` or
+  `uncertain`. Verdicts are matched back to findings by `(RuleID, Line)`.
+- Two inert implementations ship with the engine: `NoopVerifier` (returns
+  `uncertain` for everything, leaving the deterministic result untouched) and
+  `ScriptedVerifier` (a test double).
+- `model.Finding.Triage` — a `*TriageVerdict` carrying classification,
+  confidence, rationale and source. **Omitted from JSON when nil**, so
+  un-triaged scans produce byte-identical output to v0.3.x.
+- `scanner.Options.Verifier` and `scanner.Options.TriageTimeout`.
+
+### Changed
+- Axis grading now skips findings that triage has confidently classified as
+  benign: `Finding.IsSuppressed()` is true at classification `benign_example`
+  with confidence ≥ `model.TriageDemoteThreshold` (0.85).
+
+### Why
+- The engine deliberately ships **no** LLM-backed verifier. Adding one here
+  would put an API key, a network call and a non-reproducible verdict into a
+  CI-facing CLI. The LLM implementation lives in the hosted scanner
+  (`skilltrust`), which supplies caching to keep results stable.
+
+### Compatibility
+- **Default behavior is unchanged.** With no verifier injected — which is every
+  CLI invocation — the scanner takes the same path as v0.3.3 and emits the same
+  JSON.
+- Triage failures are conservative by construction: a verifier error or a
+  timeout marks affected findings `uncertain` / `source: "unavailable"`, so a
+  grade can never come out *weaker* because triage broke.
+- Registry checksum at this tag: `f1dcffd63faabeb3` (23 rules).
+
+---
+
+## v0.3.3 — 2026-05-25
+
+### Added
+- **`SD-023` — `settings.json` Unrestricted Permission Grant** (HIGH,
+  permission_hygiene axis). Flags a bare `"*"` in `permissions.allow` in
+  `.claude/settings.json` / `settings.local.json`.
+
+### Why
+- A wildcard grant slipped past `SD-017`, `SD-018` and `SD-019`, all of which
+  look for specific over-broad patterns rather than the total absence of a
+  restriction. Caught in the production dogfood: a settings file granting `"*"`
+  left `permission_hygiene` at grade A. With `SD-023` the same fixture now
+  grades D.
+
+### Compatibility
+- New rule → the registry checksum moves. Repositories with a wildcard grant
+  will see `permission_hygiene` drop.
+
+---
+
+## v0.3.2 — 2026-05-25
+
+### Added
+- **`SD-022` — DNS Exfiltration** (HIGH, security axis). Detects data
+  exfiltration over DNS: `dig` / `nslookup` / `drill` / `resolvectl` / `host`
+  combined with a dynamically built dotted hostname (`$(...)`, backticks, or a
+  variable). Static lookups do not fire.
+- **Per-commit recall tripwire** — `cmd/skill-detector/bench_recall_test.go`
+  over `testdata/bench/`. Asserts a curated slice of known attacks still grades
+  C/D/F, guarding against recall lost to pattern tightening.
+
+### Why
+- `SD-022` closes the only miss in the SP-7 validation benchmark: a DNS-channel
+  exfiltration sample using `nslookup` plus base64-encoded environment variables
+  and no HTTP at all. Recall on the headline pool moves 0.875 → 1.0. Both
+  `semgrep` and raw grep scored 0.25 on the same set.
+
+### Fixed
+- GoReleaser targeted the pre-transfer `velzepooz` org, so release asset upload
+  failed with a 307 after the repository moved. Now points at `skilltrust`. The
+  Homebrew tap intentionally stays at `velzepooz/homebrew-tap`.
+
+### Compatibility
+- New rule → the registry checksum moves.
+
+---
+
 ## v0.3.1 — 2026-05-21
 
 ### Changed
