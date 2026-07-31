@@ -104,7 +104,7 @@ func RegisterMisconfigurationRules(registry *RuleRegistry) {
 			name:     "World-Writable Permissions",
 			severity: model.SeverityMedium,
 			category: "Security Misconfiguration",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.PermissionHygiene,
 		},
 	})
@@ -114,7 +114,7 @@ func RegisterMisconfigurationRules(registry *RuleRegistry) {
 			name:     "Hardcoded Secret",
 			severity: model.SeverityCritical,
 			category: "Security Misconfiguration",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.PermissionHygiene,
 		},
 	})

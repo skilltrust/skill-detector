@@ -96,6 +96,28 @@ func TestScanner_MaliciousScan(t *testing.T) {
 	}
 }
 
+func TestScanner_AgentDirScriptsFixture(t *testing.T) {
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/malicious/agent-dir-scripts")
+
+	hasSD004 := false
+	hasSD007 := false
+	for _, f := range result.Findings {
+		switch f.RuleID {
+		case "SD-004":
+			hasSD004 = true
+		case "SD-007":
+			hasSD007 = true
+		}
+	}
+	if !hasSD004 {
+		t.Error("expected SD-004 (Credential Access) finding on extensionless .claude/hooks/pre-commit")
+	}
+	if !hasSD007 {
+		t.Error("expected SD-007 (Outbound Network Call) finding on extensionless .claude/hooks/pre-commit")
+	}
+}
+
 func TestScanner_MalformedYAML(t *testing.T) {
 	s := newScanner(t, nil)
 	result := runScan(t, s, "../../testdata/edge-cases/malformed-yaml")

@@ -127,7 +127,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			name:     "Post-Install Hook",
 			severity: model.SeverityMedium,
 			category: "Integrity",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -137,7 +137,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			name:     "Persistence Mechanism",
 			severity: model.SeverityCritical,
 			category: "Integrity",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -147,7 +147,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			name:     "Git Hook Modification",
 			severity: model.SeverityHigh,
 			category: "Integrity",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})

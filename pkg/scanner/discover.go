@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	ignore "github.com/sabhiram/go-gitignore"
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -41,6 +42,26 @@ var scannableExts = map[string]bool{
 	".txt": true, ".json": true, ".toml": true,
 	".env": true, ".cfg": true, ".conf": true,
 	".ini": true, ".xml": true,
+}
+
+// agentDirExtraExts are additionally scanned when the file lives inside an
+// agent config dir (.claude/, .codex/, .opencode/): script languages plus
+// extensionless hook scripts. Outside those dirs the scannableExts allowlist
+// applies unchanged (noise control).
+var agentDirExtraExts = map[string]bool{
+	".py": true, ".js": true, ".ts": true, ".mjs": true,
+	".rb": true, ".pl": true, ".ps1": true, ".zsh": true,
+	"": true,
+}
+
+func inAgentDir(rel string) bool {
+	clean := filepath.ToSlash(rel)
+	for _, d := range []string{".claude/", ".codex/", ".opencode/"} {
+		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
+			return true
+		}
+	}
+	return false
 }
 
 // DiscoverOptions controls walker behavior.
@@ -123,16 +144,19 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error
 			return nil
 		}
 
-		// Check extension against scannable set.
-		ext := filepath.Ext(path)
-		if !scannableExts[ext] {
-			return nil
-		}
-
 		// Build relative path.
 		relPath, err := filepath.Rel(root, path)
 		if err != nil {
 			return nil
+		}
+
+		// Check extension against scannable set. Inside agent config dirs,
+		// also scan script languages and extensionless hook scripts.
+		ext := filepath.Ext(path)
+		if !scannableExts[ext] {
+			if !inAgentDir(relPath) || !agentDirExtraExts[ext] {
+				return nil
+			}
 		}
 
 		// Read file content via scoped root to prevent TOCTOU races.

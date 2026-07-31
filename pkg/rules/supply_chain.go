@@ -130,7 +130,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			name:     "Curl Pipe Bash",
 			severity: model.SeverityCritical,
 			category: "Supply Chain",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -140,7 +140,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			name:     "Runtime Download",
 			severity: model.SeverityHigh,
 			category: "Supply Chain",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -150,7 +150,7 @@ func RegisterSupplyChainRules(registry *RuleRegistry) {
 			name:     "Vulnerable Dependencies",
 			severity: model.SeverityHigh,
 			category: "Supply Chain",
-			types:    []string{".yaml", ".yml", ".json", ".toml", ".txt", ".md", ".sh", ".bash", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})

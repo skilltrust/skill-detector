@@ -16,6 +16,15 @@ type Rule interface {
 	Axis() axes.Axis
 }
 
+// ContentScanTypes is the extension set for line-oriented content rules:
+// every scannable config/doc extension plus script languages and the empty
+// extension (extensionless hook scripts inside agent config dirs).
+var ContentScanTypes = []string{
+	".sh", ".bash", ".zsh", ".md", ".yaml", ".yml", ".txt", ".json", ".toml",
+	".env", ".cfg", ".conf", ".ini", ".xml",
+	".py", ".js", ".ts", ".mjs", ".rb", ".pl", ".ps1", "",
+}
+
 // baseRule embeds common fields shared by all rules.
 type baseRule struct {
 	id       string

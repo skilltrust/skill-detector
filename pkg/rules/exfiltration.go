@@ -128,7 +128,7 @@ func RegisterExfiltrationRules(registry *RuleRegistry) {
 			name:     "Outbound Network Call",
 			severity: model.SeverityHigh,
 			category: "SSRF / Data Exfiltration",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -138,7 +138,7 @@ func RegisterExfiltrationRules(registry *RuleRegistry) {
 			name:     "Base64 Obfuscation",
 			severity: model.SeverityMedium,
 			category: "SSRF / Data Exfiltration",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -148,7 +148,7 @@ func RegisterExfiltrationRules(registry *RuleRegistry) {
 			name:     "DNS Exfiltration",
 			severity: model.SeverityHigh,
 			category: "SSRF / Data Exfiltration",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})

@@ -63,6 +63,15 @@ func TestRegistryEmpty(t *testing.T) {
 	}
 }
 
+func TestContentRulesDispatchOnScriptExts(t *testing.T) {
+	r := DefaultRegistry()
+	for _, ext := range []string{".py", ".ps1", ""} {
+		if len(r.RulesFor(ext)) == 0 {
+			t.Errorf("no rules dispatch for ext %q — agent-dir scripts would be scanned but never matched", ext)
+		}
+	}
+}
+
 func TestChecksum_Deterministic(t *testing.T) {
 	makeRegistry := func() *RuleRegistry {
 		reg := NewRegistry()
