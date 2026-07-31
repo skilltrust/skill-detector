@@ -15,3 +15,13 @@ _bmad/
 _bmad-output/
 AGENTS.md
 CLAUDE.md
+
+# Engineering knowledge base — local only. Only the contributor-facing dev
+# guide is published. Excludes the *contents* of docs/, not the directory
+# itself, so the re-include below works (git cannot re-include a file whose
+# parent directory is excluded).
+docs/*
+!docs/development-guide.md
+
+# Agent scratch: per-task briefs and reports
+.agent-scratch/

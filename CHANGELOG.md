@@ -118,8 +118,7 @@
   with the original plan numbers).
 
 ### Dogfood pass
-See `docs/dogfood-2026-05-19.md` for the SP-1 release-candidate
-dogfood log. Verdict: ship-as-is; pre-existing-rule FPs noted as
-SP-2 follow-up.
+An SP-1 release-candidate dogfood pass was run and logged internally.
+Verdict: ship-as-is; pre-existing-rule FPs noted as SP-2 follow-up.
 
 ---
