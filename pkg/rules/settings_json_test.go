@@ -3,11 +3,27 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
+
+// findRule returns the registered settings.json rule with the given ID, or
+// fails the test if it is not found.
+func findRule(t *testing.T, id string) Rule {
+	t.Helper()
+	registry := NewRegistry()
+	RegisterSettingsJSONRules(registry)
+	for _, rule := range registry.RulesFor(".json") {
+		if rule.ID() == id {
+			return rule
+		}
+	}
+	t.Fatalf("rule %s not found", id)
+	return nil
+}
 
 func runSettingsRule(t *testing.T, fixturePath string) []model.Finding {
 	t.Helper()
@@ -140,8 +156,8 @@ func TestSettingsJSON_UnrestrictedGrant_Malicious(t *testing.T) {
 			if f.Axis != axes.PermissionHygiene {
 				t.Errorf("axis = %q, want permission_hygiene", f.Axis)
 			}
-			if f.Severity != model.SeverityHigh {
-				t.Errorf("severity = %v, want High", f.Severity)
+			if f.Severity != model.SeverityMedium {
+				t.Errorf("severity = %v, want Medium", f.Severity)
 			}
 		}
 	}
@@ -156,6 +172,97 @@ func TestSettingsJSON_UnrestrictedGrant_Clean(t *testing.T) {
 		if f.RuleID == "SD-023" {
 			t.Errorf("clean fixture produced SD-023 finding: %+v", f)
 		}
+	}
+}
+
+func TestSD017_ColonWildcardSyntax(t *testing.T) {
+	content := []byte(`{"permissions":{"allow":["Bash(curl:*)"]}}`)
+	r := findRule(t, "SD-017")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("SD-017 must fire on real colon-wildcard syntax Bash(curl:*)")
+	}
+}
+
+func TestSD017_BareBashGrant(t *testing.T) {
+	content := []byte(`{"permissions":{"allow":["Bash"]}}`)
+	r := findRule(t, "SD-017")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("SD-017 must fire on bare Bash grant (allows every shell command)")
+	}
+}
+
+func TestSD018_StarAllowBypassesAnyDeny(t *testing.T) {
+	content := []byte(`{"permissions":{"allow":["Bash(*)"],"deny":["Bash(rm -rf *)"]}}`)
+	r := findRule(t, "SD-018")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("SD-018 must fire: Bash(*) allow subsumes any specific deny")
+	}
+}
+
+func TestSD018_NoTokenBoundaryFalsePositive(t *testing.T) {
+	content := []byte(`{"permissions":{"allow":["Bash(r *)"],"deny":["Bash(rm -rf *)"]}}`)
+	r := findRule(t, "SD-018")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) != 0 {
+		t.Fatal("SD-018 must NOT fire: 'r *' does not subsume 'rm -rf *' at token boundary")
+	}
+}
+
+func TestSD018_ColonSyntaxBypass(t *testing.T) {
+	content := []byte(`{"permissions":{"allow":["Bash(rm:*)"],"deny":["Bash(rm -rf *)"]}}`)
+	r := findRule(t, "SD-018")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("SD-018 must fire on colon-syntax broad allow vs specific deny")
+	}
+}
+
+func TestSD018_DenyTakesPrecedence(t *testing.T) {
+	// C2: deny beats allow unconditionally in Claude Code — the finding must
+	// describe a redundant deny, never a "bypass".
+	content := []byte(`{"permissions":{"allow":["Bash(*)"],"deny":["Bash(rm -rf *)"]}}`)
+	r := findRule(t, "SD-018")
+	findings := r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})
+	if len(findings) == 0 {
+		t.Fatal("SD-018 must fire")
+	}
+	if strings.Contains(strings.ToLower(findings[0].Description), "bypass") {
+		t.Fatalf("finding text asserts a bypass that Claude Code's precedence rules make impossible: %s", findings[0].Description)
+	}
+}
+
+func TestSD017_NoSpaceWildcard(t *testing.T) {
+	// G4: Bash(curl*) matches curlx too — strictly broader than Bash(curl *).
+	content := []byte(`{"permissions":{"allow":["Bash(curl*)"]}}`)
+	r := findRule(t, "SD-017")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("SD-017 must fire on no-space wildcard Bash(curl*)")
+	}
+}
+
+func TestSD017_BarePowerShellGrant(t *testing.T) {
+	// G3: PowerShell rules share the Bash shape; bare PowerShell grants every command.
+	content := []byte(`{"permissions":{"allow":["PowerShell(Remove-Item *)", "PowerShell"]}}`)
+	r := findRule(t, "SD-017")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("SD-017 must fire on bare PowerShell grant")
+	}
+}
+
+func TestSettingsJSON_BashColonWildcard_Malicious(t *testing.T) {
+	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "malicious", "bash-colon-wildcard", ".claude", "settings.json"))
+	var sd017, sd018 bool
+	for _, f := range findings {
+		switch f.RuleID {
+		case "SD-017":
+			sd017 = true
+		case "SD-018":
+			sd018 = true
+		}
+	}
+	if !sd017 {
+		t.Errorf("expected SD-017 to fire on colon-wildcard allow, got: %+v", findings)
+	}
+	if !sd018 {
+		t.Errorf("expected SD-018 to fire on colon-wildcard allow subsuming deny, got: %+v", findings)
 	}
 }
 

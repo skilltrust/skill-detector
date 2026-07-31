@@ -29,17 +29,6 @@ func parseClaudeSettings(content []byte) (claudeSettings, error) {
 	return s, err
 }
 
-// broadShellPatterns are wildcard or whole-shell permission grants flagged
-// as broad-permission risks.
-var broadShellPatterns = []string{
-	"Bash(curl *)",
-	"Bash(wget *)",
-	"Bash(*)",
-	"Bash(sh *)",
-	"Bash(bash *)",
-	"Bash(eval *)",
-}
-
 type bashCurlWildcardRule struct {
 	baseRule
 }
@@ -54,12 +43,10 @@ func (r *bashCurlWildcardRule) Match(content []byte, ctx model.FileContext) []mo
 	}
 	var findings []model.Finding
 	for _, entry := range s.Permissions.Allow {
-		for _, pat := range broadShellPatterns {
-			if strings.EqualFold(strings.TrimSpace(entry), pat) {
-				findings = append(findings, r.newFinding(ctx, 1,
-					"broad shell permission granted: "+entry,
-					"Replace with specific subcommand patterns; never grant Bash(curl *), Bash(wget *), or Bash(*)"))
-			}
+		if isBroadShellGrant(entry) {
+			findings = append(findings, r.newFinding(ctx, 1,
+				"broad shell permission granted: "+entry,
+				"Replace with specific subcommand patterns; never grant Bash, Bash(*), or Bash(curl:*)"))
 		}
 	}
 	return findings
@@ -79,8 +66,10 @@ func (r *subcommandLimitBypassRule) Match(content []byte, ctx model.FileContext)
 	}
 	var findings []model.Finding
 
-	// Pattern: a deny entry for a specific Bash subcommand is undermined by
-	// an allow entry that is broader.
+	// Pattern: a deny entry for a specific Bash/PowerShell subcommand is made
+	// redundant by an allow entry that already covers it (deny still wins —
+	// Claude Code applies deny unconditionally over allow — but the deny is
+	// then dead weight and the allow is silently overbroad).
 	for _, deny := range s.Permissions.Deny {
 		denyCmd := bashCommand(deny)
 		if denyCmd == "" {
@@ -91,27 +80,92 @@ func (r *subcommandLimitBypassRule) Match(content []byte, ctx model.FileContext)
 			if allowCmd == "" {
 				continue
 			}
-			// If allow is broader than deny (allow = "rm *" but deny = "rm -rf *",
-			// or allow = "*" with any specific deny).
-			if (allowCmd == "*" || strings.HasSuffix(allowCmd, " *")) &&
-				strings.HasPrefix(strings.TrimSuffix(denyCmd, " *"), strings.TrimSuffix(allowCmd, " *")) {
+			if allowSubsumes(allowCmd, denyCmd) {
 				findings = append(findings, r.newFinding(ctx, 1,
-					"deny "+deny+" is bypassed by broader allow "+allow,
-					"Tighten the allow entry so it does not subsume the denied subcommand"))
+					"deny "+deny+" is redundant: allow "+allow+" covers the same commands",
+					"Deny rules take precedence over allow in Claude Code, so this deny still blocks. Narrow the allow entry so the intended restriction is expressed by the allowlist, not by a deny that the allow silently makes unnecessary"))
 			}
 		}
 	}
 	return findings
 }
 
-// bashCommand extracts the inner string of a Bash(...) permission entry.
-// Returns empty string if entry is not a Bash(...) grant.
+// shellTools are permission-rule tool names that gate shell execution.
+// PowerShell rules share the Bash shape (G3); PowerShell command matching is
+// case-insensitive with alias canonicalization on the Claude Code side, but
+// the tool name itself is case-sensitive in the rule.
+var shellTools = []string{"Bash", "PowerShell"}
+
+// bashCommand extracts the inner pattern of a Bash or PowerShell permission
+// entry and normalizes Claude Code's prefix-wildcard syntax ("curl:*") to the
+// space form ("curl *"). A bare tool entry (no parens) grants every shell
+// command and normalizes to "*". Returns "" for non-shell entries.
+// NOTE: case-sensitive prefix match — replacing the old strings.EqualFold,
+// which fired on invalid entries like bash(curl *).
 func bashCommand(entry string) string {
-	const prefix = "Bash("
-	if !strings.HasPrefix(entry, prefix) || !strings.HasSuffix(entry, ")") {
-		return ""
+	entry = strings.TrimSpace(entry)
+	for _, tool := range shellTools {
+		if entry == tool {
+			return "*"
+		}
+		prefix := tool + "("
+		if strings.HasPrefix(entry, prefix) && strings.HasSuffix(entry, ")") {
+			inner := entry[len(prefix) : len(entry)-1]
+			if strings.HasSuffix(inner, ":*") {
+				inner = strings.TrimSuffix(inner, ":*") + " *"
+			}
+			return inner
+		}
 	}
-	return entry[len(prefix) : len(entry)-1]
+	return ""
+}
+
+// broadShellHeads are commands whose wildcard grant hands the agent an
+// unrestricted download-and-execute or full-shell primitive.
+var broadShellHeads = map[string]bool{
+	"curl": true, "wget": true, "sh": true, "bash": true, "zsh": true, "eval": true,
+}
+
+// isBroadShellGrant reports whether a permission entry is a broad shell
+// grant: Bash/PowerShell, Bash(*), or Bash(<risky-head> *) in any wildcard
+// syntax, including the no-space form Bash(curl*) which is strictly broader
+// than Bash(curl *) — it also matches e.g. curlx (G4).
+func isBroadShellGrant(entry string) bool {
+	cmd := bashCommand(entry)
+	if cmd == "" {
+		return false
+	}
+	if cmd == "*" {
+		return true
+	}
+	head, rest, found := strings.Cut(cmd, " ")
+	if found && rest == "*" && broadShellHeads[head] {
+		return true
+	}
+	// "curl*" (no space) is broader than "curl *": it also matches "curlx".
+	for h := range broadShellHeads {
+		if cmd == h+"*" {
+			return true
+		}
+	}
+	return false
+}
+
+// allowSubsumes reports whether a wildcard allow pattern covers the denied
+// pattern, respecting token boundaries ("r *" does not subsume "rm -rf *").
+func allowSubsumes(allow, deny string) bool {
+	if allow == deny {
+		return false
+	}
+	if allow == "*" {
+		return true
+	}
+	if !strings.HasSuffix(allow, " *") {
+		return false
+	}
+	allowPrefix := strings.TrimSuffix(allow, " *")
+	denyTrim := strings.TrimSuffix(deny, " *")
+	return denyTrim == allowPrefix || strings.HasPrefix(denyTrim, allowPrefix+" ")
 }
 
 type unsanctionedHookRule struct {
@@ -211,8 +265,8 @@ func (r *unrestrictedGrantRule) Match(content []byte, ctx model.FileContext) []m
 	for _, entry := range s.Permissions.Allow {
 		if strings.TrimSpace(entry) == "*" {
 			findings = append(findings, r.newFinding(ctx, 1,
-				`unrestricted permission grant: allow contains "*" (every tool and command permitted)`,
-				`Replace the "*" wildcard with an explicit allowlist of only the tools and subcommands the skill needs`))
+				`overbroad permission grant: allow contains "*"`,
+				`Current Claude Code skips an unanchored "*" allow glob with a warning, so this grants nothing — but it signals intent to disable the allowlist and may be honored by other harnesses or older versions. Replace it with an explicit list of the tools and subcommands the skill needs`))
 		}
 	}
 	return findings
@@ -224,7 +278,7 @@ func RegisterSettingsJSONRules(registry *RuleRegistry) {
 		baseRule: baseRule{
 			id:       "SD-023",
 			name:     "settings.json Unrestricted Permission Grant",
-			severity: model.SeverityHigh,
+			severity: model.SeverityMedium,
 			category: "SettingsJSON",
 			types:    []string{".json"},
 			axis:     axes.PermissionHygiene,
