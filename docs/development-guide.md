@@ -146,7 +146,7 @@ Configuration is in `.golangci.yml`:
    - A paired clean fixture test (must NOT trigger on benign content)
    - A `TestSDxxx_GatesNonAgentFile` test (must NOT fire on `node_modules/.../README.md` or similar non-agent paths)
 7. Run `make test` and `make lint` to verify
-8. The new rule's `(ID, Name, Severity, Category, Axis)` changes the registry checksum — release artifacts pinned to a previous checksum will refuse to load this binary until the new value is baked in
+8. The new rule's `(ID, Name, Severity, Category, Axis)` changes the registry checksum reported by `./bin/skill-detector version`. Nothing gates on the value, but note the new one in the CHANGELOG — it tells downstream consumers that grading behavior changed
 
 ## CI/CD
 
