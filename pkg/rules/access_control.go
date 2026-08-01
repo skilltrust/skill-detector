@@ -18,6 +18,20 @@ var (
 	reFullPath      = regexp.MustCompile(`(/(?:etc|home|root|var|tmp|usr|opt)/[^\s"')\]>,;|&#${}` + "`" + `]*)`)
 )
 
+// reNegatedGuidance matches prohibition phrasing. When it precedes a
+// sensitive-path mention on the same line, the line is security guidance,
+// not an access attempt. Bypassable by construction — the layered
+// mitigation is rule co-occurrence plus LLM triage; this trades a
+// contrived false-negative class for a guaranteed false-positive class.
+var reNegatedGuidance = regexp.MustCompile(`(?i)\b(never|do\s+not|don'?t|avoid|must\s+not|not\s+allowed|forbidden|refuse\s+to)\b`)
+
+// reDocumentaryContext matches lines that are documentation *about* sensitive
+// paths rather than instructions to touch them: Markdown table rows and
+// interrogative bullets from threat-model docs (dogfood FP-1, FP-2 verbatim).
+// Same tradeoff as reNegatedGuidance — bypassable by construction, but it
+// removes a guaranteed false-positive class.
+var reDocumentaryContext = regexp.MustCompile(`(?i)^\s*(\|.*\|\s*$|[-*]\s+(could|does|would|should|can|is|are|might|may)\b.*\?\s*$)`)
+
 // Credential path patterns as literal byte slices for bytes.Contains matching.
 var credentialPaths = [][]byte{
 	[]byte("~/.aws/"),
@@ -41,8 +55,14 @@ func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []mo
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
 		lineNum := i + 1
+		if reDocumentaryContext.Match(line) {
+			continue
+		}
 		for _, pattern := range credentialPaths {
 			if bytes.Contains(line, pattern) {
+				if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < bytes.Index(line, pattern) {
+					continue
+				}
 				desc := fmt.Sprintf("access to credential path %s", string(pattern))
 				findings = append(findings, r.newFinding(ctx, lineNum,
 					desc,

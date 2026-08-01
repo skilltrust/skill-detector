@@ -86,6 +86,15 @@ func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.F
 				"systemd service manipulation detected — persistence mechanism",
 				"Remove systemd references; skills should not install system services"))
 		case reShellProfile.Match(line):
+			// reDocumentaryContext and reNegatedGuidance damp threat-model prose
+			// mentioning shell profiles (dogfood FP-1). Bypassable by construction —
+			// see reNegatedGuidance comment in access_control.go for the tradeoff.
+			if reDocumentaryContext.Match(line) {
+				continue
+			}
+			if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < reShellProfile.FindIndex(line)[0] {
+				continue
+			}
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"shell profile modification detected — persistence mechanism",
 				"Remove shell profile modifications; skills should not alter user shell configuration"))

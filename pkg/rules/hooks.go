@@ -2,14 +2,17 @@ package rules
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
-// reUnquotedVar matches $VAR or ${VAR} that is NOT inside a double-quoted
-// string. Heuristic: variable preceded by anything other than ".
-var reUnquotedVar = regexp.MustCompile(`(^|[^"])\$\{?[A-Za-z_][A-Za-z0-9_]*\}?`)
+// reUnquotedVar captures $VAR / ${VAR} not preceded by a double quote.
+// Heuristic: variable preceded by anything other than ". CLAUDE_*-prefixed
+// variables are harness-provided (e.g. $CLAUDE_PROJECT_DIR) and are exempted
+// at the call site — they're not attacker-controlled input.
+var reUnquotedVar = regexp.MustCompile(`(^|[^"])\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
 
 type hookInterpolationRule struct {
 	baseRule
@@ -26,7 +29,14 @@ func (r *hookInterpolationRule) Match(content []byte, ctx model.FileContext) []m
 	var findings []model.Finding
 	for hookName, raw := range s.Hooks {
 		for _, cmd := range hookCommands(raw) {
-			if reUnquotedVar.MatchString(cmd) {
+			flagged := false
+			for _, m := range reUnquotedVar.FindAllStringSubmatch(cmd, -1) {
+				if !strings.HasPrefix(m[2], "CLAUDE_") {
+					flagged = true
+					break
+				}
+			}
+			if flagged {
 				findings = append(findings, r.newFinding(ctx, 1,
 					"hook "+hookName+" interpolates unquoted shell variable: "+cmd,
 					"Quote all variable expansions: use \"${VAR}\" not $VAR; sanitize untrusted input before interpolation"))

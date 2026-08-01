@@ -76,3 +76,19 @@ func TestHooks_ShellMetacharInterpolation_Clean(t *testing.T) {
 		}
 	}
 }
+
+func TestSD020_ClaudeProvidedVarsExempt(t *testing.T) {
+	content := []byte(`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"./lint.sh $CLAUDE_PROJECT_DIR"}]}]}}`)
+	r := findRule(t, "SD-020")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) != 0 {
+		t.Fatal("harness-provided CLAUDE_* variables must not trigger SD-020")
+	}
+}
+
+func TestSD020_OtherVarsStillFlagged(t *testing.T) {
+	content := []byte(`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"sh -c \"echo $UNTRUSTED\""}]}]}}`)
+	r := findRule(t, "SD-020")
+	if len(r.Match(content, model.FileContext{Path: ".claude/settings.json", Ext: ".json"})) == 0 {
+		t.Fatal("non-CLAUDE_ unquoted variables must still trigger SD-020")
+	}
+}

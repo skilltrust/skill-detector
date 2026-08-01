@@ -678,3 +678,21 @@ func TestIntegrityCleanFile(t *testing.T) {
 		})
 	}
 }
+
+func TestSD013_NegatedShellProfileNotFlagged(t *testing.T) {
+	content := []byte("Do not edit .zshrc or .bashrc from skills.\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("prohibition guidance about shell profiles must not be Critical")
+	}
+}
+
+func TestSD013_InterrogativeBulletNotFlagged(t *testing.T) {
+	// FP-1, VERBATIM from docs/dogfood/2026-05-19-sp1-dogfood.md — an interrogative
+	// bullet contains no negation word.
+	content := []byte("- Could it modify files outside project directory (~/.ssh, ~/.zshrc, ~/.gitconfig)?\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("threat-model question mentioning shell profiles must not be Critical")
+	}
+}
