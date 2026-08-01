@@ -152,7 +152,21 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 		if ignoreMatcher != nil {
 			relForIgnore, err := filepath.Rel(root, path)
 			if err == nil && relForIgnore != "." {
-				if ignoreMatcher.MatchesPath(filepath.ToSlash(relForIgnore)) {
+				matchPath := filepath.ToSlash(relForIgnore)
+				if d.IsDir() {
+					// go-gitignore's MatchesPath only recognizes a
+					// "dirname/"-style pattern against a queried path that
+					// itself ends in "/" — a bare directory path (no
+					// trailing slash) doesn't match even though the
+					// directory is unambiguously ignored. Append the
+					// trailing slash so both `dirname` and `dirname/`
+					// gitignore syntaxes match the directory node itself
+					// (not just files nested inside it), which matters for
+					// SkipDir and for counting an empty gitignored agent
+					// dir below.
+					matchPath += "/"
+				}
+				if ignoreMatcher.MatchesPath(matchPath) {
 					if d.IsDir() {
 						if walkableHiddenDirs[d.Name()] {
 							stats.GitignoredAgentPaths++

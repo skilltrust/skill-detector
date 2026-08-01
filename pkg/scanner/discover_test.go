@@ -546,7 +546,61 @@ func TestDiscover_CountsGitignoredAgentPaths(t *testing.T) {
 	if len(files) != 0 {
 		t.Fatalf("expected 0 files (all gitignored), got %d", len(files))
 	}
-	if stats.GitignoredAgentPaths < 2 {
-		t.Fatalf("expected >=2 gitignored agent paths counted, got %d", stats.GitignoredAgentPaths)
+	// Exactly 2: the .claude/ dir counts once (SkipDir'd as a whole, so the
+	// nested settings.json inside it must NOT also be counted), plus
+	// CLAUDE.md counts once. Not >=2 — an exact count catches double-counting
+	// if the dir-skip and nested-file branches ever both fire for the same
+	// gitignored subtree.
+	if stats.GitignoredAgentPaths != 2 {
+		t.Fatalf("expected exactly 2 gitignored agent paths counted, got %d", stats.GitignoredAgentPaths)
+	}
+}
+
+func TestDiscover_CountsEmptyGitignoredAgentDir_NoSlashPattern(t *testing.T) {
+	root := t.TempDir()
+	// ".claude" with no trailing slash is valid gitignore syntax and matches
+	// the directory the same as "dirname/" would.
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".claude\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	files, stats, err := DiscoverWithOptions(root, DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+	if stats.GitignoredAgentPaths != 1 {
+		t.Fatalf("expected exactly 1 gitignored agent path (the empty .claude dir itself), got %d", stats.GitignoredAgentPaths)
+	}
+}
+
+func TestDiscover_CountsEmptyGitignoredAgentDir_TrailingSlashPattern(t *testing.T) {
+	root := t.TempDir()
+	// ".claude/" with a trailing slash is the standard "ignore this
+	// directory" gitignore idiom. go-gitignore's MatchesPath requires the
+	// queried path to also end in "/" to match a directory node itself
+	// (see discover.go's matchPath handling) — this test guards that an
+	// empty gitignored agent dir is still counted under this syntax.
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".claude/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	files, stats, err := DiscoverWithOptions(root, DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+	if stats.GitignoredAgentPaths != 1 {
+		t.Fatalf("expected exactly 1 gitignored agent path (the empty .claude dir itself), got %d", stats.GitignoredAgentPaths)
 	}
 }
