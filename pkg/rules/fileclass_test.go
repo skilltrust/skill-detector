@@ -117,6 +117,10 @@ func TestIsInstructionFile_MultiHarness(t *testing.T) {
 	}
 	no := []string{
 		"README.md", "docs/agents.md", "node_modules/x/AGENTS.md", "style.mdc",
+		// Boundary-safety: a basename that merely contains ".github/" or
+		// ".cursor/rules/" as a substring, without an actual matching
+		// directory component, must not match.
+		"foo.github/copilot-instructions.md", "foo.cursor/rules/x.mdc",
 	}
 	for _, p := range yes {
 		if !IsInstructionFile(p) {

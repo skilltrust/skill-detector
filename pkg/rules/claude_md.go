@@ -75,7 +75,7 @@ func RegisterClaudeMDRules(registry *RuleRegistry) {
 			name:     "CLAUDE.md SQL Injection By Instruction",
 			severity: model.SeverityHigh,
 			category: "ClaudeMD",
-			types:    []string{".md", ".mdc"},
+			types:    []string{".md", ".mdc", ".cursorrules", ".windsurfrules"},
 			axis:     axes.Security,
 		},
 	})
@@ -85,7 +85,7 @@ func RegisterClaudeMDRules(registry *RuleRegistry) {
 			name:     "CLAUDE.md Comment-and-Control",
 			severity: model.SeverityCritical,
 			category: "ClaudeMD",
-			types:    []string{".md", ".mdc"},
+			types:    []string{".md", ".mdc", ".cursorrules", ".windsurfrules"},
 			axis:     axes.Security,
 		},
 	})

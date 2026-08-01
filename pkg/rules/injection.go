@@ -148,7 +148,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			name:     "Prompt Injection",
 			severity: model.SeverityCritical,
 			category: "Injection",
-			types:    []string{".md", ".mdc", ".txt", ".yaml", ".yml", ".json", ".toml"},
+			types:    []string{".md", ".mdc", ".txt", ".yaml", ".yml", ".json", ".toml", ".cursorrules", ".windsurfrules"},
 			axis:     axes.Security,
 		},
 	})

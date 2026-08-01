@@ -17,12 +17,16 @@ type Rule interface {
 }
 
 // ContentScanTypes is the extension set for line-oriented content rules:
-// every scannable config/doc extension plus script languages and the empty
-// extension (extensionless hook scripts inside agent config dirs).
+// every scannable config/doc extension plus script languages, the
+// extensionless case (hook scripts inside agent config dirs), and the
+// literal ".cursorrules"/".windsurfrules" extensions filepath.Ext returns
+// for those root-level instruction dotfiles (they have no dot beyond the
+// leading one, so the "extension" is the whole basename).
 var ContentScanTypes = []string{
 	".sh", ".bash", ".zsh", ".md", ".mdc", ".yaml", ".yml", ".txt", ".json", ".toml",
 	".env", ".cfg", ".conf", ".ini", ".xml",
 	".py", ".js", ".ts", ".mjs", ".rb", ".pl", ".ps1", "",
+	".cursorrules", ".windsurfrules",
 }
 
 // baseRule embeds common fields shared by all rules.

@@ -57,13 +57,22 @@ func IsInstructionFile(path string) bool {
 	if instructionFileNames[base] {
 		return true
 	}
-	if base == "copilot-instructions.md" && strings.Contains(clean, ".github/") {
+	if base == "copilot-instructions.md" && hasDirComponent(clean, ".github/") {
 		return true
 	}
-	if strings.HasSuffix(base, ".mdc") && strings.Contains(clean, ".cursor/rules/") {
+	if strings.HasSuffix(base, ".mdc") && hasDirComponent(clean, ".cursor/rules/") {
 		return true
 	}
 	return false
+}
+
+// hasDirComponent reports whether clean has d as a path-boundary-safe
+// component — either at the start of the path or immediately after a "/".
+// Plain strings.Contains(clean, d) would wrongly match a basename that
+// merely contains d as a substring, e.g. "foo.github/x" containing
+// ".github/" without an actual .github directory component.
+func hasDirComponent(clean, d string) bool {
+	return strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d)
 }
 
 // IsClaudeSettings returns true for .claude/settings.json and
