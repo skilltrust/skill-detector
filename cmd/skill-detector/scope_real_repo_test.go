@@ -54,7 +54,7 @@ func TestRealWorldRegression(t *testing.T) {
 
 	// Default scan.
 	registry := rules.DefaultRegistry()
-	files, err := scanner.DiscoverWithOptions(dir, scanner.DiscoverOptions{ScanAll: false})
+	files, _, err := scanner.DiscoverWithOptions(dir, scanner.DiscoverOptions{ScanAll: false})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}

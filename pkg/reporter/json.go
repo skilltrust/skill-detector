@@ -22,6 +22,9 @@ func (j *JSONReporter) Report(result model.ScanResult, w io.Writer) error {
 	if result.ConfigOverrides == nil {
 		result.ConfigOverrides = []model.ConfigOverride{}
 	}
+	if result.Warnings == nil {
+		result.Warnings = []string{}
+	}
 	for i := range result.Permissions {
 		if result.Permissions[i].Details == nil {
 			result.Permissions[i].Details = []string{}

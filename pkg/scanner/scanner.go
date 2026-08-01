@@ -78,7 +78,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		return nil, err
 	}
 
-	files, err := DiscoverWithOptions(root, DiscoverOptions{ScanAll: s.opts.ScanAll})
+	files, discoverStats, err := DiscoverWithOptions(root, DiscoverOptions{ScanAll: s.opts.ScanAll})
 	if err != nil {
 		return nil, fmt.Errorf("scanner: %w", err)
 	}
@@ -134,6 +134,12 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		axesResult[a] = grade.Grade(a, findings)
 	}
 
+	var warnings []string
+	if discoverStats.GitignoredAgentPaths > 0 {
+		warnings = append(warnings,
+			fmt.Sprintf("%d agent config path(s) were skipped because they are gitignored; the scan may be blind to the primary attack surface. Re-run with --scan-all to include them.", discoverStats.GitignoredAgentPaths))
+	}
+
 	return &model.ScanResult{
 		Findings:        findings,
 		Permissions:     perms,
@@ -142,8 +148,9 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		RuleCount:       len(activeRules),
 		Version:         s.opts.Version,
 		Checksum:        s.reg.Checksum(),
-		SchemaVersion:   "1.3",
+		SchemaVersion:   "1.4",
 		Axes:            axesResult,
+		Warnings:        warnings,
 	}, nil
 }
 

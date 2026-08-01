@@ -54,7 +54,7 @@ func TestDiscover(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			files, err := Discover(tt.root)
+			files, _, err := Discover(tt.root)
 
 			if tt.wantErr {
 				if err == nil {
@@ -100,7 +100,7 @@ func TestDiscover(t *testing.T) {
 }
 
 func TestDiscoverFileContextFields(t *testing.T) {
-	files, err := Discover("../../testdata/clean/simple-skill")
+	files, _, err := Discover("../../testdata/clean/simple-skill")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestDiscoverSkipsNonScannableExtensions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := Discover(tmp)
+	files, _, err := Discover(tmp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestDiscoverWalksClaudeDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := Discover(dir)
+	files, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestDiscoverStillSkipsGitDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := Discover(dir)
+	files, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestDiscover_AgentDirScriptsAndExtensionless(t *testing.T) {
 	mustWrite(".claude/scripts/sync.py", "import os\n")
 	mustWrite("outside.py", "print('hi')\n")
 
-	files, err := Discover(root)
+	files, _, err := Discover(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestDiscover_MultiHarnessFiles(t *testing.T) {
 		t.Skip("symlinks unsupported on this platform")
 	}
 
-	files, err := DiscoverWithOptions(root, DiscoverOptions{})
+	files, _, err := DiscoverWithOptions(root, DiscoverOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestDiscoverRespectsGitignore(t *testing.T) {
 		}
 	}
 
-	discovered, err := Discover(dir)
+	discovered, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestDiscoverGitignoreNegation(t *testing.T) {
 		}
 	}
 
-	discovered, err := Discover(dir)
+	discovered, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestDiscoverMissingGitignoreOK(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	discovered, err := Discover(dir)
+	discovered, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestDiscoverScanAllOverridesGitignore(t *testing.T) {
 	}
 
 	// Default: secret.md gitignored, not discovered.
-	def, err := Discover(dir)
+	def, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestDiscoverScanAllOverridesGitignore(t *testing.T) {
 	}
 
 	// ScanAll: secret.md surfaces.
-	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	all, _, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
 	if err != nil {
 		t.Fatalf("DiscoverWithOptions: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestScanAllStillSkipsGitDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	all, _, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
 	if err != nil {
 		t.Fatalf("DiscoverWithOptions: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestScanAllSkipsNodeModulesToo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
+	all, _, err := DiscoverWithOptions(dir, DiscoverOptions{ScanAll: true})
 	if err != nil {
 		t.Fatalf("DiscoverWithOptions: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestDiscoverSkipsHardcodedDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := Discover(dir)
+	files, _, err := Discover(dir)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -521,5 +521,32 @@ func TestDiscoverSkipsHardcodedDirs(t *testing.T) {
 	}
 	if !foundSkill {
 		t.Error("SKILL.md should still be discovered")
+	}
+}
+
+func TestDiscover_CountsGitignoredAgentPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".claude/\nCLAUDE.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".claude", "settings.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("# x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, stats, err := DiscoverWithOptions(root, DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files (all gitignored), got %d", len(files))
+	}
+	if stats.GitignoredAgentPaths < 2 {
+		t.Fatalf("expected >=2 gitignored agent paths counted, got %d", stats.GitignoredAgentPaths)
 	}
 }

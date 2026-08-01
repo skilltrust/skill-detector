@@ -91,25 +91,35 @@ type DiscoverOptions struct {
 	ScanAll bool
 }
 
+// DiscoverStats reports counters about the discovery walk that don't belong
+// in the file list itself — currently just how many agent-shaped paths were
+// skipped because of .gitignore, so callers can warn that the scan may be
+// blind to the primary attack surface.
+type DiscoverStats struct {
+	GitignoredAgentPaths int
+}
+
 // Discover walks the root directory and returns scannable files using
 // default options (honor .gitignore, skip hardcoded noise dirs).
-func Discover(root string) ([]model.FileContext, error) {
+func Discover(root string) ([]model.FileContext, DiscoverStats, error) {
 	return discoverImpl(root, DiscoverOptions{})
 }
 
 // DiscoverWithOptions is the option-aware sibling of Discover. Discover()
 // remains for callers that want default behavior.
-func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext, error) {
+func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext, DiscoverStats, error) {
 	return discoverImpl(root, opts)
 }
 
-func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error) {
+func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, DiscoverStats, error) {
 	root = filepath.Clean(root)
+
+	var stats DiscoverStats
 
 	// Open a scoped root to prevent symlink TOCTOU traversal (gosec G122).
 	osRoot, err := os.OpenRoot(root)
 	if err != nil {
-		return nil, fmt.Errorf("discover: %w", err)
+		return nil, stats, fmt.Errorf("discover: %w", err)
 	}
 	defer osRoot.Close()
 
@@ -144,7 +154,13 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error
 			if err == nil && relForIgnore != "." {
 				if ignoreMatcher.MatchesPath(filepath.ToSlash(relForIgnore)) {
 					if d.IsDir() {
+						if walkableHiddenDirs[d.Name()] {
+							stats.GitignoredAgentPaths++
+						}
 						return filepath.SkipDir
+					}
+					if isAgentShapedPath(relForIgnore) {
+						stats.GitignoredAgentPaths++
 					}
 					return nil
 				}
@@ -205,10 +221,22 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, error
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("discover: %w", err)
+		return nil, stats, fmt.Errorf("discover: %w", err)
 	}
 
-	return files, nil
+	return files, stats, nil
+}
+
+// isAgentShapedPath mirrors rules.IsAgentFile for warning purposes only.
+func isAgentShapedPath(rel string) bool {
+	base := filepath.Base(rel)
+	switch base {
+	case "SKILL.md", "skill.yaml", "CLAUDE.md", ".mcp.json":
+		return true
+	case "settings.json", "settings.local.json", "mcp.json":
+		return inAgentDir(rel)
+	}
+	return false
 }
 
 // readFromRoot reads file content through the scoped os.Root to avoid TOCTOU

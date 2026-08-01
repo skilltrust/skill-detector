@@ -67,6 +67,11 @@ func (t *TextReporter) Report(result model.ScanResult, w io.Writer) error {
 		t.writeTrustScoreBlock(w, result)
 	}
 
+	// Warnings (e.g. gitignored agent config paths skipped by the scan).
+	for _, warning := range result.Warnings {
+		fmt.Fprintln(w, t.Theme.Colorize("⚠ "+warning, ansiYellow))
+	}
+
 	// Finding rows.
 	if !clean {
 		fmt.Fprintln(w)
