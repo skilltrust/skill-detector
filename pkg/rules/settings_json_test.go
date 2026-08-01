@@ -10,14 +10,12 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
-// findRule returns the registered settings.json rule with the given ID, or
-// fails the test if it is not found.
+// findRule returns the registered rule with the given ID from the default
+// registry (all built-in rule groups), or fails the test if it is not found.
 func findRule(t *testing.T, id string) Rule {
 	t.Helper()
-	registry := NewRegistry()
-	RegisterSettingsJSONRules(registry)
-	RegisterMCPRules(registry)
-	for _, rule := range registry.RulesFor(".json") {
+	registry := DefaultRegistry()
+	for _, rule := range registry.All() {
 		if rule.ID() == id {
 			return rule
 		}

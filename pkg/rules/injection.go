@@ -3,6 +3,7 @@ package rules
 import (
 	"bytes"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -24,6 +25,22 @@ var zeroWidthRunes = []rune{
 	'\u200B', '\u200C', '\u200D', '\uFEFF', '\u2060', '\u200E', '\u200F',
 }
 
+// fencedCodeLines returns the 1-based line numbers inside ``` fenced blocks.
+func fencedCodeLines(content []byte) map[int]bool {
+	out := make(map[int]bool)
+	inFence := false
+	for i, line := range bytes.Split(content, []byte("\n")) {
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("```")) {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			out[i+1] = true
+		}
+	}
+	return out
+}
+
 type shellInjectionRule struct {
 	baseRule
 }
@@ -32,10 +49,17 @@ func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []mode
 	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
+	var fenced map[int]bool
+	if strings.HasSuffix(ctx.Path, ".md") {
+		fenced = fencedCodeLines(content)
+	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
 		lineNum := i + 1
+		if fenced != nil && !fenced[lineNum] {
+			continue
+		}
 		if reEvalVar.Match(line) {
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"shell injection via eval with variable input",
@@ -137,7 +161,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			name:     "Shell Injection",
 			severity: model.SeverityCritical,
 			category: "Injection",
-			types:    []string{".sh", ".bash"},
+			types:    []string{".sh", ".bash", ".zsh", ".md", ""},
 			axis:     axes.Security,
 		},
 	})

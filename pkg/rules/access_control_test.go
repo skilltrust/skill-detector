@@ -389,18 +389,15 @@ func TestRegistryFileTypeDispatch(t *testing.T) {
 	RegisterInjectionRules(registry)
 	RegisterAccessControlRules(registry)
 
-	// .md file should NOT get SD-001 (shell injection) rules
+	// .md file SHOULD get SD-001 (shell injection inside fenced code blocks),
+	// SD-002 (prompt injection), SD-003 (path traversal), SD-004 (credential access)
 	mdRules := registry.RulesFor(".md")
-	for _, r := range mdRules {
-		if r.ID() == "SD-001" {
-			t.Error("SD-001 should not apply to .md files")
-		}
-	}
-
-	// .md file SHOULD get SD-002 (prompt injection), SD-003 (path traversal), SD-004 (credential access)
 	mdIDs := map[string]bool{}
 	for _, r := range mdRules {
 		mdIDs[r.ID()] = true
+	}
+	if !mdIDs["SD-001"] {
+		t.Error("SD-001 should apply to .md files (scans fenced code blocks)")
 	}
 	if !mdIDs["SD-002"] {
 		t.Error("SD-002 should apply to .md files")

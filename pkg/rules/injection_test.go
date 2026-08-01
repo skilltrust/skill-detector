@@ -363,6 +363,56 @@ func TestShellInjectionFixture(t *testing.T) {
 	}
 }
 
+func TestSD001_FiresInsideMarkdownFence(t *testing.T) {
+	content := []byte("# Skill\n\n```bash\neval $UNTRUSTED_INPUT\n```\n")
+	r := findRule(t, "SD-001")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 1 {
+		t.Fatalf("SD-001 must fire once inside a bash fence in SKILL.md, got %d", len(findings))
+	}
+	if findings[0].Line != 4 {
+		t.Fatalf("expected line 4, got %d", findings[0].Line)
+	}
+}
+
+func TestSD001_IgnoresProseInMarkdown(t *testing.T) {
+	content := []byte("Never write things like eval $X in your scripts.\n")
+	r := findRule(t, "SD-001")
+	if len(r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})) != 0 {
+		t.Fatal("SD-001 must not fire on prose outside fences in markdown")
+	}
+}
+
+func TestShellInFenceFixture(t *testing.T) {
+	registry := NewRegistry()
+	RegisterInjectionRules(registry)
+
+	content, err := os.ReadFile(filepath.Join("..", "..", "testdata", "malicious", "shell-in-fence", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	ctx := model.FileContext{Path: "SKILL.md", Ext: ".md", Content: content}
+	rules := registry.RulesFor(".md")
+	var findings []model.Finding
+	for _, rule := range rules {
+		findings = append(findings, rule.Match(ctx.Content, ctx)...)
+	}
+
+	var sd001 []model.Finding
+	for _, f := range findings {
+		if f.RuleID == "SD-001" {
+			sd001 = append(sd001, f)
+		}
+	}
+	if len(sd001) != 1 {
+		t.Fatalf("got %d SD-001 findings, want 1", len(sd001))
+	}
+	if sd001[0].Line != 4 {
+		t.Errorf("Line = %d, want 4", sd001[0].Line)
+	}
+}
+
 func TestSD001_GatesNonAgentFile(t *testing.T) {
 	// Shell injection pattern that WOULD fire on agent shell scripts.
 	content := []byte("#!/bin/bash\neval \"$USER_INPUT\"")
