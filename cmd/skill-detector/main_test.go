@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -1145,6 +1146,13 @@ func TestCLIFailOnAxisFlag_InvalidFormat(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for invalid --fail-on-axis format (missing '=')")
+	}
+}
+
+func TestCheckFailOnAxis_UnknownAxisErrors(t *testing.T) {
+	_, err := checkFailOnAxis([]string{"secuirty=B"}, map[axes.Axis]model.AxisResult{})
+	if err == nil {
+		t.Fatal("misspelled axis must be an error, not silently ignored")
 	}
 }
 

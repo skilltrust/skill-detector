@@ -156,10 +156,12 @@ skill-detector scan . --scan-all
 | `0`  | No findings                                                     |
 | `1`  | Findings, all below your `--fail-on` / `--fail-on-axis` threshold |
 | `2`  | Finding at or above threshold (worst of severity OR axis-grade) |
+| `3`  | Tool error (bad arguments, unreadable path, internal failure)  |
 
 ### Configuration
 
-Drop a `.skill-detector.yml` next to the skill (or pass `--config`) to toggle
+Drop a `.skill-detector.yml` (or `.skill-detectorrc` — checked first, for
+backward compatibility) next to the skill (or pass `--config`) to toggle
 rules and allowlist known-safe patterns. Defaults are sensible; most users
 will only need config to suppress false positives.
 
