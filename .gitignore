@@ -25,3 +25,8 @@ docs/*
 
 # Agent scratch: per-task briefs and reports
 .agent-scratch/
+
+# scripts/corpus-baseline.sh default output dirs — third-party skill
+# packages cloned by --fetch; never commit them on this public repo.
+.corpus/
+.corpus-results/

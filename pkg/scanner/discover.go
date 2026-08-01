@@ -168,7 +168,14 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 				}
 				if ignoreMatcher.MatchesPath(matchPath) {
 					if d.IsDir() {
-						if walkableHiddenDirs[d.Name()] {
+						// Count against inAgentDir (.claude/.codex/etc.), not
+						// walkableHiddenDirs — the latter also contains
+						// .vscode/.github, which are walkable for file
+						// matching but are NOT agent config dirs. A
+						// gitignored .vscode/ (near-universal boilerplate)
+						// must not trip the "blind to the primary attack
+						// surface" warning.
+						if inAgentDir(relForIgnore + "/") {
 							stats.GitignoredAgentPaths++
 						}
 						return filepath.SkipDir

@@ -473,3 +473,24 @@ func TestSD004_InterrogativeBulletWithShellInvocationStillFlagged(t *testing.T) 
 		t.Fatal("an interrogative bullet smuggling an imperative shell command must still fire")
 	}
 }
+
+func TestSD004_BackticksPathTableRowNotFlagged(t *testing.T) {
+	// FP-2 reformatted with Markdown code spans around the paths — over-veto
+	// found in review: a bare backtick anywhere on the line used to cancel
+	// the documentary damping even though the span content is just a path.
+	content := []byte("| Broken Access Control | Reading `~/.ssh/`, `~/.aws/` credential paths | Critical |\n")
+	r := findRule(t, "SD-004")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("credential paths wrapped in Markdown code spans in a table row must not fire")
+	}
+}
+
+func TestSD004_BackticksCommandTableRowStillFlagged(t *testing.T) {
+	// A code span that wraps an actual command (not just a path) must still
+	// veto the documentary damping.
+	content := []byte("| step | `cat ~/.ssh/id_rsa` | run this now |\n")
+	r := findRule(t, "SD-004")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) == 0 {
+		t.Fatal("a code span smuggling an imperative shell command must still fire")
+	}
+}

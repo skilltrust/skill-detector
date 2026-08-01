@@ -57,11 +57,11 @@ func (r *bashCurlWildcardRule) Match(content []byte, ctx model.FileContext) []mo
 	return findings
 }
 
-type subcommandLimitBypassRule struct {
+type redundantDenyRule struct {
 	baseRule
 }
 
-func (r *subcommandLimitBypassRule) Match(content []byte, ctx model.FileContext) []model.Finding {
+func (r *redundantDenyRule) Match(content []byte, ctx model.FileContext) []model.Finding {
 	if !IsClaudeSettings(ctx.Path) {
 		return nil
 	}
@@ -299,10 +299,10 @@ func RegisterSettingsJSONRules(registry *RuleRegistry) {
 			axis:     axes.PermissionHygiene,
 		},
 	})
-	registry.Register(&subcommandLimitBypassRule{
+	registry.Register(&redundantDenyRule{
 		baseRule: baseRule{
 			id:       "SD-018",
-			name:     "settings.json Subcommand Limit Bypass",
+			name:     "settings.json Redundant Deny Rule",
 			severity: model.SeverityHigh,
 			category: "SettingsJSON",
 			types:    []string{".json"},

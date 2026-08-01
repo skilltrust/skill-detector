@@ -579,6 +579,33 @@ func TestDiscover_CountsEmptyGitignoredAgentDir_NoSlashPattern(t *testing.T) {
 	}
 }
 
+func TestDiscover_GitignoredVscodeDirNotCounted(t *testing.T) {
+	// .vscode/ in .gitignore is near-universal editor boilerplate and is not
+	// an agent config dir (see inAgentDir / walkableHiddenDirs comments) —
+	// it must not trip the "blind to the primary attack surface" warning.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".vscode/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".vscode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".vscode", "settings.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, stats, err := DiscoverWithOptions(root, DiscoverOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files (all gitignored), got %d", len(files))
+	}
+	if stats.GitignoredAgentPaths != 0 {
+		t.Fatalf("expected 0 gitignored agent paths (.vscode/ is not an agent config dir), got %d", stats.GitignoredAgentPaths)
+	}
+}
+
 func TestDiscover_CountsEmptyGitignoredAgentDir_TrailingSlashPattern(t *testing.T) {
 	root := t.TempDir()
 	// ".claude/" with a trailing slash is the standard "ignore this

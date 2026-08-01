@@ -40,7 +40,20 @@ var reDocumentaryContext = regexp.MustCompile(`(?i)^\s*(\|.*\|\s*$|[-*]\s+(could
 // executable command is present, even inside a documentary-shaped line.
 // Vetoes reDocumentaryContext: a table row or interrogative bullet that
 // contains a real command is not documentation, regardless of its shape.
-var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|wget|nc|dd|tar|base64|openssl|eval|exec|source|sh|bash|zsh|chmod|chown|python3?|perl|ruby|node)\b\s+\S|\$\(|` + "`" + `|>>|>`)
+//
+// Deliberately does NOT veto on a bare backtick: Markdown code spans wrap
+// paths in documentation near-universally (a code span reading ~/.ssh/),
+// and a code span containing only a path is not an invocation. A
+// backtick-wrapped command (a code span reading cat ~/.ssh/id_rsa) still
+// vetoes because its content independently matches the imperative-token
+// branch below — the backtick characters themselves carry no signal, only
+// the text they wrap does.
+//
+// The single-`>` branch requires a redirect-shaped target (`~`, `./`, `/`,
+// `$VAR`) and excludes a preceding `-`, so a Markdown arrow ("writes to
+// .zshrc -> persistence") does not veto — `>>` (append) still vetoes
+// unconditionally since it has no legitimate non-shell reading in prose.
+var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|wget|nc|dd|tar|base64|openssl|eval|exec|source|sh|bash|zsh|chmod|chown|python3?|perl|ruby|node)\b\s+\S|\$\(|>>|(?:^|[^-])>\s*[~./$]`)
 
 // Credential path patterns as literal byte slices for bytes.Contains matching.
 var credentialPaths = [][]byte{

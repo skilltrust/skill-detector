@@ -38,13 +38,23 @@
   wildcard) and `Bash(curl*)` (no-space wildcard, strictly broader than
   `Bash(curl *)`) are now recognized, as is the PowerShell tool shape
   alongside Bash. SD-017/SD-018/SD-023 all share the widened parser.
-- **SD-018 reworded.** Deny still wins over allow in Claude Code, so a
-  narrower `deny` next to a broader `allow` was never an actual bypass —
-  it's a redundant deny that signals the allow is overbroad. The finding
-  message and remediation now say that instead of "bypass".
-- **SD-023 downgraded High → Medium.** Registry checksum moved to
-  `7eb38edcd0820514` (severity is part of the hashed rule metadata,
-  ADR-0003).
+- **SD-018 reworded and renamed** to "settings.json Redundant Deny Rule"
+  (was "Subcommand Limit Bypass"). Deny still wins over allow in Claude
+  Code, so a narrower `deny` next to a broader `allow` was never an actual
+  bypass — it's a redundant deny that signals the allow is overbroad. The
+  rule name, finding message, and remediation now say that instead of
+  "bypass".
+- **SD-004/SD-013 damping veto narrowed.** The shell-invocation veto used to
+  cancel the documentary damping on a bare backtick or bare `>` anywhere on
+  the line, which reintroduced the FP class for any Markdown-formatted
+  threat-model doc (code-span-wrapped paths, `->` arrows in table rows). A
+  backtick now only vetoes via the text it wraps (an imperative command
+  span still fires; a path span doesn't), and a single `>` only vetoes when
+  it's redirect-shaped (`>` followed by `~`, `./`, `/`, or `$`, not
+  preceded by `-`) — `>>` still vetoes unconditionally.
+- **SD-023 downgraded High → Medium; SD-018 rename above.** Registry
+  checksum moved to `589619b6386d2c41` (severity and name are both part of
+  the hashed rule metadata, ADR-0003).
 - **SD-002 (prompt injection)** now also scans `.claude/commands/`,
   `.claude/agents/`, and skill content files, not just `SKILL.md`/`CLAUDE.md`.
 - **SD-001** now scans fenced bash code blocks inside Markdown
@@ -53,7 +63,9 @@
   scripts, matching the agent-dir script discovery above.
 - **Invisible-Unicode coverage** widened to detect the Unicode Tags block
   and bidi-override characters, and now emits one finding per affected line
-  instead of one per file.
+  instead of one per invisible character (a line with multiple invisible
+  characters used to produce a finding per character; it now collapses to
+  one finding per line).
 - **False-positive damping.** SD-004/SD-013 no longer flag prohibition
   guidance ("never touch `~/.ssh`") or documentary context (Markdown table
   rows, interrogative bullets) as Critical, with a shell-invocation guard so
