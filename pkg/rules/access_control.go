@@ -28,9 +28,19 @@ var reNegatedGuidance = regexp.MustCompile(`(?i)\b(never|do\s+not|don'?t|avoid|m
 // reDocumentaryContext matches lines that are documentation *about* sensitive
 // paths rather than instructions to touch them: Markdown table rows and
 // interrogative bullets from threat-model docs (dogfood FP-1, FP-2 verbatim).
-// Same tradeoff as reNegatedGuidance — bypassable by construction, but it
-// removes a guaranteed false-positive class.
+// Shape alone is bypassable — a table row or question can smuggle an actual
+// command ("| step | cat ~/.ssh/id_rsa | run this now |") — so callers MUST
+// also consult reShellInvocation and skip the damping when it matches.
+// Remaining documented bypass after that guard: negation-phrasing games
+// (see reNegatedGuidance), same tradeoff as elsewhere in this file.
 var reDocumentaryContext = regexp.MustCompile(`(?i)^\s*(\|.*\|\s*$|[-*]\s+(could|does|would|should|can|is|are|might|may)\b.*\?\s*$)`)
+
+// reShellInvocation matches imperative shell-command tokens (as standalone
+// words followed by an argument) or shell metacharacters that indicate an
+// executable command is present, even inside a documentary-shaped line.
+// Vetoes reDocumentaryContext: a table row or interrogative bullet that
+// contains a real command is not documentation, regardless of its shape.
+var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|wget|nc|dd|tar|base64|openssl|eval|exec|source|sh|bash|zsh|chmod|chown|python3?|perl|ruby|node)\b\s+\S|\$\(|` + "`" + `|>>|>`)
 
 // Credential path patterns as literal byte slices for bytes.Contains matching.
 var credentialPaths = [][]byte{
@@ -55,7 +65,7 @@ func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []mo
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
 		lineNum := i + 1
-		if reDocumentaryContext.Match(line) {
+		if reDocumentaryContext.Match(line) && !reShellInvocation.Match(line) {
 			continue
 		}
 		for _, pattern := range credentialPaths {

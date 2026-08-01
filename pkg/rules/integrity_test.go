@@ -696,3 +696,13 @@ func TestSD013_InterrogativeBulletNotFlagged(t *testing.T) {
 		t.Fatal("threat-model question mentioning shell profiles must not be Critical")
 	}
 }
+
+func TestSD013_TableRowWithShellInvocationStillFlagged(t *testing.T) {
+	// Bypass found in review: a table-row shape alone was enough to suppress
+	// the finding even when the cell contains an actual persistence command.
+	content := []byte("| step | echo 'export PATH' >> ~/.zshrc | note |\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) == 0 {
+		t.Fatal("a table row smuggling a shell-profile append command must still fire")
+	}
+}
