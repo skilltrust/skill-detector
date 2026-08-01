@@ -212,7 +212,7 @@ func TestPromptInjectionRule(t *testing.T) {
 			name:      "multiple zero-width chars on one line",
 			content:   "a\u200Bb\u200Cc",
 			ext:       ".md",
-			wantCount: 2,
+			wantCount: 1,
 		},
 		{
 			name:       "multi-line HTML comment with hidden instruction",
@@ -488,5 +488,31 @@ func TestPromptInjectionCommandsFixture(t *testing.T) {
 	// Verify finding is SD-002.
 	if findings[0].RuleID != "SD-002" {
 		t.Errorf("expected SD-002, got %q", findings[0].RuleID)
+	}
+}
+
+func TestSD002_UnicodeTagsBlock(t *testing.T) {
+	// "hi" followed by TAG LATIN SMALL LETTER A (U+E0061) — invisible payload channel.
+	content := []byte("hi\U000E0061\U000E0062\n")
+	r := findRule(t, "SD-002")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 finding for a line with invisible tag chars, got %d", len(findings))
+	}
+}
+
+func TestSD002_BidiOverride(t *testing.T) {
+	content := []byte("normal \u202ereversed\n")
+	r := findRule(t, "SD-002")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 1 {
+		t.Fatal("bidi override control must produce one finding")
+	}
+}
+
+func TestSD002_OneFindingPerLineForZeroWidth(t *testing.T) {
+	content := []byte("a\u200bb\u200bc\u200bd\n")
+	r := findRule(t, "SD-002")
+	if got := len(r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})); got != 1 {
+		t.Fatalf("multiple invisible chars on one line must collapse to 1 finding, got %d", got)
 	}
 }
