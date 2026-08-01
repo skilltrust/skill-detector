@@ -72,21 +72,21 @@ directory.
 
 ## What it checks
 
-Ten rule categories (21 rules total), purpose-built for AI agent skill packages
+Ten rule categories (24 rules total), purpose-built for AI agent skill packages
 and the surrounding configuration files:
 
 | Category             | Catches                                                 |
 | -------------------- | ------------------------------------------------------- |
-| **Injection**        | Shell / command injection, prompt injection             |
+| **Injection**        | Shell / command injection (incl. bash fences in Markdown), prompt injection |
 | **Supply chain**     | Suspicious deps, unpinned installs, typosquats          |
-| **Exfiltration**     | Outbound HTTP to unknown hosts, clipboard / env reads   |
+| **Exfiltration**     | Outbound HTTP to unknown hosts, clipboard / env reads, DNS tunneling |
 | **Misconfiguration** | Over-broad permissions, unsafe defaults                 |
 | **Integrity**        | Tampered or unsigned files                              |
 | **Access control**   | Permission-declaration vs. actual-behavior mismatches   |
 | **CLAUDE.md** *(new in v0.2)* | SQL-injection-by-instruction, Comment-and-Control patterns |
-| **settings.json** *(new)*     | `Bash(curl *)` wildcards, deny-bypass-via-broader-allow, unsanctioned hooks |
-| **Hooks** *(new)*             | Shell metacharacter interpolation in hook command strings |
-| **MCP** *(new)*               | External-domain reach by MCP servers (raise to High with `--strict-mcp`) |
+| **settings.json** *(new)*     | `Bash(curl:*)`/`Bash(curl*)` and PowerShell wildcards, unrestricted `"*"` grant, redundant deny made moot by a broader allow, unsanctioned hooks |
+| **Hooks** *(new)*             | Shell metacharacter interpolation in hook command strings (real nested Claude Code schema) |
+| **MCP** *(new)*               | External-domain reach (raise to High with `--strict-mcp`) and auto-installed registry packages (`npx`/`uvx`/`pipx`/`bunx`) |
 
 Every finding is tagged with one of four **trust axes** —
 Security, Permission hygiene, Transparency, Quality — and the scanner
