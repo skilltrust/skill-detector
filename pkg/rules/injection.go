@@ -2,7 +2,9 @@ package rules
 
 import (
 	"bytes"
+	"fmt"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -19,9 +21,34 @@ var (
 	reHTMLComment       = regexp.MustCompile(`<!--[\s\S]*?-->`)
 )
 
-// Zero-width Unicode runes to detect.
-var zeroWidthRunes = []rune{
-	'\u200B', '\u200C', '\u200D', '\uFEFF', '\u2060', '\u200E', '\u200F',
+// isInvisibleRune reports whether r can hide instructions from a human
+// reader: zero-width chars, bidi embedding/override controls, or the
+// Unicode Tags block (the standard invisible-payload channel for LLMs).
+func isInvisibleRune(r rune) bool {
+	switch r {
+	case '\u200B', '\u200C', '\u200D', '\uFEFF', '\u2060', '\u200E', '\u200F':
+		return true
+	}
+	if r >= 0x202A && r <= 0x202E {
+		return true
+	}
+	return r >= 0xE0000 && r <= 0xE007F
+}
+
+// fencedCodeLines returns the 1-based line numbers inside ``` fenced blocks.
+func fencedCodeLines(content []byte) map[int]bool {
+	out := make(map[int]bool)
+	inFence := false
+	for i, line := range bytes.Split(content, []byte("\n")) {
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("```")) {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			out[i+1] = true
+		}
+	}
+	return out
 }
 
 type shellInjectionRule struct {
@@ -29,13 +56,20 @@ type shellInjectionRule struct {
 }
 
 func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
+	}
+	var fenced map[int]bool
+	if strings.HasSuffix(ctx.Path, ".md") {
+		fenced = fencedCodeLines(content)
 	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
 		lineNum := i + 1
+		if fenced != nil && !fenced[lineNum] {
+			continue
+		}
 		if reEvalVar.Match(line) {
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"shell injection via eval with variable input",
@@ -55,7 +89,7 @@ type promptInjectionRule struct {
 }
 
 func (r *promptInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsSkillManifest(ctx.Path) && !IsClaudeMD(ctx.Path) {
+	if !IsSkillManifest(ctx.Path) && !IsInstructionFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -83,21 +117,22 @@ func (r *promptInjectionRule) Match(content []byte, ctx model.FileContext) []mod
 		lineNum := i + 1
 		lineStr := string(line)
 
-		// Detect zero-width Unicode characters.
-		j := 0
+		// Detect invisible Unicode characters (zero-width, bidi overrides, Unicode Tags block).
+		invisible := 0
+		byteOff := 0
 		for _, ru := range lineStr {
-			for _, zw := range zeroWidthRunes {
-				if ru == zw {
-					// Skip BOM (U+FEFF) at position 0 of the first line.
-					if ru == '\uFEFF' && lineNum == 1 && j == 0 {
-						continue
-					}
-					findings = append(findings, r.newFinding(ctx, lineNum,
-						"zero-width Unicode character detected in prompt template",
-						"Remove invisible Unicode characters that could hide malicious instructions"))
+			if isInvisibleRune(ru) {
+				// BOM at the very start of the file is legitimate.
+				if ru != '\uFEFF' || lineNum != 1 || byteOff != 0 {
+					invisible++
 				}
 			}
-			j += utf8.RuneLen(ru)
+			byteOff += utf8.RuneLen(ru)
+		}
+		if invisible > 0 {
+			findings = append(findings, r.newFinding(ctx, lineNum,
+				fmt.Sprintf("%d invisible Unicode character(s) detected in prompt template", invisible),
+				"Remove invisible Unicode characters that could hide malicious instructions"))
 		}
 
 		// Detect hidden instruction patterns.
@@ -137,7 +172,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			name:     "Shell Injection",
 			severity: model.SeverityCritical,
 			category: "Injection",
-			types:    []string{".sh", ".bash"},
+			types:    []string{".sh", ".bash", ".zsh", ".md", ""},
 			axis:     axes.Security,
 		},
 	})
@@ -148,7 +183,7 @@ func RegisterInjectionRules(registry *RuleRegistry) {
 			name:     "Prompt Injection",
 			severity: model.SeverityCritical,
 			category: "Injection",
-			types:    []string{".md", ".txt", ".yaml", ".yml", ".json", ".toml"},
+			types:    []string{".md", ".mdc", ".txt", ".yaml", ".yml", ".json", ".toml", ".cursorrules", ".windsurfrules"},
 			axis:     axes.Security,
 		},
 	})

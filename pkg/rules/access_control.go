@@ -18,6 +18,43 @@ var (
 	reFullPath      = regexp.MustCompile(`(/(?:etc|home|root|var|tmp|usr|opt)/[^\s"')\]>,;|&#${}` + "`" + `]*)`)
 )
 
+// reNegatedGuidance matches prohibition phrasing. When it precedes a
+// sensitive-path mention on the same line, the line is security guidance,
+// not an access attempt. Bypassable by construction — the layered
+// mitigation is rule co-occurrence plus LLM triage; this trades a
+// contrived false-negative class for a guaranteed false-positive class.
+var reNegatedGuidance = regexp.MustCompile(`(?i)\b(never|do\s+not|don'?t|avoid|must\s+not|not\s+allowed|forbidden|refuse\s+to)\b`)
+
+// reDocumentaryContext matches lines that are documentation *about* sensitive
+// paths rather than instructions to touch them: Markdown table rows and
+// interrogative bullets from threat-model docs (dogfood FP-1, FP-2 verbatim).
+// Shape alone is bypassable — a table row or question can smuggle an actual
+// command ("| step | cat ~/.ssh/id_rsa | run this now |") — so callers MUST
+// also consult reShellInvocation and skip the damping when it matches.
+// Remaining documented bypass after that guard: negation-phrasing games
+// (see reNegatedGuidance), same tradeoff as elsewhere in this file.
+var reDocumentaryContext = regexp.MustCompile(`(?i)^\s*(\|.*\|\s*$|[-*]\s+(could|does|would|should|can|is|are|might|may)\b.*\?\s*$)`)
+
+// reShellInvocation matches imperative shell-command tokens (as standalone
+// words followed by an argument) or shell metacharacters that indicate an
+// executable command is present, even inside a documentary-shaped line.
+// Vetoes reDocumentaryContext: a table row or interrogative bullet that
+// contains a real command is not documentation, regardless of its shape.
+//
+// Deliberately does NOT veto on a bare backtick: Markdown code spans wrap
+// paths in documentation near-universally (a code span reading ~/.ssh/),
+// and a code span containing only a path is not an invocation. A
+// backtick-wrapped command (a code span reading cat ~/.ssh/id_rsa) still
+// vetoes because its content independently matches the imperative-token
+// branch below — the backtick characters themselves carry no signal, only
+// the text they wrap does.
+//
+// The single-`>` branch requires a redirect-shaped target (`~`, `./`, `/`,
+// `$VAR`) and excludes a preceding `-`, so a Markdown arrow ("writes to
+// .zshrc -> persistence") does not veto — `>>` (append) still vetoes
+// unconditionally since it has no legitimate non-shell reading in prose.
+var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|wget|nc|dd|tar|base64|openssl|eval|exec|source|sh|bash|zsh|chmod|chown|python3?|perl|ruby|node)\b\s+\S|\$\(|>>|(?:^|[^-])>\s*[~./$]`)
+
 // Credential path patterns as literal byte slices for bytes.Contains matching.
 var credentialPaths = [][]byte{
 	[]byte("~/.aws/"),
@@ -34,15 +71,21 @@ type credentialAccessRule struct {
 }
 
 func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
 		lineNum := i + 1
+		if reDocumentaryContext.Match(line) && !reShellInvocation.Match(line) {
+			continue
+		}
 		for _, pattern := range credentialPaths {
 			if bytes.Contains(line, pattern) {
+				if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < bytes.Index(line, pattern) {
+					continue
+				}
 				desc := fmt.Sprintf("access to credential path %s", string(pattern))
 				findings = append(findings, r.newFinding(ctx, lineNum,
 					desc,
@@ -59,7 +102,7 @@ type pathTraversalRule struct {
 }
 
 func (r *pathTraversalRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -100,7 +143,7 @@ func RegisterAccessControlRules(registry *RuleRegistry) {
 			name:     "Path Traversal",
 			severity: model.SeverityHigh,
 			category: "Broken Access Control",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.PermissionHygiene,
 		},
 	})
@@ -111,7 +154,7 @@ func RegisterAccessControlRules(registry *RuleRegistry) {
 			name:     "Credential Access",
 			severity: model.SeverityCritical,
 			category: "Broken Access Control",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.PermissionHygiene,
 		},
 	})

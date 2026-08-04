@@ -64,6 +64,26 @@ func TestTextReporter_CleanScan(t *testing.T) {
 	}
 }
 
+func TestTextReporter_WarningsRendered(t *testing.T) {
+	r := &TextReporter{Theme: NewTheme(true)}
+	result := model.ScanResult{
+		FileCount: 12,
+		RuleCount: 14,
+		Warnings: []string{
+			"2 agent config path(s) were skipped because they are gitignored; the scan may be blind to the primary attack surface. Re-run with --scan-all to include them.",
+		},
+	}
+	var buf bytes.Buffer
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+
+	if !strings.Contains(got, "⚠ 2 agent config path(s) were skipped because they are gitignored") {
+		t.Errorf("expected warning line in output, got: %q", got)
+	}
+}
+
 func TestTextReporter_CriticalFindings(t *testing.T) {
 	r := &TextReporter{Theme: NewTheme(true)}
 	result := model.ScanResult{

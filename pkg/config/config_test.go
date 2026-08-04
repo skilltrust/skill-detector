@@ -312,6 +312,37 @@ func TestLoad_ContextEmpty_NoValidationError(t *testing.T) {
 	}
 }
 
+func TestLoad_ConfigYamlFilename(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".skill-detector.yml"), []byte("fail_on: high\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.FailOn != model.SeverityHigh {
+		t.Errorf("FailOn = %v, want HIGH", cfg.FailOn)
+	}
+}
+
+func TestLoad_ConfigRCTakesPrecedenceOverYaml(t *testing.T) {
+	dir := t.TempDir()
+	writeRC(t, dir, "fail_on: high\n")
+	if err := os.WriteFile(filepath.Join(dir, ".skill-detector.yml"), []byte("fail_on: low\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.FailOn != model.SeverityHigh {
+		t.Errorf("FailOn = %v, want HIGH (.skill-detectorrc should take precedence)", cfg.FailOn)
+	}
+}
+
 // writeRC writes a .skill-detectorrc file in the given directory.
 func writeRC(t *testing.T, dir, content string) {
 	t.Helper()

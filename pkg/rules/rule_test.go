@@ -37,24 +37,28 @@ func TestExistingRulesHaveAxisAssigned(t *testing.T) {
 
 func TestRuleAxisMappings(t *testing.T) {
 	r := DefaultRegistry()
-	expected := map[string]axes.Axis{
-		"injection":                 axes.Security,
-		"supply chain":              axes.Security,
-		"supply_chain":              axes.Security,
-		"supplychain":               axes.Security,
-		"exfiltration":              axes.Security,
-		"ssrf / data exfiltration":  axes.Security,
-		"integrity":                 axes.Security,
-		"security misconfiguration": axes.PermissionHygiene,
-		"misconfiguration":          axes.PermissionHygiene,
-		"broken access control":     axes.PermissionHygiene,
-		"access control":            axes.PermissionHygiene,
-		"access_control":            axes.PermissionHygiene,
-		"accesscontrol":             axes.PermissionHygiene,
-		"claudemd":                  axes.Security,
-		"settingsjson":              axes.PermissionHygiene,
-		"hooks":                     axes.Security,
-		"mcp":                       axes.PermissionHygiene,
+	// Most categories map 1:1 to a single axis. "mcp" is the exception:
+	// SD-021 (external domain reach) is a permission_hygiene concern, while
+	// SD-024 (auto-install execution) is a transparency/disclosure concern —
+	// see the SD-024 design note in the Task 3 brief.
+	expected := map[string][]axes.Axis{
+		"injection":                 {axes.Security},
+		"supply chain":              {axes.Security},
+		"supply_chain":              {axes.Security},
+		"supplychain":               {axes.Security},
+		"exfiltration":              {axes.Security},
+		"ssrf / data exfiltration":  {axes.Security},
+		"integrity":                 {axes.Security},
+		"security misconfiguration": {axes.PermissionHygiene},
+		"misconfiguration":          {axes.PermissionHygiene},
+		"broken access control":     {axes.PermissionHygiene},
+		"access control":            {axes.PermissionHygiene},
+		"access_control":            {axes.PermissionHygiene},
+		"accesscontrol":             {axes.PermissionHygiene},
+		"claudemd":                  {axes.Security},
+		"settingsjson":              {axes.PermissionHygiene},
+		"hooks":                     {axes.Security},
+		"mcp":                       {axes.PermissionHygiene, axes.Transparency},
 	}
 	for _, rule := range r.All() {
 		cat := strings.ToLower(rule.Category())
@@ -63,8 +67,15 @@ func TestRuleAxisMappings(t *testing.T) {
 			t.Errorf("rule %s has uncategorized Category() %q (test needs updating)", rule.ID(), rule.Category())
 			continue
 		}
-		if rule.Axis() != wanted {
-			t.Errorf("rule %s (category %q) has axis %q, want %q",
+		found := false
+		for _, w := range wanted {
+			if rule.Axis() == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("rule %s (category %q) has axis %q, want one of %v",
 				rule.ID(), rule.Category(), rule.Axis(), wanted)
 		}
 	}

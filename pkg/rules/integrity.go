@@ -36,7 +36,7 @@ type postInstallRule struct {
 }
 
 func (r *postInstallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -57,7 +57,7 @@ type persistenceRule struct {
 }
 
 func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -86,6 +86,17 @@ func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.F
 				"systemd service manipulation detected — persistence mechanism",
 				"Remove systemd references; skills should not install system services"))
 		case reShellProfile.Match(line):
+			// reDocumentaryContext and reNegatedGuidance damp threat-model prose
+			// mentioning shell profiles (dogfood FP-1). reShellInvocation vetoes
+			// the documentary damping when the "documentary" line smuggles an
+			// actual command. Bypassable by construction — see reNegatedGuidance
+			// / reDocumentaryContext comments in access_control.go for the tradeoff.
+			if reDocumentaryContext.Match(line) && !reShellInvocation.Match(line) {
+				continue
+			}
+			if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < reShellProfile.FindIndex(line)[0] {
+				continue
+			}
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"shell profile modification detected — persistence mechanism",
 				"Remove shell profile modifications; skills should not alter user shell configuration"))
@@ -103,7 +114,7 @@ type gitHookRule struct {
 }
 
 func (r *gitHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInClaudeOrCodexDir(ctx.Path) {
+	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
 	var findings []model.Finding
@@ -127,7 +138,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			name:     "Post-Install Hook",
 			severity: model.SeverityMedium,
 			category: "Integrity",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -137,7 +148,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			name:     "Persistence Mechanism",
 			severity: model.SeverityCritical,
 			category: "Integrity",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})
@@ -147,7 +158,7 @@ func RegisterIntegrityRules(registry *RuleRegistry) {
 			name:     "Git Hook Modification",
 			severity: model.SeverityHigh,
 			category: "Integrity",
-			types:    []string{".sh", ".bash", ".md", ".yaml", ".yml", ".txt", ".json", ".toml", ".env", ".cfg", ".conf", ".ini", ".xml"},
+			types:    ContentScanTypes,
 			axis:     axes.Security,
 		},
 	})

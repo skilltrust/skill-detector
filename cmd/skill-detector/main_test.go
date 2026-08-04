@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
@@ -246,8 +247,8 @@ func TestScanCmd_JSONFormatClean(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
-	if result.SchemaVersion != "1.3" {
-		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.3")
+	if result.SchemaVersion != "1.4" {
+		t.Errorf("schema_version = %q, want %q", result.SchemaVersion, "1.4")
 	}
 	if len(result.ConfigOverrides) != 0 {
 		t.Errorf("expected no config_overrides for clean scan, got %d", len(result.ConfigOverrides))
@@ -1145,6 +1146,13 @@ func TestCLIFailOnAxisFlag_InvalidFormat(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for invalid --fail-on-axis format (missing '=')")
+	}
+}
+
+func TestCheckFailOnAxis_UnknownAxisErrors(t *testing.T) {
+	_, err := checkFailOnAxis([]string{"secuirty=B"}, map[axes.Axis]model.AxisResult{})
+	if err == nil {
+		t.Fatal("misspelled axis must be an error, not silently ignored")
 	}
 }
 

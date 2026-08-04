@@ -170,6 +170,7 @@ type ScanResult struct {
 	Checksum        string                   `json:"ruleset_checksum"`
 	SchemaVersion   string                   `json:"schema_version"`
 	Axes            map[axes.Axis]AxisResult `json:"axes,omitempty"`
+	Warnings        []string                 `json:"warnings"`
 }
 
 // Permission — inferred capability.

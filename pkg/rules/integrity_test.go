@@ -678,3 +678,52 @@ func TestIntegrityCleanFile(t *testing.T) {
 		})
 	}
 }
+
+func TestSD013_NegatedShellProfileNotFlagged(t *testing.T) {
+	content := []byte("Do not edit .zshrc or .bashrc from skills.\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("prohibition guidance about shell profiles must not be Critical")
+	}
+}
+
+func TestSD013_InterrogativeBulletNotFlagged(t *testing.T) {
+	// FP-1, VERBATIM from docs/dogfood/2026-05-19-sp1-dogfood.md — an interrogative
+	// bullet contains no negation word.
+	content := []byte("- Could it modify files outside project directory (~/.ssh, ~/.zshrc, ~/.gitconfig)?\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("threat-model question mentioning shell profiles must not be Critical")
+	}
+}
+
+func TestSD013_TableRowWithShellInvocationStillFlagged(t *testing.T) {
+	// Bypass found in review: a table-row shape alone was enough to suppress
+	// the finding even when the cell contains an actual persistence command.
+	content := []byte("| step | echo 'export PATH' >> ~/.zshrc | note |\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) == 0 {
+		t.Fatal("a table row smuggling a shell-profile append command must still fire")
+	}
+}
+
+func TestSD013_BackticksPathBulletNotFlagged(t *testing.T) {
+	// FP-1 reformatted with a Markdown code span around the path — over-veto
+	// found in review: a bare backtick anywhere on the line used to cancel
+	// the documentary damping even though the span content is just a path.
+	content := []byte("- Could it modify `~/.zshrc` outside the project?\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("a shell-profile path wrapped in a Markdown code span in an interrogative bullet must not fire")
+	}
+}
+
+func TestSD013_ArrowTableRowNotFlagged(t *testing.T) {
+	// Over-veto found in review: a Markdown arrow ("->") contains a bare
+	// ">" which used to cancel the documentary damping unconditionally.
+	content := []byte("| Persistence | writes to .zshrc -> persistence | High |\n")
+	r := findRule(t, "SD-013")
+	if len(r.Match(content, model.FileContext{Path: "CLAUDE.md", Ext: ".md"})) != 0 {
+		t.Fatal("a Markdown arrow in a table row must not be treated as a shell redirect")
+	}
+}

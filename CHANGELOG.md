@@ -1,5 +1,107 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **`SD-024` — MCP Auto-Installed Package Execution** (MEDIUM, transparency
+  axis — the first rule on that axis). Flags MCP server entries whose
+  `command` is a package auto-fetcher (`npx`, `uvx`, `pipx`, `bunx`): the
+  server pulls and runs a registry package at startup rather than a pinned,
+  audited binary.
+- **Multi-harness coverage.** The harness-agnostic content rules (SD-002,
+  SD-003, SD-004, SD-015, SD-016, and friends) now also run over Codex
+  CLI/OpenCode (`AGENTS.md`), Gemini CLI (`GEMINI.md`), Cursor
+  (`.cursorrules`, `.cursor/rules/*.mdc`), Windsurf (`.windsurfrules`), and
+  GitHub Copilot (`.github/copilot-instructions.md`) instruction files.
+  `.cursor/mcp.json` and `.vscode/mcp.json` (including VS Code's `servers`
+  key) are now classified as MCP configs. Discovery also follows in-tree
+  symlinks (e.g. `CLAUDE.md -> AGENTS.md`), previously skipped as
+  non-regular files.
+- Agent-config-dir script discovery: extensionless and `.zsh` files inside
+  `.claude/`, `.codex/`, `.opencode/`, etc. are now walked, closing a blind
+  spot where hook scripts without a recognized extension were invisible to
+  every content rule.
+- **Gitignore-blindness warning.** When `.gitignore` causes an agent config
+  path (`.claude/settings.json`, `SKILL.md`, etc.) to be skipped, the scan
+  now emits a warning in `ScanResult.Warnings` naming the count and
+  suggesting `--scan-all`. Schema version bumped to **1.4**
+  (`ScanResult.SchemaVersion`) for the new field.
+- `--fail-on-axis` now rejects a misspelled/unknown axis name instead of
+  silently treating it as a no-op.
+
+### Changed
+- **Nested hooks schema.** SD-019/SD-020 now parse the real Claude Code
+  hooks shape (`{"hooks":{"PreToolUse":[{"matcher":"...","hooks":[{"command":"..."}]}]}}`)
+  in addition to the old flat shape; hook commands nested under a matcher
+  were previously invisible to both rules.
+- **Permission-string syntax coverage.** `Bash(curl:*)` (colon-prefix
+  wildcard) and `Bash(curl*)` (no-space wildcard, strictly broader than
+  `Bash(curl *)`) are now recognized, as is the PowerShell tool shape
+  alongside Bash. SD-017/SD-018/SD-023 all share the widened parser.
+- **SD-018 reworded and renamed** to "settings.json Redundant Deny Rule"
+  (was "Subcommand Limit Bypass"). Deny still wins over allow in Claude
+  Code, so a narrower `deny` next to a broader `allow` was never an actual
+  bypass — it's a redundant deny that signals the allow is overbroad. The
+  rule name, finding message, and remediation now say that instead of
+  "bypass".
+- **SD-004/SD-013 damping veto narrowed.** The shell-invocation veto used to
+  cancel the documentary damping on a bare backtick or bare `>` anywhere on
+  the line, which reintroduced the FP class for any Markdown-formatted
+  threat-model doc (code-span-wrapped paths, `->` arrows in table rows). A
+  backtick now only vetoes via the text it wraps (an imperative command
+  span still fires; a path span doesn't), and a single `>` only vetoes when
+  it's redirect-shaped (`>` followed by `~`, `./`, `/`, or `$`, not
+  preceded by `-`) — `>>` still vetoes unconditionally.
+- **SD-023 downgraded High → Medium; SD-018 rename above.** Registry
+  checksum moved to `589619b6386d2c41` (severity and name are both part of
+  the hashed rule metadata, ADR-0003).
+- **SD-002 (prompt injection)** now also scans `.claude/commands/`,
+  `.claude/agents/`, and skill content files, not just `SKILL.md`/`CLAUDE.md`.
+- **SD-001** now scans fenced bash code blocks inside Markdown
+  (`fencedCodeLines()` gates the per-line scan to fence contents so prose
+  outside a fence doesn't fire) and registers for `.zsh` and extensionless
+  scripts, matching the agent-dir script discovery above.
+- **Invisible-Unicode coverage** widened to detect the Unicode Tags block
+  and bidi-override characters, and now emits one finding per affected line
+  instead of one per invisible character (a line with multiple invisible
+  characters used to produce a finding per character; it now collapses to
+  one finding per line).
+- **False-positive damping.** SD-004/SD-013 no longer flag prohibition
+  guidance ("never touch `~/.ssh`") or documentary context (Markdown table
+  rows, interrogative bullets) as Critical, with a shell-invocation guard so
+  an imperative command smuggled into that same shape (piped through a
+  table cell) still fires. SD-020 exempts harness-provided `$CLAUDE_*`
+  hook variables (e.g. `$CLAUDE_PROJECT_DIR`) from the unquoted-variable
+  check — they aren't attacker-controlled.
+- Config cascading lookup now also accepts `.skill-detector.yml` (in
+  addition to `.skill-detectorrc`, checked first), matching what the
+  README has documented.
+
+### Fixed
+- Gitignore matching now matches a gitignored directory node by both
+  `dirname` and `dirname/` forms — a trailing-slash mismatch previously let
+  some gitignored directories slip through.
+
+### Breaking
+- **New exit code `3`** for tool errors (bad arguments, unreadable path,
+  internal failure), distinct from `1` (findings below threshold) and `2`
+  (at/above threshold). Previously tool errors exited `1`, indistinguishable
+  from "findings, none above threshold" — a CI gate treating `1` as
+  "findings exist" could not tell a scan failure from a clean-ish scan.
+- **`--fail-on-axis` with an unknown/misspelled axis now errors** instead of
+  silently doing nothing. CI configs with a typo'd axis name (e.g.
+  `securty=B`) previously passed every scan unconditionally; they now fail
+  fast with an "unknown axis" error.
+
+### Known issues
+- **SD-003** (path traversal) fires on ordinary in-package relative paths —
+  roughly 60% of findings in the validation corpus are this false-positive
+  class. A proper fix needs to distinguish traversal-shaped paths
+  (`../../etc`) from same-package relative references and is deferred to
+  its own design pass rather than bundled into this release.
+
+---
+
 ## v0.4.0 — 2026-05-29
 
 ### Added

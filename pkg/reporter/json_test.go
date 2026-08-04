@@ -287,6 +287,9 @@ func TestJSONReporter_NilSlicesProduceEmptyArrays(t *testing.T) {
 	if _, ok := m["config_overrides"].([]interface{}); !ok {
 		t.Error("config_overrides should be an array, not null")
 	}
+	if _, ok := m["warnings"].([]interface{}); !ok {
+		t.Error("warnings should be an array, not null")
+	}
 }
 
 func TestJSONReporter_ConfigOverrides(t *testing.T) {
@@ -390,7 +393,7 @@ func TestJSONReporter_SnakeCaseFieldNames(t *testing.T) {
 	}
 
 	// Check top-level keys
-	expectedTopLevel := []string{"findings", "permissions", "config_overrides", "files_scanned", "rules_applied", "version", "ruleset_checksum", "schema_version"}
+	expectedTopLevel := []string{"findings", "permissions", "config_overrides", "files_scanned", "rules_applied", "version", "ruleset_checksum", "schema_version", "warnings"}
 	for _, key := range expectedTopLevel {
 		if _, ok := m[key]; !ok {
 			t.Errorf("missing top-level key %q", key)

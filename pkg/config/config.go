@@ -37,10 +37,16 @@ type AllowLists struct {
 	Filesystem []string `yaml:"filesystem"`
 }
 
+// configFilenames are checked at each cascade level, in priority order.
+// .skill-detectorrc is checked first for backward compatibility; the README
+// also documents .skill-detector.yml, so both names are honored.
+var configFilenames = []string{".skill-detectorrc", ".skill-detector.yml"}
+
 // Load discovers and parses configuration using cascading lookup.
 // If configFlag is set, only that file is loaded (no cascading).
-// Otherwise: walk up from scanPath looking for .skill-detectorrc,
-// then check ~/.config/skill-detector/config.yaml, then use defaults.
+// Otherwise: walk up from scanPath looking for .skill-detectorrc or
+// .skill-detector.yml, then check ~/.config/skill-detector/config.yaml,
+// then use defaults.
 func Load(scanPath string, configFlag string) (*Config, error) {
 	if configFlag != "" {
 		return loadFile(configFlag)
@@ -52,12 +58,14 @@ func Load(scanPath string, configFlag string) (*Config, error) {
 		return nil, fmt.Errorf("config: resolve path: %w", err)
 	}
 
-	// Walk up from scan target directory looking for .skill-detectorrc.
+	// Walk up from scan target directory looking for a config file.
 	dir := absPath
 	for {
-		candidate := filepath.Join(dir, ".skill-detectorrc")
-		if _, err := os.Stat(candidate); err == nil {
-			return loadFile(candidate)
+		for _, name := range configFilenames {
+			candidate := filepath.Join(dir, name)
+			if _, err := os.Stat(candidate); err == nil {
+				return loadFile(candidate)
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

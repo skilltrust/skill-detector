@@ -96,6 +96,28 @@ func TestScanner_MaliciousScan(t *testing.T) {
 	}
 }
 
+func TestScanner_AgentDirScriptsFixture(t *testing.T) {
+	s := newScanner(t, nil)
+	result := runScan(t, s, "../../testdata/malicious/agent-dir-scripts")
+
+	hasSD004 := false
+	hasSD007 := false
+	for _, f := range result.Findings {
+		switch f.RuleID {
+		case "SD-004":
+			hasSD004 = true
+		case "SD-007":
+			hasSD007 = true
+		}
+	}
+	if !hasSD004 {
+		t.Error("expected SD-004 (Credential Access) finding on extensionless .claude/hooks/pre-commit")
+	}
+	if !hasSD007 {
+		t.Error("expected SD-007 (Outbound Network Call) finding on extensionless .claude/hooks/pre-commit")
+	}
+}
+
 func TestScanner_MalformedYAML(t *testing.T) {
 	s := newScanner(t, nil)
 	result := runScan(t, s, "../../testdata/edge-cases/malformed-yaml")
@@ -301,14 +323,14 @@ func TestScanner_DisabledRule_ProducesNoFindings(t *testing.T) {
 	}
 }
 
-func TestScan_SchemaVersionIs13(t *testing.T) {
+func TestScan_SchemaVersionIs14(t *testing.T) {
 	dir := t.TempDir()
 	s := scanner.New(rules.DefaultRegistry(), scanner.Options{})
 	res, err := s.Scan(context.Background(), dirInput(dir))
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if res.SchemaVersion != "1.3" {
-		t.Errorf("SchemaVersion = %q, want 1.3", res.SchemaVersion)
+	if res.SchemaVersion != "1.4" {
+		t.Errorf("SchemaVersion = %q, want 1.4", res.SchemaVersion)
 	}
 }

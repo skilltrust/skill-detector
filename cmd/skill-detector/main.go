@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -256,10 +257,13 @@ func checkFailOnAxis(specs []string, axisResults map[axes.Axis]model.AxisResult)
 		if !ok {
 			return false, fmt.Errorf("scan: invalid grade %q in --fail-on-axis (want A, B, C, D, or F)", parts[1])
 		}
-		a := axes.Axis(parts[0])
+		a := axes.Axis(strings.ToLower(parts[0]))
 		res, ok := axisResults[a]
 		if !ok {
-			continue
+			if !slices.Contains(axes.Order, a) {
+				return false, fmt.Errorf("scan: unknown axis %q in --fail-on-axis (want one of: security, permission_hygiene, transparency, quality)", parts[0])
+			}
+			continue // valid axis, absent from results — nothing to compare
 		}
 		actual, ok := gradeRank[string(res.Grade)]
 		if !ok {
@@ -287,7 +291,7 @@ func exitCode(result model.ScanResult, threshold model.Severity) int {
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(3)
 	}
 	if scanExitCode != 0 {
 		os.Exit(scanExitCode)

@@ -46,7 +46,7 @@ func TestScopeRepoEndToEnd(t *testing.T) {
 
 	// Default scan (no --scan-all): discovers all scannable-ext files not in
 	// alwaysSkipDirs (node_modules etc.) and not gitignored.
-	files1, err := scanner.DiscoverWithOptions(dir, scanner.DiscoverOptions{ScanAll: false})
+	files1, _, err := scanner.DiscoverWithOptions(dir, scanner.DiscoverOptions{ScanAll: false})
 	if err != nil {
 		t.Fatalf("Discover default: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestScopeRepoEndToEnd(t *testing.T) {
 
 	// --scan-all: overrides .gitignore, so logs/debug.md surfaces.
 	// node_modules is in alwaysSkipDirs, so it is still excluded.
-	files2, err := scanner.DiscoverWithOptions(dir, scanner.DiscoverOptions{ScanAll: true})
+	files2, _, err := scanner.DiscoverWithOptions(dir, scanner.DiscoverOptions{ScanAll: true})
 	if err != nil {
 		t.Fatalf("Discover ScanAll: %v", err)
 	}

@@ -9,9 +9,11 @@
 
 > CLI to spot risky AI skill packages before you install them.
 
-Scans AI skill folders (Anthropic Claude Skills, Codex skills, and similar
-file-based formats) for security threats so you can vet third-party skills —
-e.g. from [skills.sh](https://skills.sh) — without reading every line by hand.
+Scans AI skill folders and agent-instruction files — Claude Code, Codex CLI,
+OpenCode, Cursor, Gemini CLI, GitHub Copilot, Windsurf, and similar
+file-based formats — for security threats so you can vet third-party
+skills — e.g. from [skills.sh](https://skills.sh) — without reading every
+line by hand.
 
 > ⚠️ **Status:** Early-stage (v0.x). Usable, but rules and flags may change before 1.0.
 
@@ -38,12 +40,24 @@ several named 2026 CVEs lived. New CLI flags:
 - `--axes-only` — emit just the Trust Score block on stdout
   (findings go to stderr). Pipeable.
 
-**Scope (also new in v0.2.0):** the scanner now defaults to inspecting only
-AI-agent configuration files (`SKILL.md`, `CLAUDE.md`, `.claude/settings.json`,
-`.mcp.json`) plus arbitrary files inside `.claude/`, `.codex/`, `.opencode/`
+**Scope (also new in v0.2.0):** the scanner defaults to inspecting only
+AI-agent configuration files: skill manifests (`SKILL.md`, `skill.yaml`),
+per-harness instruction files (`CLAUDE.md`, `AGENTS.md` — Codex CLI/OpenCode,
+`GEMINI.md`, `.cursorrules`, `.cursor/rules/*.mdc`,
+`.github/copilot-instructions.md`, `.windsurfrules`), and MCP/settings
+configs (`.claude/settings.json`, `.mcp.json`, `.claude/mcp.json`,
+`.cursor/mcp.json`, `.vscode/mcp.json`) — plus arbitrary files inside
+`.claude/`, `.codex/`, `.opencode/`, `.cursor/`, `.gemini/`, `.windsurf/`
 directories. It honors `.gitignore` and skips `node_modules`, `vendor`, `dist`,
 `build`, `target`, `.next`, `.git`. Pass `--scan-all` to bypass this and walk
 every scannable file (v0.1.x behavior).
+
+The content rules above (injection, access control, exfiltration, etc.) run
+uniformly across every harness's instruction files — the checks aren't
+Claude-specific. Parsing each harness's own *structural* config format
+(Codex `config.toml`, `opencode.json` permissions, Gemini CLI `settings.json`
+specifics, Copilot org policies) is on the roadmap; today only Claude Code's
+`.claude/settings.json` gets structural checks (SD-017..SD-020).
 
 See [CHANGELOG.md](CHANGELOG.md) for the full v0.2.0 entry.
 
@@ -58,21 +72,21 @@ directory.
 
 ## What it checks
 
-Ten rule categories (21 rules total), purpose-built for AI agent skill packages
+Ten rule categories (24 rules total), purpose-built for AI agent skill packages
 and the surrounding configuration files:
 
 | Category             | Catches                                                 |
 | -------------------- | ------------------------------------------------------- |
-| **Injection**        | Shell / command injection, prompt injection             |
+| **Injection**        | Shell / command injection (incl. bash fences in Markdown), prompt injection |
 | **Supply chain**     | Suspicious deps, unpinned installs, typosquats          |
-| **Exfiltration**     | Outbound HTTP to unknown hosts, clipboard / env reads   |
+| **Exfiltration**     | Outbound HTTP to unknown hosts, clipboard / env reads, DNS tunneling |
 | **Misconfiguration** | Over-broad permissions, unsafe defaults                 |
 | **Integrity**        | Tampered or unsigned files                              |
 | **Access control**   | Permission-declaration vs. actual-behavior mismatches   |
 | **CLAUDE.md** *(new in v0.2)* | SQL-injection-by-instruction, Comment-and-Control patterns |
-| **settings.json** *(new)*     | `Bash(curl *)` wildcards, deny-bypass-via-broader-allow, unsanctioned hooks |
-| **Hooks** *(new)*             | Shell metacharacter interpolation in hook command strings |
-| **MCP** *(new)*               | External-domain reach by MCP servers (raise to High with `--strict-mcp`) |
+| **settings.json** *(new)*     | `Bash(curl:*)`/`Bash(curl*)` and PowerShell wildcards, unrestricted `"*"` grant, redundant deny made moot by a broader allow, unsanctioned hooks |
+| **Hooks** *(new)*             | Shell metacharacter interpolation in hook command strings (real nested Claude Code schema) |
+| **MCP** *(new)*               | External-domain reach (raise to High with `--strict-mcp`) and auto-installed registry packages (`npx`/`uvx`/`pipx`/`bunx`) |
 
 Every finding is tagged with one of four **trust axes** —
 Security, Permission hygiene, Transparency, Quality — and the scanner
@@ -142,10 +156,12 @@ skill-detector scan . --scan-all
 | `0`  | No findings                                                     |
 | `1`  | Findings, all below your `--fail-on` / `--fail-on-axis` threshold |
 | `2`  | Finding at or above threshold (worst of severity OR axis-grade) |
+| `3`  | Tool error (bad arguments, unreadable path, internal failure)  |
 
 ### Configuration
 
-Drop a `.skill-detector.yml` next to the skill (or pass `--config`) to toggle
+Drop a `.skill-detector.yml` (or `.skill-detectorrc` — checked first, for
+backward compatibility) next to the skill (or pass `--config`) to toggle
 rules and allowlist known-safe patterns. Defaults are sensible; most users
 will only need config to suppress false positives.
 
