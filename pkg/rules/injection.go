@@ -35,16 +35,46 @@ func isInvisibleRune(r rune) bool {
 	return r >= 0xE0000 && r <= 0xE007F
 }
 
-// fencedCodeLines returns the 1-based line numbers inside ``` fenced blocks.
-func fencedCodeLines(content []byte) map[int]bool {
+// shellFenceLangs are the ``` fence info-string languages SD-001 treats as
+// shell content, plus the empty string — untagged fences commonly contain
+// shell too. Any other tag (js, jsx, ts, tsx, python, go, json, yaml, ...)
+// is skipped: those fences hold non-shell code where backtick-delimited
+// `${var}` is template-literal syntax, not shell command substitution.
+var shellFenceLangs = map[string]bool{
+	"":         true,
+	"bash":     true,
+	"sh":       true,
+	"zsh":      true,
+	"shell":    true,
+	"console":  true,
+	"terminal": true,
+}
+
+// shellFencedLines returns the 1-based line numbers inside ``` fenced code
+// blocks whose opening fence is tagged as shell (or untagged). Lines inside
+// fences tagged with a non-shell language (```js, ```python, ...) are
+// excluded.
+func shellFencedLines(content []byte) map[int]bool {
 	out := make(map[int]bool)
 	inFence := false
+	shellFence := false
 	for i, line := range bytes.Split(content, []byte("\n")) {
-		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("```")) {
-			inFence = !inFence
+		trimmed := bytes.TrimSpace(line)
+		if bytes.HasPrefix(trimmed, []byte("```")) {
+			if !inFence {
+				lang := ""
+				if fields := strings.Fields(string(trimmed[3:])); len(fields) > 0 {
+					lang = strings.ToLower(fields[0])
+				}
+				shellFence = shellFenceLangs[lang]
+				inFence = true
+			} else {
+				inFence = false
+				shellFence = false
+			}
 			continue
 		}
-		if inFence {
+		if inFence && shellFence {
 			out[i+1] = true
 		}
 	}
@@ -61,7 +91,7 @@ func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []mode
 	}
 	var fenced map[int]bool
 	if strings.HasSuffix(ctx.Path, ".md") {
-		fenced = fencedCodeLines(content)
+		fenced = shellFencedLines(content)
 	}
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))

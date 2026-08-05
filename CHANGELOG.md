@@ -57,10 +57,15 @@
   the hashed rule metadata, ADR-0003).
 - **SD-002 (prompt injection)** now also scans `.claude/commands/`,
   `.claude/agents/`, and skill content files, not just `SKILL.md`/`CLAUDE.md`.
-- **SD-001** now scans fenced bash code blocks inside Markdown
-  (`fencedCodeLines()` gates the per-line scan to fence contents so prose
+- **SD-001** now scans fenced code blocks inside Markdown
+  (`shellFencedLines()` gates the per-line scan to fence contents so prose
   outside a fence doesn't fire) and registers for `.zsh` and extensionless
-  scripts, matching the agent-dir script discovery above.
+  scripts, matching the agent-dir script discovery above. Fence scanning is
+  restricted to fences tagged `bash`/`sh`/`zsh`/`shell`/`console`/`terminal`
+  or untagged — fences tagged with a non-shell language (```` ```js ````,
+  ```` ```jsx ````, ```` ```python ````, etc.) are skipped, so a JS/TS
+  template literal like `` `Status: ${x}` `` in a code sample no longer
+  reads as shell backtick command substitution.
 - **Invisible-Unicode coverage** widened to detect the Unicode Tags block
   and bidi-override characters, and now emits one finding per affected line
   instead of one per invisible character (a line with multiple invisible

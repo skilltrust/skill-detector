@@ -383,6 +383,60 @@ func TestSD001_IgnoresProseInMarkdown(t *testing.T) {
 	}
 }
 
+func TestSD001_SkipsJSFencedTemplateLiteral(t *testing.T) {
+	content := []byte("# Skill\n\n```js\nconsole.log(`Status: ${update.status}`);\n```\n")
+	r := findRule(t, "SD-001")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 0 {
+		t.Fatalf("SD-001 must not fire on a JS template literal inside a ```js fence, got %d: %+v", len(findings), findings)
+	}
+}
+
+func TestSD001_SkipsJSXFencedTemplateLiteral(t *testing.T) {
+	content := []byte("# Skill\n\n```jsx\nconst link = <Link href={`/x/${id}`} />;\n```\n")
+	r := findRule(t, "SD-001")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 0 {
+		t.Fatalf("SD-001 must not fire on a JSX template literal inside a ```jsx fence, got %d: %+v", len(findings), findings)
+	}
+}
+
+func TestSD001_FiresInsideUntaggedFence(t *testing.T) {
+	content := []byte("# Skill\n\n```\neval $UNTRUSTED_INPUT\n```\n")
+	r := findRule(t, "SD-001")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 1 {
+		t.Fatalf("SD-001 must fire once inside an untagged fence, got %d", len(findings))
+	}
+	if findings[0].Line != 4 {
+		t.Fatalf("expected line 4, got %d", findings[0].Line)
+	}
+}
+
+func TestSD001_SkipsPythonFence(t *testing.T) {
+	content := []byte("# Skill\n\n```python\ncmd = f\"eval ${x}\"  # not real shell eval, just text with a dollar\n```\n")
+	r := findRule(t, "SD-001")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 0 {
+		t.Fatalf("SD-001 must not fire inside a ```python fence, got %d: %+v", len(findings), findings)
+	}
+}
+
+func TestSD001_NonMarkdownFileUnaffectedByFenceGate(t *testing.T) {
+	// .sh files aren't fence-scanned at all — every line is scanned regardless
+	// of any ``` looking text, so the language-fence restriction added for
+	// markdown must not change behavior on non-.md agent files.
+	content := []byte("#!/bin/bash\n```\neval $UNTRUSTED_INPUT\n```\n")
+	r := findRule(t, "SD-001")
+	findings := r.Match(content, model.FileContext{Path: ".claude/scripts/install.sh", Ext: ".sh"})
+	if len(findings) != 1 {
+		t.Fatalf("SD-001 must still fire on eval in a .sh file regardless of ``` text, got %d", len(findings))
+	}
+}
+
+// TestShellInFenceFixture reads a fixture with both a ```bash fence (real
+// shell injection) and a ```js fence (template-literal interpolation, not
+// shell) — SD-001 must fire only on the former.
 func TestShellInFenceFixture(t *testing.T) {
 	registry := NewRegistry()
 	RegisterInjectionRules(registry)
