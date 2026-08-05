@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## v0.5.0 — 2026-08-05
 
 ### Added
 - **`SD-024` — MCP Auto-Installed Package Execution** (MEDIUM, transparency
