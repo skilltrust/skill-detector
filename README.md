@@ -158,6 +158,33 @@ skill-detector scan . --scan-all
 | `2`  | Finding at or above threshold (worst of severity OR axis-grade) |
 | `3`  | Tool error (bad arguments, unreadable path, internal failure)  |
 
+Code `1` is a **warning state**, not a failure: findings exist, but none crossed
+the threshold you set. Shells and CI runners don't know that — under `set -e`,
+inside `&&` chains, or as a GitHub Actions step, *any* non-zero code fails the
+build. Getting the warn-without-failing behavior takes one line:
+
+```bash
+# Minimal: succeed on 0 and 1, fail on 2 and 3
+skill-detector scan . --fail-on high || [ $? -eq 1 ]
+```
+
+The minimal form still fails on `2` and `3`, but collapses both into `1` — use
+the explicit form when the caller needs the original code:
+
+```bash
+# Explicit, and annotates the PR (GitHub Actions)
+set -euo pipefail
+skill-detector scan . --fail-on high && code=0 || code=$?
+case $code in
+  0) ;;
+  1) echo "::warning::skill-detector: findings below threshold" ;;
+  *) exit "$code" ;;   # 2 = threshold breach, 3 = tool error
+esac
+```
+
+Don't collapse this to `|| true` — that swallows `3` as well, and a scan that
+could not run is not a passing scan.
+
 ### Configuration
 
 Drop a `.skill-detector.yml` (or `.skill-detectorrc` — checked first, for
