@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 — 2026-08-14
 
 Engine-review wave (F-02, F-03, F-05, F-06, F-08, F-09, F-10 of
 `docs/engine-review-findings-2026-08-14.md`). Registry checksum unchanged
