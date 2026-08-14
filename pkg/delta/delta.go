@@ -3,6 +3,7 @@ package delta
 import (
 	"fmt"
 	"hash/fnv"
+	"maps"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -31,6 +32,49 @@ func findingKey(f model.Finding) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(f.Description))
 	return fmt.Sprintf("%s|%s|%d|%016x", f.RuleID, f.FilePath, f.Line, h.Sum64())
+}
+
+// softKey is findingKey without the line number. An edit above a finding shifts
+// its line and would otherwise make it a resolved+new pair on every unrelated
+// refactor; leftovers that agree on the soft key are the same finding at a new
+// line, so they are paired off before the diff is reported.
+func softKey(f model.Finding) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(f.Description))
+	return fmt.Sprintf("%s|%s|%016x", f.RuleID, f.FilePath, h.Sum64())
+}
+
+// pairShifted counts, per soft key, how many leftovers appear on both sides.
+// A rule firing twice in one file with the same description is paired one for
+// one, so a real deletion still surfaces as the residue.
+func pairShifted(newLeft, resolvedLeft []model.Finding) map[string]int {
+	newCount := map[string]int{}
+	for _, f := range newLeft {
+		newCount[softKey(f)]++
+	}
+	pairs := map[string]int{}
+	for _, f := range resolvedLeft {
+		if k := softKey(f); newCount[k] > pairs[k] {
+			pairs[k]++
+		}
+	}
+	return pairs
+}
+
+// dropPaired removes the first pairs[softKey] occurrences of each soft key,
+// preserving scan order for the rest.
+func dropPaired(findings []model.Finding, pairs map[string]int) []model.Finding {
+	budget := maps.Clone(pairs)
+	var out []model.Finding
+	for _, f := range findings {
+		k := softKey(f)
+		if budget[k] > 0 {
+			budget[k]--
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // gradeRank returns higher-is-better integer rank. Returns -1 for unknown.
@@ -98,28 +142,42 @@ func Compute(base, head *model.ScanResult) Delta {
 		}
 	}
 
-	baseKeys := map[string]model.Finding{}
+	var baseFindings, headFindings []model.Finding
 	if base != nil {
-		for _, f := range base.Findings {
-			baseKeys[findingKey(f)] = f
-		}
+		baseFindings = base.Findings
 	}
-	headKeys := map[string]model.Finding{}
 	if head != nil {
-		for _, f := range head.Findings {
-			headKeys[findingKey(f)] = f
+		headFindings = head.Findings
+	}
+
+	baseKeys := map[string]struct{}{}
+	for _, f := range baseFindings {
+		baseKeys[findingKey(f)] = struct{}{}
+	}
+	headKeys := map[string]struct{}{}
+	for _, f := range headFindings {
+		headKeys[findingKey(f)] = struct{}{}
+	}
+
+	// First pass: exact match on the line-sensitive key. Iterate the scan
+	// slices, not the maps, so the diff is deterministic.
+	var newLeft, resolvedLeft []model.Finding
+	for _, f := range headFindings {
+		if _, ok := baseKeys[findingKey(f)]; !ok {
+			newLeft = append(newLeft, f)
 		}
 	}
-	for k, f := range headKeys {
-		if _, ok := baseKeys[k]; !ok {
-			d.NewFindings = append(d.NewFindings, f)
+	for _, f := range baseFindings {
+		if _, ok := headKeys[findingKey(f)]; !ok {
+			resolvedLeft = append(resolvedLeft, f)
 		}
 	}
-	for k, f := range baseKeys {
-		if _, ok := headKeys[k]; !ok {
-			d.ResolvedFindings = append(d.ResolvedFindings, f)
-		}
-	}
+
+	// Second pass: leftovers that differ only by line number are the same
+	// finding moved by an unrelated edit — report only the residue.
+	pairs := pairShifted(newLeft, resolvedLeft)
+	d.NewFindings = dropPaired(newLeft, pairs)
+	d.ResolvedFindings = dropPaired(resolvedLeft, pairs)
 
 	for axis, gd := range d.PerAxis {
 		if gd.Direction != "down" {
