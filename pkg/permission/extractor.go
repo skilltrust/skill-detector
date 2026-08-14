@@ -26,41 +26,68 @@ var envVarExclusions = map[string]bool{
 	"TERM": true, "LANG": true, "EDITOR": true, "PAGER": true,
 }
 
+// capability is one permission a rule implies. detail is a fixed annotation;
+// mineDomain pulls a domain out of the finding description instead.
+type capability struct {
+	typ        string
+	detail     string
+	mineDomain bool
+}
+
+// ruleCapabilities maps a rule ID to the capabilities a finding of that rule
+// implies. Every registered rule must appear here or in capabilityFreeRules —
+// TestCapabilityTableCoversEveryRegisteredRule enforces it, so a new rule
+// cannot silently skip the permissions surface.
+var ruleCapabilities = map[string][]capability{
+	"SD-001": {{typ: TypeShellExec}},
+	"SD-003": {{typ: TypeFilesystem}},
+	"SD-004": {{typ: TypeFilesystem, detail: "incl. credentials"}},
+	"SD-005": {{typ: TypeFilesystem}},
+	"SD-006": {{typ: TypeFilesystem, detail: "incl. credentials"}},
+	"SD-007": {{typ: TypeNetwork, mineDomain: true}},
+	"SD-009": {{typ: TypeShellExec}, {typ: TypeNetwork, mineDomain: true}},
+	"SD-010": {{typ: TypeNetwork, mineDomain: true}},
+	"SD-012": {{typ: TypeShellExec}},
+	"SD-013": {{typ: TypeShellExec}},
+	"SD-014": {{typ: TypeFilesystem}},
+	"SD-016": {{typ: TypeNetwork, mineDomain: true}},
+	"SD-017": {{typ: TypeShellExec}},
+	"SD-019": {{typ: TypeShellExec}},
+	"SD-020": {{typ: TypeShellExec}},
+	"SD-021": {{typ: TypeNetwork, mineDomain: true}},
+	"SD-022": {{typ: TypeNetwork}},
+	"SD-023": {{typ: TypeShellExec}},
+	"SD-024": {{typ: TypeShellExec}},
+}
+
+// capabilityFreeRules are rules that describe a technique, a documentation gap
+// or a deny-side setting rather than a capability the skill exercises.
+var capabilityFreeRules = map[string]struct{}{
+	"SD-002": {}, // prompt injection — a technique, not a capability
+	"SD-008": {}, // base64 obfuscation — a technique, not a capability
+	"SD-011": {}, // vulnerable dependency — a property of what is installed
+	"SD-015": {}, // SQL injection guidance — no matching capability type
+	"SD-018": {}, // redundant deny rule — deny side, grants nothing
+}
+
 // Extract infers permissions from scan findings and discovered files.
 func Extract(findings []model.Finding, files []model.FileContext) []model.Permission {
 	perms := make(map[string]map[string]bool)
 
 	for _, f := range findings {
-		switch f.RuleID {
-		case "SD-001":
-			ensure(perms, TypeShellExec)
-		case "SD-003":
-			ensure(perms, TypeFilesystem)
-		case "SD-004":
-			add(perms, TypeFilesystem, "incl. credentials")
-		case "SD-007":
-			if d := extractDomain(f.Description); d != "" {
-				add(perms, TypeNetwork, d)
-			} else {
-				ensure(perms, TypeNetwork)
+		for _, c := range ruleCapabilities[f.RuleID] {
+			switch {
+			case c.mineDomain:
+				if d := extractDomain(f.Description); d != "" {
+					add(perms, c.typ, d)
+				} else {
+					ensure(perms, c.typ)
+				}
+			case c.detail != "":
+				add(perms, c.typ, c.detail)
+			default:
+				ensure(perms, c.typ)
 			}
-		case "SD-009":
-			ensure(perms, TypeShellExec)
-			if d := extractDomain(f.Description); d != "" {
-				add(perms, TypeNetwork, d)
-			} else {
-				ensure(perms, TypeNetwork)
-			}
-		case "SD-010":
-			if d := extractDomain(f.Description); d != "" {
-				add(perms, TypeNetwork, d)
-			} else {
-				ensure(perms, TypeNetwork)
-			}
-		case "SD-012", "SD-013":
-			ensure(perms, TypeShellExec)
-		case "SD-014":
-			ensure(perms, TypeFilesystem)
 		}
 	}
 

@@ -43,25 +43,6 @@ func newRootCmd() *cobra.Command {
 	return rootCmd
 }
 
-func newRegistry(strictMCP bool) *rules.RuleRegistry {
-	r := rules.NewRegistry()
-	rules.RegisterInjectionRules(r)
-	rules.RegisterAccessControlRules(r)
-	rules.RegisterMisconfigurationRules(r)
-	rules.RegisterExfiltrationRules(r)
-	rules.RegisterSupplyChainRules(r)
-	rules.RegisterIntegrityRules(r)
-	rules.RegisterClaudeMDRules(r)
-	rules.RegisterSettingsJSONRules(r)
-	rules.RegisterHooksRules(r)
-	// Always register MCP rules in default (non-strict) mode so that the
-	// registry checksum is stable regardless of --strict-mcp. Strict-mode
-	// severity is applied post-hoc on findings (see applyStrictMCP).
-	_ = strictMCP
-	rules.RegisterMCPRules(r)
-	return r
-}
-
 // applyStrictMCP upgrades SD-021 findings from Medium→High in-place and
 // returns a refreshed axes map.  Called only when --strict-mcp is set.
 func applyStrictMCP(result *model.ScanResult) {
@@ -84,7 +65,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the version of skill-detector",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			registry := newRegistry(false)
+			registry := rules.DefaultRegistry()
 			fmt.Fprintf(cmd.OutOrStdout(), "skill-detector version %s (%d rules, checksum %s)\n",
 				version, registry.Count(), registry.Checksum())
 			return nil
@@ -136,7 +117,7 @@ func newScanCmd() *cobra.Command {
 				cfg.FailOn = sev
 			}
 
-			registry := newRegistry(strictMCP)
+			registry := rules.DefaultRegistry()
 
 			// Verify ruleset integrity (AC3).
 			// Registry is always built without --strict-mcp so the checksum

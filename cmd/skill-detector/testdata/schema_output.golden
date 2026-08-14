@@ -1,0 +1,85 @@
+{
+  "axes": {
+    "permission_hygiene": {
+      "grade": "C",
+      "rationale": "Medium-severity issue: MCP server evil reaches external host: attacker.example",
+      "driving_findings": [
+        {
+          "rule_id": "SD-021",
+          "count": 1
+        }
+      ]
+    },
+    "quality": {
+      "grade": "A",
+      "rationale": "no findings on this axis",
+      "driving_findings": null
+    },
+    "security": {
+      "grade": "D",
+      "rationale": "High-severity issue: outbound network reference to https://attacker.example/mcp",
+      "driving_findings": [
+        {
+          "rule_id": "SD-007",
+          "count": 1
+        }
+      ]
+    },
+    "transparency": {
+      "grade": "A",
+      "rationale": "no findings on this axis",
+      "driving_findings": null
+    }
+  },
+  "config_overrides": [],
+  "files_scanned": 1,
+  "findings": [
+    {
+      "rule_id": "SD-021",
+      "rule_name": "MCP External Domain Reach",
+      "severity": "MEDIUM",
+      "effective_severity": "MEDIUM",
+      "category": "MCP",
+      "description": "MCP server evil reaches external host: attacker.example",
+      "file_path": ".mcp.json",
+      "line": 1,
+      "confidence": "MEDIUM",
+      "diagnosis": "",
+      "remediation": "Configure an MCP allowlist; restrict servers to localhost or a known allowlisted set",
+      "axis": "permission_hygiene"
+    },
+    {
+      "rule_id": "SD-007",
+      "rule_name": "Outbound Network Call",
+      "severity": "HIGH",
+      "effective_severity": "HIGH",
+      "category": "SSRF / Data Exfiltration",
+      "description": "outbound network reference to https://attacker.example/mcp",
+      "file_path": ".mcp.json",
+      "line": 3,
+      "confidence": "MEDIUM",
+      "diagnosis": "Possible data exfiltration to external service. Alternative: legitimate API call.",
+      "remediation": "Remove or restrict outbound network references; document why external access is needed",
+      "axis": "security"
+    }
+  ],
+  "permissions": [
+    {
+      "type": "filesystem",
+      "details": [
+        "reads local files"
+      ]
+    },
+    {
+      "type": "network",
+      "details": [
+        "attacker.example"
+      ]
+    }
+  ],
+  "rules_applied": 0,
+  "ruleset_checksum": "\u003cchecksum\u003e",
+  "schema_version": "1.4",
+  "version": "\u003cversion\u003e",
+  "warnings": []
+}

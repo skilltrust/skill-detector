@@ -1184,13 +1184,37 @@ func TestCLIFailOnAxisFlag_CombinesWithFailOn(t *testing.T) {
 // --- Integration tests for --strict-mcp flag (Plan Task 20) ---
 
 func TestStrictMCPDoesNotBreakChecksum(t *testing.T) {
-	// Registry must produce identical checksums regardless of strictMCP flag,
-	// so that pinned expectedChecksum ldflags work in strict mode.
-	rNormal := newRegistry(false)
-	rStrict := newRegistry(true)
-	if rNormal.Checksum() != rStrict.Checksum() {
-		t.Errorf("checksum differs between strict and normal modes: %s vs %s",
-			rNormal.Checksum(), rStrict.Checksum())
+	// The reported ruleset checksum must be identical with and without
+	// --strict-mcp: strict mode upgrades SD-021 post-hoc on findings, it does
+	// not swap the registry.
+	run := func(t *testing.T, args ...string) string {
+		t.Helper()
+		var stdout bytes.Buffer
+		cmd := newRootCmd()
+		cmd.SetOut(&stdout)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs(args)
+
+		scanExitCode = 0
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("unexpected error for %v: %v", args, err)
+		}
+
+		var result model.ScanResult
+		if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+			t.Fatalf("unmarshal scan output: %v", err)
+		}
+		return result.Checksum
+	}
+
+	normal := run(t, "scan", "--format", "json", "../../testdata/malicious/mcp-domain")
+	strict := run(t, "scan", "--format", "json", "--strict-mcp", "../../testdata/malicious/mcp-domain")
+
+	if normal != strict {
+		t.Errorf("checksum differs between strict and normal modes: %s vs %s", normal, strict)
+	}
+	if normal == "" {
+		t.Error("scan reported an empty ruleset checksum")
 	}
 }
 

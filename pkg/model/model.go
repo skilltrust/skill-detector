@@ -159,6 +159,13 @@ type ConfigOverride struct {
 	Override string `json:"override"`
 }
 
+// SchemaVersion is the version of the JSON wire format emitted by a scan.
+// Bump it in the same commit as any change to the shape of ScanResult or of
+// anything nested inside it — added, renamed, removed or retyped fields.
+// TestScanJSONOutputMatchesSchemaGolden turns a forgotten bump into a failing
+// test; downstream consumers read the field to detect an unfamiliar format.
+const SchemaVersion = "1.4"
+
 // ScanResult — top-level result from a scan.
 type ScanResult struct {
 	Findings        []Finding                `json:"findings"`

@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased]
+
+Engine-review cleanup group (F-06, F-08, F-09, F-10 of
+`docs/engine-review-findings-2026-08-14.md`). Registry checksum unchanged
+(`589619b6386d2c41`); JSON schema version unchanged (`1.4` — no shape change).
+
+### Fixed
+- **Capability inference no longer goes stale silently** (F-08). Findings from
+  SD-005, SD-006, SD-016, SD-017, SD-019, SD-020, SD-021, SD-022, SD-023 and
+  SD-024 now contribute to the reported `permissions`; previously only nine
+  rule IDs did, so a skill flagged solely by SD-022 (DNS exfiltration) reported
+  no `network` capability at all. The hardcoded switch is now a table
+  (`ruleCapabilities` / `capabilityFreeRules`) and a new test fails whenever a
+  registered rule is in neither, so new rules cannot skip classification.
+
+### Added
+- Schema-version enforcement (F-10). `model.SchemaVersion` is now a named
+  constant, `cmd/skill-detector/testdata/schema_output.golden` holds real
+  `scan --format json` output, and `schema_shapes.json` pins each version to a
+  fingerprint of the emitted shape — changing the output without bumping the
+  version now fails the build. Bump procedure documented in
+  `docs/development-guide.md`.
+
+### Removed
+- `rules.RegisterMCPRulesStrict` — dead since v0.2.0, when `--strict-mcp` moved
+  to a post-hoc severity upgrade (`applyStrictMCP`) to keep the checksum stable.
+  No caller existed in this repo or downstream. Exported-API removal, but only
+  in name: calling it produced a registry the CLI never used (F-06).
+- `cmd/skill-detector::newRegistry` — a hand-maintained duplicate of
+  `rules.DefaultRegistry()`, plus the parity test that existed only to catch
+  drift between the two. Rule groups are registered in one place again (F-06).
+
 ## v0.5.0 — 2026-08-05
 
 ### Added

@@ -148,7 +148,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		RuleCount:       len(activeRules),
 		Version:         s.opts.Version,
 		Checksum:        s.reg.Checksum(),
-		SchemaVersion:   "1.4",
+		SchemaVersion:   model.SchemaVersion,
 		Axes:            axesResult,
 		Warnings:        warnings,
 	}, nil

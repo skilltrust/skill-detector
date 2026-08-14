@@ -140,13 +140,48 @@ Configuration is in `.golangci.yml`:
 1. Create a new file in `pkg/rules/` (e.g., `new_threat.go`)
 2. Implement the Rule interface defined in `pkg/rules/rule.go`. Embed `baseRule` and set the `axis` field at registration so `baseRule.newFinding` can stamp `Finding.Axis` automatically.
 3. **Add a path gate as the FIRST statement of `Match()`** — typically `if !IsAgentFile(ctx.Path) { return nil }`, or compose with `isInClaudeOrCodexDir(ctx.Path)` if the rule should also fire on arbitrary files inside `.claude/`, `.codex/`, `.opencode/` dirs. Without a gate, the rule will fire on every file with a matching extension and balloon the noise floor on real-world repos.
-4. Register the rule in `pkg/rules/registry.go::DefaultRegistry()` AND in `cmd/skill-detector/main.go::newRegistry()`.
+4. Register the rule in `pkg/rules/registry.go::DefaultRegistry()` — the CLI builds its registry from that one function.
 5. Add test fixtures in `testdata/malicious/<rule>/` at agent-file-shaped paths (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/foo.sh`) so the path gate doesn't block them.
 6. Write tests in `pkg/rules/new_threat_test.go`. Each rule needs:
    - A paired clean fixture test (must NOT trigger on benign content)
    - A `TestSDxxx_GatesNonAgentFile` test (must NOT fire on `node_modules/.../README.md` or similar non-agent paths)
 7. Run `make test` and `make lint` to verify
-8. The new rule's `(ID, Name, Severity, Category, Axis)` changes the registry checksum reported by `./bin/skill-detector version`. Nothing gates on the value, but note the new one in the CHANGELOG — it tells downstream consumers that grading behavior changed
+8. Classify the rule in `pkg/permission/extractor.go`: either map it to the capabilities a finding implies (`ruleCapabilities`) or list it in `capabilityFreeRules`. `TestCapabilityTableCoversEveryRegisteredRule` fails until you do — that is deliberate, it keeps the reported `permissions` from going stale
+9. The new rule's `(ID, Name, Severity, Category, Axis)` changes the registry checksum reported by `./bin/skill-detector version`. Nothing gates on the value, but note the new one in the CHANGELOG — it tells downstream consumers that grading behavior changed
+
+## JSON Output Schema
+
+The `--format json` wire format is versioned by `model.SchemaVersion`
+(`pkg/model/model.go`). Downstream consumers (`scan-action`, the hosted scanner)
+parse that output, so the version is a contract, not a label.
+
+**Rule: change the shape, bump the version — in the same commit.** "Shape" means
+any field added, renamed, removed or retyped in `ScanResult` or anything nested
+inside it. Use a minor bump (`1.4` → `1.5`) for additive changes and a major one
+(`2.0`) when existing fields move or disappear.
+
+Two tests in `cmd/skill-detector/schema_golden_test.go` enforce this:
+
+- `TestScanJSONOutputMatchesSchemaGolden` compares real `scan --format json`
+  output against `cmd/skill-detector/testdata/schema_output.golden`. Checksum,
+  build version and rule count are normalized out, so ordinary rule work does not
+  disturb it — but any field change does.
+- `TestSchemaShapeIsPinnedToVersion` hashes the set of JSON key paths and their
+  types and compares it with the fingerprint recorded for the current version in
+  `cmd/skill-detector/testdata/schema_shapes.json`. Re-blessing the golden without
+  bumping the version fails here, because the new shape collides with the one
+  already pinned to that version.
+
+When a shape change is intentional: bump `model.SchemaVersion`, then
+
+```bash
+go test ./cmd/skill-detector -run TestScanJSONOutputMatchesSchemaGolden -args -update-schema-golden
+go test ./cmd/skill-detector -run TestSchemaShapeIsPinnedToVersion   # prints the fingerprint to record
+```
+
+and add the printed `"<version>": "<fingerprint>"` entry to `schema_shapes.json`.
+Keep the old entries — they are the record of which shape each released version
+emitted.
 
 ## CI/CD
 
