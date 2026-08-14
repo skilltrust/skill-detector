@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **Text output hides the `quality` axis while nothing drives it.** The axis
+  is a reserved slot with zero rules mapped, so the unconditional
+  `Quality A` row read as "quality was checked and it's excellent" when
+  nothing was checked. The row is skipped when the axis has no driving
+  findings and reappears by itself the day a rule lands on the axis.
+  **JSON is unchanged** — all four axes stay in the wire format (ADR-0001),
+  and `--fail-on-axis quality=...` still works. Registry checksum unmoved.
+
 ## v0.6.0 — 2026-08-14
 
 Engine-review wave (F-02, F-03, F-05, F-06, F-08, F-09, F-10 of

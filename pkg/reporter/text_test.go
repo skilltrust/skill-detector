@@ -1618,6 +1618,49 @@ func TestTextReporterEmitsTrustScoreBlock(t *testing.T) {
 	}
 }
 
+func TestTrustScoreBlock_HidesQualityAxisWithoutFindings(t *testing.T) {
+	res := model.ScanResult{
+		Axes: map[axes.Axis]model.AxisResult{
+			axes.Security:          {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.PermissionHygiene: {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.Transparency:      {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.Quality:           {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+		},
+	}
+	var buf bytes.Buffer
+	WriteTrustScoreBlock(&buf, res, true)
+	out := buf.String()
+	if strings.Contains(out, "Quality") {
+		t.Errorf("quality axis with no driving findings must be hidden from text output, got: %s", out)
+	}
+	for _, label := range []string{"Security", "Permission hygiene", "Transparency"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("output missing %s label: %s", label, out)
+		}
+	}
+}
+
+func TestTrustScoreBlock_ShowsQualityAxisWithFindings(t *testing.T) {
+	res := model.ScanResult{
+		Axes: map[axes.Axis]model.AxisResult{
+			axes.Security:          {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.PermissionHygiene: {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.Transparency:      {Grade: axes.GradeA, Rationale: "no findings on this axis"},
+			axes.Quality: {
+				Grade:           axes.GradeC,
+				Rationale:       "Critical: hypothetical future quality rule",
+				DrivingFindings: []model.DrivingFinding{{RuleID: "SD-099", Count: 1}},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	WriteTrustScoreBlock(&buf, res, true)
+	out := buf.String()
+	if !strings.Contains(out, "Quality") {
+		t.Errorf("quality axis with driving findings must be shown, got: %s", out)
+	}
+}
+
 func TestTextReporter_ExpectedFinding_NoColor(t *testing.T) {
 	r := &TextReporter{Theme: NewTheme(true)}
 	result := model.ScanResult{
