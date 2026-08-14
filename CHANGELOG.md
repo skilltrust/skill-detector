@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **`delta` no longer reports churn on line shifts.** Inserting a line above a
+  finding shifted its line number, which was part of the match key, so every
+  finding below the edit came back as a `resolved` + `new` pair — enough to fail
+  a `skilltrust` PR check on a whitespace-only change. Leftovers from the exact
+  match are now paired one-for-one on the same key minus the line number, and
+  only the residue is reported. `findingKey` and the finding payload are
+  unchanged; ruleset checksum unmoved. ADR-0007.
+- **`delta` output is deterministic.** `new_findings` / `resolved_findings` were
+  built by ranging over maps, so their order — and which finding got quoted in
+  `axis_explanations` — varied between runs on identical input. Both lists now
+  follow scan order.
+
 ## v0.5.0 — 2026-08-05
 
 ### Added

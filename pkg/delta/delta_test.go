@@ -63,6 +63,80 @@ func TestCompute_StableMatchKey(t *testing.T) {
 	}
 }
 
+func TestCompute_LineShiftIsNotChurn(t *testing.T) {
+	base := sr(nil,
+		model.Finding{RuleID: "SD-007", FilePath: "a.sh", Line: 3, Description: "outbound call to evil.example.com", Axis: axes.Security},
+	)
+	head := sr(nil,
+		model.Finding{RuleID: "SD-007", FilePath: "a.sh", Line: 4, Description: "outbound call to evil.example.com", Axis: axes.Security},
+	)
+	d := delta.Compute(base, head)
+	if len(d.NewFindings) != 0 || len(d.ResolvedFindings) != 0 {
+		t.Errorf("a pure line shift must not churn; new=%v resolved=%v", d.NewFindings, d.ResolvedFindings)
+	}
+}
+
+func TestCompute_LineShiftKeepsGenuineNewFinding(t *testing.T) {
+	base := sr(nil,
+		model.Finding{RuleID: "SD-007", FilePath: "a.sh", Line: 3, Description: "outbound call", Axis: axes.Security},
+	)
+	head := sr(nil,
+		model.Finding{RuleID: "SD-007", FilePath: "a.sh", Line: 4, Description: "outbound call", Axis: axes.Security},
+		model.Finding{RuleID: "SD-006", FilePath: "a.sh", Line: 9, Description: "hardcoded key", Axis: axes.Security},
+	)
+	d := delta.Compute(base, head)
+	if len(d.NewFindings) != 1 || d.NewFindings[0].RuleID != "SD-006" {
+		t.Errorf("genuine new finding must survive the shift pairing; new=%v", d.NewFindings)
+	}
+	if len(d.ResolvedFindings) != 0 {
+		t.Errorf("nothing was resolved; resolved=%v", d.ResolvedFindings)
+	}
+}
+
+func TestCompute_LineShiftPairsDuplicateDescriptionsOneForOne(t *testing.T) {
+	// Same rule, same file, identical description twice — one occurrence is
+	// deleted in head, the other shifts. Exactly one resolved, no new.
+	base := sr(nil,
+		model.Finding{RuleID: "SD-008", FilePath: "a.sh", Line: 5, Description: "base64 decode", Axis: axes.Security},
+		model.Finding{RuleID: "SD-008", FilePath: "a.sh", Line: 9, Description: "base64 decode", Axis: axes.Security},
+	)
+	head := sr(nil,
+		model.Finding{RuleID: "SD-008", FilePath: "a.sh", Line: 10, Description: "base64 decode", Axis: axes.Security},
+	)
+	d := delta.Compute(base, head)
+	if len(d.NewFindings) != 0 {
+		t.Errorf("shifted duplicate must not read as new; new=%v", d.NewFindings)
+	}
+	if len(d.ResolvedFindings) != 1 {
+		t.Errorf("exactly one occurrence disappeared; resolved=%v", d.ResolvedFindings)
+	}
+}
+
+func TestCompute_FindingOrderFollowsInput(t *testing.T) {
+	// Deterministic output: the residue must keep scan order, not map order.
+	base := sr(nil,
+		model.Finding{RuleID: "SD-001", FilePath: "a.sh", Line: 1, Description: "one", Axis: axes.Security},
+		model.Finding{RuleID: "SD-002", FilePath: "a.sh", Line: 2, Description: "two", Axis: axes.Security},
+		model.Finding{RuleID: "SD-003", FilePath: "a.sh", Line: 3, Description: "three", Axis: axes.Security},
+	)
+	head := sr(nil,
+		model.Finding{RuleID: "SD-011", FilePath: "b.sh", Line: 1, Description: "eleven", Axis: axes.Security},
+		model.Finding{RuleID: "SD-012", FilePath: "b.sh", Line: 2, Description: "twelve", Axis: axes.Security},
+		model.Finding{RuleID: "SD-013", FilePath: "b.sh", Line: 3, Description: "thirteen", Axis: axes.Security},
+	)
+	for i := 0; i < 20; i++ {
+		d := delta.Compute(base, head)
+		got := []string{d.NewFindings[0].RuleID, d.NewFindings[1].RuleID, d.NewFindings[2].RuleID}
+		if got[0] != "SD-011" || got[1] != "SD-012" || got[2] != "SD-013" {
+			t.Fatalf("new findings out of head order: %v", got)
+		}
+		gotRes := []string{d.ResolvedFindings[0].RuleID, d.ResolvedFindings[1].RuleID, d.ResolvedFindings[2].RuleID}
+		if gotRes[0] != "SD-001" || gotRes[1] != "SD-002" || gotRes[2] != "SD-003" {
+			t.Fatalf("resolved findings out of base order: %v", gotRes)
+		}
+	}
+}
+
 func TestCompute_AxisExplanationOnDowngrade(t *testing.T) {
 	base := sr(map[axes.Axis]axes.Grade{axes.PermissionHygiene: axes.GradeB})
 	head := sr(map[axes.Axis]axes.Grade{axes.PermissionHygiene: axes.GradeD},
