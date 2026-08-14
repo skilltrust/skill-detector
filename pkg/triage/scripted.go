@@ -21,10 +21,11 @@ func (s ScriptedVerifier) Classify(_ context.Context, _ model.FileContext, findi
 	out := make([]Verdict, len(findings))
 	for i, f := range findings {
 		if v, ok := s.Verdicts[VerdictKey{RuleID: f.RuleID, Line: f.Line}]; ok {
+			v.Index = i + 1
 			out[i] = v
 			continue
 		}
-		out[i] = Verdict{RuleID: f.RuleID, Line: f.Line, Classification: ClassUncertain, Source: "scripted"}
+		out[i] = Verdict{RuleID: f.RuleID, Line: f.Line, Index: i + 1, Classification: ClassUncertain, Source: "scripted"}
 	}
 	return out, nil
 }

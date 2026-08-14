@@ -34,6 +34,30 @@ func TestNoopVerifier_ReturnsUncertainPerFinding(t *testing.T) {
 	}
 }
 
+func TestShippedVerifiers_StampFindingIndex(t *testing.T) {
+	// Both findings share (RuleID, Line) — the key cannot tell them apart, so the
+	// shipped verifiers must stamp Index for the engine to match them one by one.
+	findings := []model.Finding{
+		{RuleID: "SD-021", Line: 1, Description: "alpha"},
+		{RuleID: "SD-021", Line: 1, Description: "bravo"},
+	}
+	verifiers := map[string]triage.Verifier{
+		"noop":     triage.NoopVerifier{},
+		"scripted": triage.ScriptedVerifier{},
+	}
+	for name, v := range verifiers {
+		got, err := v.Classify(context.Background(), model.FileContext{}, findings)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", name, err)
+		}
+		for i, vd := range got {
+			if vd.Index != i+1 {
+				t.Errorf("%s: verdict %d has Index %d, want %d", name, i, vd.Index, i+1)
+			}
+		}
+	}
+}
+
 func TestScriptedVerifier_ReturnsRegisteredOrUncertain(t *testing.T) {
 	sv := triage.ScriptedVerifier{Verdicts: map[triage.VerdictKey]triage.Verdict{
 		{RuleID: "SD-009", Line: 3}: {

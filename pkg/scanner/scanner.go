@@ -210,15 +210,48 @@ func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, fil
 			continue
 		}
 
+		// Verdicts are matched by Index (1-based position in the batch) when the
+		// verifier sets it, and by (RuleID, Line) otherwise. That key is not
+		// unique — SD-021 stamps every MCP server on line 1, SD-002 can fire
+		// several signals on one line — so a key claimed by more than one verdict
+		// or more than one finding is dropped rather than guessed: applying one
+		// verdict to both findings could suppress a real threat.
+		byIndex := make(map[int]triage.Verdict, len(verdicts))
 		byKey := make(map[triage.VerdictKey]triage.Verdict, len(verdicts))
+		ambiguous := make(map[triage.VerdictKey]bool)
 		for _, v := range verdicts {
-			byKey[triage.VerdictKey{RuleID: v.RuleID, Line: v.Line}] = v
+			if v.Index > 0 {
+				byIndex[v.Index] = v
+				continue
+			}
+			k := triage.VerdictKey{RuleID: v.RuleID, Line: v.Line}
+			if _, dup := byKey[k]; dup {
+				ambiguous[k] = true
+				continue
+			}
+			byKey[k] = v
 		}
+		seen := make(map[triage.VerdictKey]bool, len(idxs))
 		for _, i := range idxs {
+			k := triage.VerdictKey{RuleID: findings[i].RuleID, Line: findings[i].Line}
+			if seen[k] {
+				ambiguous[k] = true
+			}
+			seen[k] = true
+		}
+
+		for j, i := range idxs {
 			f := &findings[i]
-			v, ok := byKey[triage.VerdictKey{RuleID: f.RuleID, Line: f.Line}]
+			k := triage.VerdictKey{RuleID: f.RuleID, Line: f.Line}
+			v, ok := byIndex[j+1]
+			if ok && (v.RuleID != f.RuleID || v.Line != f.Line) {
+				ok = false // index points at a different finding
+			}
+			if !ok && !ambiguous[k] {
+				v, ok = byKey[k]
+			}
 			if !ok {
-				// Hallucinated/missing verdict → fail safe.
+				// Hallucinated, missing or ambiguous verdict → fail safe.
 				f.Triage = &model.TriageVerdict{Classification: "uncertain", Source: "unavailable"}
 				continue
 			}
