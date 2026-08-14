@@ -1,12 +1,32 @@
 # Changelog
 
-## [Unreleased]
+## Unreleased
 
-Engine-review cleanup group (F-06, F-08, F-09, F-10 of
+Engine-review wave (F-02, F-03, F-05, F-06, F-08, F-09, F-10 of
 `docs/engine-review-findings-2026-08-14.md`). Registry checksum unchanged
 (`589619b6386d2c41`); JSON schema version unchanged (`1.4` — no shape change).
 
 ### Fixed
+- **`delta` no longer reports churn on line shifts** (F-02). Inserting a line
+  above a finding shifted its line number, which was part of the match key, so
+  every finding below the edit came back as a `resolved` + `new` pair — enough
+  to fail a `skilltrust` PR check on a whitespace-only change. Leftovers from
+  the exact match are now paired one-for-one on the same key minus the line
+  number, and only the residue is reported. `findingKey` and the finding
+  payload are unchanged; ruleset checksum unmoved. ADR-0007.
+- **`delta` output is deterministic.** `new_findings` / `resolved_findings` were
+  built by ranging over maps, so their order — and which finding got quoted in
+  `axis_explanations` — varied between runs on identical input. Both lists now
+  follow scan order.
+- **Triage verdicts are no longer mis-applied on key collisions** (F-03).
+  Verdicts were matched back to findings by `{RuleID, Line}` alone; rules that
+  emit several findings with the same key (SD-021: one per MCP server, all on
+  line 1; SD-002: several signals per line) got last-write-wins, so a
+  `benign_example` verdict for one finding could suppress a `real_threat`
+  sibling from axis grading. `triage.Verdict` gains an optional 1-based
+  `Index` naming the finding it applies to (additive API); a key claimed by
+  two findings or two verdicts now falls to the `unavailable` fail-safe
+  instead of being guessed. Shipped verifiers stamp `Index`.
 - **Capability inference no longer goes stale silently** (F-08). Findings from
   SD-005, SD-006, SD-016, SD-017, SD-019, SD-020, SD-021, SD-022, SD-023 and
   SD-024 now contribute to the reported `permissions`; previously only nine
@@ -22,6 +42,9 @@ Engine-review cleanup group (F-06, F-08, F-09, F-10 of
   fingerprint of the emitted shape — changing the output without bumping the
   version now fails the build. Bump procedure documented in
   `docs/development-guide.md`.
+- README documents the warn-without-failing CI recipe for exit code `1`
+  (F-05): a `|| [ $? -eq 1 ]` one-liner and an explicit `case` form emitting
+  `::warning::`, plus a caution that `|| true` swallows exit `3`.
 
 ### Removed
 - `rules.RegisterMCPRulesStrict` — dead since v0.2.0, when `--strict-mcp` moved
