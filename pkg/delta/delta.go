@@ -79,6 +79,13 @@ func dropPaired(findings []model.Finding, pairs map[string]int) []model.Finding 
 
 // gradeRank returns higher-is-better integer rank. Returns -1 for unknown.
 // Accepts "A", "A+", "A-", through "F".
+//
+// The engine itself only ever emits bare A–F (pkg/grade picks cap-table cells),
+// so the suffix arithmetic is deliberate input tolerance, not a planned feature:
+// Compute runs on two JSON files the caller supplies, which are unvalidated and
+// may come from another producer or a hand edit. Suffixed input then ranks
+// sensibly instead of degrading to "unknown". Do not "simplify" it to a 5-value
+// rank without also constraining that input (engine review F-09).
 func gradeRank(g axes.Grade) int {
 	if g == "" {
 		return -1
