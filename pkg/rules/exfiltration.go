@@ -30,6 +30,21 @@ var (
 	reBase64Inline  = regexp.MustCompile(`[A-Za-z0-9+/]{40,}={0,2}`)
 	reBase64Decode  = regexp.MustCompile(`\b(atob|b64decode|Base64\.decode|base64\.b64decode)\s*\(`)
 	reHashLine      = regexp.MustCompile(`(?i)(sha(256|512|1)?|md5|checksum|hash)\s*[:=]`)
+
+	// A long run of base64 characters is not evidence of a payload. Measured
+	// on MalSkillBench, the inline branch produced 402 findings on benign
+	// skills and 171 on malicious ones, and both sides were mostly these:
+	//
+	//   reSRIHash  — npm/yarn lockfile integrity values. 322 benign hits,
+	//                zero malicious ones.
+	//   reHexBlob  — a blockchain address or key written as hex.
+	//   path-like  — `/` is in the base64 alphabet, so any deep path matched:
+	//                `~/.claude/skills/CORE/USER/SKILLCUSTOMIZATIONS/Art/`.
+	//   low entropy — a single-case run carries no encoded payload.
+	//
+	// Damping these keeps 69 of the malicious hits and 3 of the benign ones.
+	reSRIHash = regexp.MustCompile(`(?i)"integrity"\s*:|\bsha(1|256|384|512)-`)
+	reHexBlob = regexp.MustCompile(`\b0x[0-9a-fA-F]{20,}`)
 )
 
 // tunnelOrPasteHosts are hosts that exist to be temporary: request bins,
@@ -202,8 +217,11 @@ func (r *base64ObfuscationRule) Match(content []byte, ctx model.FileContext) []m
 				"Avoid using base64 to decode data at runtime; use plaintext configuration instead"))
 			continue
 		}
-		// Inline base64 string — skip if the match is inside a URL or the line is a hash.
-		if b64Loc := reBase64Inline.FindIndex(line); b64Loc != nil && !reHashLine.Match(line) {
+		// Inline base64 string — skip if the match is inside a URL, the line is
+		// a hash, or the token is one of the shapes that share base64's
+		// alphabet without carrying a payload.
+		if b64Loc := reBase64Inline.FindIndex(line); b64Loc != nil && !reHashLine.Match(line) &&
+			!reSRIHash.Match(line) && !reHexBlob.Match(line) && isEncodedPayload(line[b64Loc[0]:b64Loc[1]]) {
 			inURL := false
 			for _, urlLoc := range reHTTPURL.FindAllIndex(line, -1) {
 				if b64Loc[0] >= urlLoc[0] && b64Loc[1] <= urlLoc[1] {
@@ -219,6 +237,27 @@ func (r *base64ObfuscationRule) Match(content []byte, ctx model.FileContext) []m
 		}
 	}
 	return findings
+}
+
+// isEncodedPayload reports whether a run of base64 characters plausibly
+// encodes something, as opposed to being a filesystem path or a single-case
+// identifier that happens to use the same alphabet.
+func isEncodedPayload(tok []byte) bool {
+	if bytes.ContainsRune(tok, '/') && !bytes.ContainsAny(tok, "+=") {
+		return false // a path: separators, but none of base64's padding
+	}
+	var lower, upper, digit bool
+	for _, c := range tok {
+		switch {
+		case c >= 'a' && c <= 'z':
+			lower = true
+		case c >= 'A' && c <= 'Z':
+			upper = true
+		case c >= '0' && c <= '9', c == '+', c == '/':
+			digit = true
+		}
+	}
+	return lower && upper && digit
 }
 
 // isDocFile reports whether the path looks like a documentation file

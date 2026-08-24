@@ -4,6 +4,7 @@ import (
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -596,5 +597,64 @@ func TestSD007_ProseVerbIsNotANetworkCall(t *testing.T) {
 	}
 	if fs := sd007Findings(t, ".claude/skills/d/app.js", "const r = await fetch(url)\n"); len(fs) != 1 {
 		t.Errorf("JS fetch(): got %d findings, want 1", len(fs))
+	}
+}
+
+// --- SD-008 inline base64 --------------------------------------------------
+//
+// Measured on MalSkillBench: the inline-base64 branch produced 402 findings on
+// benign skills and 171 on malicious ones, and both sides were mostly junk.
+// 322 of the benign hits were npm lockfile integrity hashes ("sha512-…"), a
+// shape that appears zero times on the malicious side. On the malicious side
+// the top matches were a blockchain address and a long filesystem path — `/`
+// is in the base64 character class, so any deep path matched.
+
+func newBase64Rule() Rule {
+	r := NewRegistry()
+	RegisterExfiltrationRules(r)
+	for _, rule := range r.All() {
+		if rule.ID() == "SD-008" {
+			return rule
+		}
+	}
+	panic("SD-008 not registered")
+}
+
+func sd008Findings(t *testing.T, path, content string) []model.Finding {
+	t.Helper()
+	return newBase64Rule().Match([]byte(content), model.FileContext{Path: path})
+}
+
+func TestSD008_InlineNoiseIsNotAPayload(t *testing.T) {
+	quiet := map[string]string{
+		"npm lockfile integrity": `      "integrity": "sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxk",`,
+		"bare SRI hash":          `  hash = sha256-ZTgYYLMOXY9qKU57FAo8FHA2dGX7bqGc71txDRC1rS4frdFI5R7NhluHxH6M0Yz`,
+		"hex address":            "- Payment gateway address: `0x79485CeB6C77845326DaeF4A1AAB659724aeCbda1234567890`",
+		"deep path":              "**Load from:** `~/.claude/skills/CORE/USER/SKILLCUSTOMIZATIONS/Art/PREFERENCES.md`",
+		"single-case run":        "id: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	}
+	for name, line := range quiet {
+		t.Run(name, func(t *testing.T) {
+			for _, f := range sd008Findings(t, ".claude/skills/demo/SKILL.md", line+"\n") {
+				if strings.Contains(f.Description, "base64-encoded string") {
+					t.Errorf("fired on %s: %q", name, f.Description)
+				}
+			}
+		})
+	}
+}
+
+func TestSD008_RealPayloadStillFires(t *testing.T) {
+	loud := map[string]string{
+		"encoded blob": "PAYLOAD = \"aGVsbG8gd29ybGQgdGhpcyBpcyBhIHNlY3JldCBwYXlsb2FkIHN0cmluZzEyMw==\"\n",
+		"decode call":  "import base64\nexec(base64.b64decode(BLOB))\n",
+		"shell decode": "echo $BLOB | base64 -d | bash\n",
+	}
+	for name, content := range loud {
+		t.Run(name, func(t *testing.T) {
+			if len(sd008Findings(t, ".claude/skills/demo/run.py", content)) == 0 {
+				t.Errorf("no finding for %s", name)
+			}
+		})
 	}
 }
