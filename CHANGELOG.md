@@ -31,6 +31,20 @@
   alone and 9 of those by the prose verb; the two real ones are
   privilege-escalation *instructions* in a manifest, which SD-002 should catch
   deliberately rather than SD-007 catching by accident.
+- **SD-008 no longer treats every long alphanumeric run as a payload.** `/` is
+  in the base64 alphabet, so a deep path matched; so did a hex wallet address
+  and any single-case identifier. Worst of all, npm lockfile `"integrity"`
+  values matched — 322 findings on benign skills against **zero** on malicious
+  ones. The inline branch now requires the token to look encoded (mixed case
+  plus a digit or `+`/`/`, and not a path shape) and damps subresource-integrity
+  and hex-literal lines. The decode-call branches (`base64 -d`, `atob`,
+  `b64decode`) are untouched — that is where the signal was all along
+  (22.6% of malicious hits vs 2.0% of benign).
+
+  SD-008 findings across the same 600 samples: **benign 410 → 11**, malicious
+  221 → 119. Findings on benign skills overall 1724 → 1271; the worst single
+  benign skill went from 244 findings to 109.
+
 
 ### Changed
 - **An empty scan no longer grades A.** Discovery is deliberately wider than
