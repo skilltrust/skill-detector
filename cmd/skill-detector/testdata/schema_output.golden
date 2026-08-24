@@ -79,7 +79,7 @@
   ],
   "rules_applied": 0,
   "ruleset_checksum": "\u003cchecksum\u003e",
-  "schema_version": "1.4",
+  "schema_version": "1.5",
   "version": "\u003cversion\u003e",
   "warnings": []
 }

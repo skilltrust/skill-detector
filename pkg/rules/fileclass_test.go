@@ -90,17 +90,21 @@ func TestIsAgentFile(t *testing.T) {
 
 func TestIsInAgentConfigDir(t *testing.T) {
 	cases := map[string]bool{
-		".claude/scripts/foo.sh":   true,
-		".codex/lib/x.sh":          true,
-		".opencode/util.sh":        true,
-		".cursor/rules/style.mdc":  true,
-		".gemini/hooks/pre.sh":     true,
-		".windsurf/scripts/x.sh":   true,
-		"a/b/.claude/x.sh":         true,
-		"src/main.ts":              false,
-		"claude/something.md":      false, // no leading dot
-		".github/workflows/ci.yml": false, // must NOT count as agent config dir
-		".vscode/mcp.json":         false, // must NOT count as agent config dir
+		".claude/scripts/foo.sh":     true,
+		".codex/lib/x.sh":            true,
+		".opencode/util.sh":          true,
+		".cursor/rules/style.mdc":    true,
+		".gemini/hooks/pre.sh":       true,
+		".windsurf/scripts/x.sh":     true,
+		".agents/skills/x/run.sh":    true, // npx skills add install path
+		".agents/skills/x/a.test.ts": true,
+		"a/b/.agents/skills/x.py":    true,
+		"a/b/.claude/x.sh":           true,
+		"src/main.ts":                false,
+		"claude/something.md":        false, // no leading dot
+		"agents/something.sh":        false, // no leading dot
+		".github/workflows/ci.yml":   false, // must NOT count as agent config dir
+		".vscode/mcp.json":           false, // must NOT count as agent config dir
 	}
 	for path, want := range cases {
 		if got := isInAgentConfigDir(path); got != want {

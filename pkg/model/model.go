@@ -164,7 +164,7 @@ type ConfigOverride struct {
 // anything nested inside it — added, renamed, removed or retyped fields.
 // TestScanJSONOutputMatchesSchemaGolden turns a forgotten bump into a failing
 // test; downstream consumers read the field to detect an unfamiliar format.
-const SchemaVersion = "1.4"
+const SchemaVersion = "1.5"
 
 // ScanResult — top-level result from a scan.
 type ScanResult struct {
@@ -178,6 +178,12 @@ type ScanResult struct {
 	SchemaVersion   string                   `json:"schema_version"`
 	Axes            map[axes.Axis]AxisResult `json:"axes,omitempty"`
 	Warnings        []string                 `json:"warnings"`
+
+	// NoAgentSurface reports that the scan read no in-scope file: every
+	// discovered path failed the rules' path gates. Nothing was checked, so
+	// Axes is empty and a clean verdict would be a claim about files nobody
+	// read. Consumers must not store or display this as a passing result.
+	NoAgentSurface bool `json:"no_agent_surface,omitempty"`
 }
 
 // Permission — inferred capability.

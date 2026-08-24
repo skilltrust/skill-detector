@@ -1686,3 +1686,37 @@ func TestTextReporter_ExpectedFinding_NoColor(t *testing.T) {
 		t.Error("expected no ANSI codes in no-color mode")
 	}
 }
+
+// TestTextReporter_NothingScannedVerdict: a scan with no axes read no
+// in-scope file, so it has no verdict to report. "✓ No concerns" and the
+// permission summary next to it are both claims about files that were never
+// checked — the scariest possible output, because it is indistinguishable
+// from a genuinely clean repo.
+func TestTextReporter_NothingScannedVerdict(t *testing.T) {
+	result := model.ScanResult{
+		FileCount:      1,
+		RuleCount:      17,
+		NoAgentSurface: true,
+		Permissions: []model.Permission{
+			{Type: "filesystem", Details: []string{"reads local files"}},
+		},
+		Warnings: []string{"no agent configuration files were found in scope"},
+	}
+
+	var buf bytes.Buffer
+	r := &TextReporter{Theme: NewTheme(true)}
+	if err := r.Report(result, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if strings.Contains(out, "No concerns") {
+		t.Errorf("output claims a clean verdict for a scan that checked nothing:\n%s", out)
+	}
+	if strings.Contains(out, "reads local files") {
+		t.Errorf("output reports permissions inferred from no checked file:\n%s", out)
+	}
+	if !strings.Contains(out, "Nothing checked") {
+		t.Errorf("output does not say the scan checked nothing:\n%s", out)
+	}
+}

@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Changed
+- **An empty scan no longer grades A.** Discovery is deliberately wider than
+  the rules' path gates, so "N files scanned" never meant the agent surface was
+  read. When no discovered file is agent surface, the scan now sets
+  `no_agent_surface`, emits **no** axes and **no** permissions, warns, and its
+  text verdict reads `∅ Nothing checked — no agent configuration files in
+  scope` instead of `✓ No concerns`. Previously such a scan reported four A
+  grades and a clean verdict, and that A travelled into CI exit codes, badges
+  and downstream databases. `--fail-on-axis` already treats a missing axis as
+  "nothing to compare", so exit codes are unchanged for graded scans.
+- **Schema `1.4` → `1.5`** — additive: `no_agent_surface` (bool, omitempty).
+  Registry checksum unmoved (no rule metadata or cap-table change).
+
 - **Text output hides the `quality` axis while nothing drives it.** The axis
   is a reserved slot with zero rules mapped, so the unconditional
   `Quality A` row read as "quality was checked and it's excellent" when
@@ -10,6 +22,17 @@
   findings and reappears by itself the day a rule lands on the axis.
   **JSON is unchanged** — all four axes stay in the wire format (ADR-0001),
   and `--fail-on-axis quality=...` still works. Registry checksum unmoved.
+
+### Fixed
+- **`.agents/` is now in scope.** `isInAgentConfigDir` / `inAgentDir` /
+  `walkableHiddenDirs` listed every harness dot-dir except `.agents/` — the
+  path `npx skills add` installs into, and the convention third-party skill
+  registries publish for. A skill installed the standard way was invisible:
+  the same fixture graded **F** under `.claude/skills/` and **A** under
+  `.agents/skills/` with "0 files scanned". Script extensions
+  (`.ts`, `.py`, ...) inside the tree are scanned there like in any other
+  agent config dir, which is what catches payloads bundled in `*.test.ts` /
+  `conftest.py` that the developer's own test runner executes.
 
 ## v0.6.0 — 2026-08-14
 

@@ -515,3 +515,39 @@ func TestJSONReporterEmitsAxesField(t *testing.T) {
 		t.Errorf("findings[0].axis = %q, want permission_hygiene", parsed.Findings[0].Axis)
 	}
 }
+
+// TestJSONReporter_NoAgentSurface: the field is omitempty, so it is absent
+// from the schema golden (which scans a fixture with findings). This is the
+// test that pins its wire name and type — without it, a rename would ship
+// silently and a downstream consumer would read a nothing-scanned result as
+// a clean one.
+func TestJSONReporter_NoAgentSurface(t *testing.T) {
+	var buf bytes.Buffer
+	r := &JSONReporter{}
+	if err := r.Report(model.ScanResult{NoAgentSurface: true, SchemaVersion: model.SchemaVersion}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["no_agent_surface"] != true {
+		t.Errorf("no_agent_surface = %v, want true; keys = %v", got["no_agent_surface"], got)
+	}
+	if _, ok := got["axes"]; ok {
+		t.Errorf("axes present on a nothing-scanned result: %v", got["axes"])
+	}
+
+	buf.Reset()
+	if err := r.Report(model.ScanResult{SchemaVersion: model.SchemaVersion}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	got = nil
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["no_agent_surface"]; ok {
+		t.Errorf("no_agent_surface present when false; want omitted")
+	}
+}

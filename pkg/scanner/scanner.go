@@ -127,14 +127,46 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 
 	findings = s.applyTriage(ctx, findings, files)
 
-	perms := permission.Extract(findings, files)
+	// A grade is a statement about files that were read. Discovery is
+	// deliberately wider than the rules' path gates (it walks every
+	// scannable extension), so "some files were scanned" does not mean the
+	// agent surface was examined: a repo with a README and nothing else
+	// reads one file and checks nothing. Grading it A would report "checked
+	// and clean" for a tree no rule ever looked at, and that A travels — into
+	// CI exit codes, badges and downstream databases.
+	//
+	// So the axes are emitted only when at least one in-scope file was read.
+	// Absent axes is the shape every consumer already handles: the text
+	// reporter skips the Trust Score block, `axes` is omitempty in JSON, and
+	// --fail-on-axis treats a missing axis as "nothing to compare".
+	var agentSurface int
+	for _, f := range files {
+		if rules.IsAgentFile(f.Path) || inAgentDir(f.Path) {
+			agentSurface++
+		}
+	}
 
-	axesResult := make(map[axes.Axis]model.AxisResult, len(axes.Order))
-	for _, a := range axes.Order {
-		axesResult[a] = grade.Grade(a, findings)
+	// Permissions describe what the agent surface does. With no agent
+	// surface there is nothing to describe, and "reads local files" would be
+	// a claim about files no rule inspected.
+	var perms []model.Permission
+	if agentSurface > 0 {
+		perms = permission.Extract(findings, files)
+	}
+
+	var axesResult map[axes.Axis]model.AxisResult
+	if agentSurface > 0 {
+		axesResult = make(map[axes.Axis]model.AxisResult, len(axes.Order))
+		for _, a := range axes.Order {
+			axesResult[a] = grade.Grade(a, findings)
+		}
 	}
 
 	var warnings []string
+	if agentSurface == 0 {
+		warnings = append(warnings,
+			"no agent configuration files were found in scope, so nothing was checked and no grades are reported. This is not a clean result — verify the scan path, and see --scan-all if agent config is gitignored.")
+	}
 	if discoverStats.GitignoredAgentPaths > 0 {
 		warnings = append(warnings,
 			fmt.Sprintf("%d agent config path(s) were skipped because they are gitignored; the scan may be blind to the primary attack surface. Re-run with --scan-all to include them.", discoverStats.GitignoredAgentPaths))
@@ -151,6 +183,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		SchemaVersion:   model.SchemaVersion,
 		Axes:            axesResult,
 		Warnings:        warnings,
+		NoAgentSurface:  agentSurface == 0,
 	}, nil
 }
 

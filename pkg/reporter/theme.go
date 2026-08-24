@@ -42,6 +42,13 @@ func (t Theme) Colorize(text string, codes ...string) string {
 }
 
 // VerdictIcon returns the appropriate verdict icon with color.
+// VerdictNothingScanned is the verdict for a scan that read no in-scope file.
+// It is deliberately not the clean icon: "no findings" and "nothing checked"
+// look identical to a reader and mean opposite things.
+func (t Theme) VerdictNothingScanned() string {
+	return t.Colorize("∅ Nothing checked — no agent configuration files in scope", ansiYellow, ansiBold)
+}
+
 func (t Theme) VerdictIcon(clean bool, findingCount int) string {
 	if clean {
 		return t.Colorize("✓ No concerns", ansiGreen, ansiBold)
