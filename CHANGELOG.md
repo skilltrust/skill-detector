@@ -3,6 +3,36 @@
 ## Unreleased
 
 ### Changed
+- **SD-007 tells a declared endpoint from a call.** In a documentation or
+  data file a URL is a disclosure — a Notion skill's manifest naming
+  `https://api.notion.com/v1/pages` is saying what it talks to, not doing
+  something wrong — and it now grades **Medium on `transparency`** instead of
+  **High on `security`**. It stays High/security when the statement sends
+  local state (`curl -d "$(env)"`), when the host is one a published API would
+  not use (bare IP, non-standard port, ephemeral tunnel or request-bin), when
+  the target is not visible, and always inside executable code. The URL is now
+  read from the whole shell statement, so a target on a backslash continuation
+  is seen. Registered severity stays High/security — that is the ceiling and
+  what `registry.Checksum()` hashes, so the checksum is unmoved.
+- **SD-007 no longer matches the English verb "fetch".** `\bfetch\s+` fired on
+  "a script to fetch live data" and "not visible to fetch". The JS `fetch(...)`
+  call and shell `fetch https://...` still fire.
+
+  Measured on a 600-sample MalSkillBench slice (300 malicious / 300 benign),
+  `--fail-on-axis security=B`, skills scanned as installed:
+
+  | | precision | recall | FP-rate | benign flagged |
+  |---|---|---|---|---|
+  | before | 0.644 | 0.707 | 0.390 | 117 / 300 |
+  | after | 0.678 | 0.647 | 0.307 | 92 / 300 |
+
+  Recall on code-level behaviours (B1–B9) moves 0.97 → 0.94. Of the 11
+  malicious samples that stop being flagged, all 11 were held up by SD-007
+  alone and 9 of those by the prose verb; the two real ones are
+  privilege-escalation *instructions* in a manifest, which SD-002 should catch
+  deliberately rather than SD-007 catching by accident.
+
+### Changed
 - **An empty scan no longer grades A.** Discovery is deliberately wider than
   the rules' path gates, so "N files scanned" never meant the agent surface was
   read. When no discovered file is agent surface, the scan now sets

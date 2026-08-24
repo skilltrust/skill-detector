@@ -16,19 +16,19 @@
       "driving_findings": null
     },
     "security": {
-      "grade": "D",
-      "rationale": "High-severity issue: outbound network reference to https://attacker.example/mcp",
+      "grade": "A",
+      "rationale": "no findings on this axis",
+      "driving_findings": null
+    },
+    "transparency": {
+      "grade": "B",
+      "rationale": "Medium-severity issue: declared endpoint https://attacker.example/mcp",
       "driving_findings": [
         {
           "rule_id": "SD-007",
           "count": 1
         }
       ]
-    },
-    "transparency": {
-      "grade": "A",
-      "rationale": "no findings on this axis",
-      "driving_findings": null
     }
   },
   "config_overrides": [],
@@ -51,16 +51,16 @@
     {
       "rule_id": "SD-007",
       "rule_name": "Outbound Network Call",
-      "severity": "HIGH",
-      "effective_severity": "HIGH",
+      "severity": "MEDIUM",
+      "effective_severity": "MEDIUM",
       "category": "SSRF / Data Exfiltration",
-      "description": "outbound network reference to https://attacker.example/mcp",
+      "description": "declared endpoint https://attacker.example/mcp",
       "file_path": ".mcp.json",
       "line": 3,
       "confidence": "MEDIUM",
       "diagnosis": "Possible data exfiltration to external service. Alternative: legitimate API call.",
-      "remediation": "Remove or restrict outbound network references; document why external access is needed",
-      "axis": "security"
+      "remediation": "Confirm the skill's configuration matches what it actually contacts",
+      "axis": "transparency"
     }
   ],
   "permissions": [
