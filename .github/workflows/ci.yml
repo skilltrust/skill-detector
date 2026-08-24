@@ -32,5 +32,15 @@ jobs:
       - name: Build
         run: make build
 
+      # Dependabot alerts cover our module requirements; govulncheck is the
+      # only check that also sees the Go standard library and, unlike an alert
+      # feed, reports whether the vulnerable symbol is actually reachable from
+      # our code. @latest is deliberate: the scanner is a tool, not a pinned
+      # dependency, and its vulnerability DB is fetched at run time anyway.
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
       - name: Self-scan
         run: make self-scan
