@@ -53,6 +53,18 @@
   the one shape given up for removing the whole class. `-d @data.json` still
   does: the `@` marks the argument as a file to read, so nothing is ambiguous
   there.
+- **A bracketed IPv6 host survives URL extraction.** `reHTTPURL`'s character
+  class excludes `]`, so `http://[fd00:ec2::254]/latest/meta-data/` — the AWS
+  metadata service over IPv6 — was cut at the bracket, and the address never
+  reached the host test that would have kept it on the security axis. The IPv4
+  form of the same endpoint was always caught. Harmless while every match took
+  the registered severity; it decides the axis now.
+- **Internal-only and packed hosts count as suspicious.**
+  `metadata.google.internal`, a bare `metadata`, anything under the `.internal`
+  private TLD, and the numeric spellings of an IPv4 address that
+  `net.ParseIP` rejects (`2130706433`, `0x7f000001`). A published API does not
+  live at any of them, which is the criterion the bare-IP and port tests
+  already apply — these are the hosts that carry a name or an unusual base.
 - **`-d @-` is stdin, not a file**, so a heredoc body is no longer read as an
   upload. A quote between the `@` and the path (`-d @"/etc/passwd"`) is
   stripped, since the shell strips it identically to `-d "@/etc/passwd"`.

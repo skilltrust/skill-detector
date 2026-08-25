@@ -19,9 +19,14 @@ var (
 	// malicious ones, i.e. noise on both sides of the label. The JS
 	// `fetch(...)` form is covered by reRequestsLib.
 	reNetworkCommand = regexp.MustCompile(`\b(curl|wget|ncat|nc)\s+|\bfetch\s+(-|https?://)`)
-	reHTTPURL        = regexp.MustCompile(`https?://[^\s"')\]>]+`)
-	reRequestsLib    = regexp.MustCompile(`\b(requests\.(get|post|put|delete|patch)|urllib\.request|fetch\()`)
-	reGitFetch       = regexp.MustCompile(`\bgit\s+fetch\b`)
+	// A bracketed IPv6 host needs its own alternative: the general class
+	// excludes `]`, so `http://[fd00:ec2::254]/…` was cut at the bracket and
+	// the address never reached suspiciousEndpoint. Harmless while every match
+	// took the registered severity; it decides the axis now.
+	reHTTPURL = regexp.MustCompile(`https?://\[[^\]\s"'` + "`" + `]+\][^\s"')>]*` +
+		`|https?://[^\s"')\]>]+`)
+	reRequestsLib = regexp.MustCompile(`\b(requests\.(get|post|put|delete|patch)|urllib\.request|fetch\()`)
+	reGitFetch    = regexp.MustCompile(`\bgit\s+fetch\b`)
 )
 
 // SD-008: Base64 obfuscation patterns.
@@ -52,9 +57,43 @@ var (
 // stable domain; a collection endpoint frequently does not.
 var tunnelOrPasteHosts = regexp.MustCompile(`(?i)(^|\.)(ngrok-free\.app|ngrok\.io|trycloudflare\.com|pythonanywhere\.com|webhook\.site|pipedream\.net|requestbin\.[a-z]+|burpcollaborator\.net|serveo\.net|localtunnel\.me|oastify\.com|interact\.sh)$`)
 
+// internalHosts are names that only resolve inside a cloud instance or a
+// private network: the GCP metadata server and anything under the `.internal`
+// private TLD. A published API does not live there, which is the same
+// criterion the IP and port tests apply — this just covers the hosts that
+// carry a name.
+var internalHosts = regexp.MustCompile(`(?i)^(metadata|metadata\.google\.internal|metadata\.goog)$|\.internal$`)
+
+// isPackedIPv4 reports whether a host is one of the numeric spellings of an
+// IPv4 address that net.ParseIP rejects: `2130706433` and `0x7f000001` are
+// both 127.0.0.1. No published API is addressed this way, and nothing
+// documents it innocently.
+func isPackedIPv4(host string) bool {
+	if host == "" {
+		return false
+	}
+	if strings.HasPrefix(host, "0x") || strings.HasPrefix(host, "0X") {
+		if len(host) < 3 {
+			return false
+		}
+		for _, c := range host[2:] {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+				return false
+			}
+		}
+		return true
+	}
+	for _, c := range host {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // suspiciousEndpoint reports whether a URL's host is one a published service
-// would not use: a bare IP address, a non-standard port, or an ephemeral
-// tunnel/request-bin host.
+// would not use: a bare IP address in any spelling, a non-standard port, an
+// internal-only name, or an ephemeral tunnel/request-bin host.
 //
 // This is the only signal that separates the two populations at scale. On
 // MalSkillBench, an IP literal appears in 14.8% of malicious SD-007 hits and
@@ -69,7 +108,10 @@ func suspiciousEndpoint(raw string) bool {
 		return false
 	}
 	host := u.Hostname()
-	if net.ParseIP(host) != nil {
+	if net.ParseIP(host) != nil || isPackedIPv4(host) {
+		return true
+	}
+	if internalHosts.MatchString(host) {
 		return true
 	}
 	if p := u.Port(); p != "" && p != "80" && p != "443" {

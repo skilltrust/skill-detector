@@ -1063,3 +1063,60 @@ func TestSD007_QuoteBetweenAtAndPath(t *testing.T) {
 		t.Error("`-d @-` reads stdin, not a file")
 	}
 }
+
+// --- PR review, round 7: the other gate ------------------------------------
+
+func TestSD007_IPv6LiteralReachesTheGate(t *testing.T) {
+	// reHTTPURL's class excludes `]`, so a bracketed host was cut before
+	// suspiciousEndpoint saw it — and that function already knew the right
+	// answer, it was just handed a truncated string. Harmless while every
+	// match got the registered severity; it decides the axis now.
+	//
+	// fd00:ec2::254 is the AWS instance metadata service over IPv6.
+	for _, line := range []string{
+		"```bash\ncurl http://[fd00:ec2::254]/latest/meta-data/\n```\n",
+		"```bash\ncurl http://[::1]:8080/x\n```\n",
+	} {
+		fs := sd007Findings(t, "SKILL.md", line)
+		if len(fs) != 1 {
+			t.Fatalf("findings = %d, want 1", len(fs))
+		}
+		if fs[0].Axis != axes.Security {
+			t.Errorf("axis = %q, want security for %q", fs[0].Axis, fs[0].Description)
+		}
+	}
+
+	// The whole URL must survive into the description, not just the gate.
+	fs := sd007Findings(t, ".claude/skills/d/run.sh", "curl http://[fd00:ec2::254]/latest/meta-data/\n")
+	if len(fs) != 1 || !strings.Contains(fs[0].Description, "[fd00:ec2::254]/latest/meta-data/") {
+		t.Errorf("description lost the address: %+v", fs)
+	}
+}
+
+func TestSD007_MetadataAndPackedHostsAreSuspicious(t *testing.T) {
+	// Hosts a published API would not use, which is the criterion the
+	// demotion already states. metadata.google.internal is reachable only
+	// from inside an instance; the packed IPv4 spellings of loopback are not
+	// something anyone documents innocently.
+	for _, host := range []string{
+		"http://metadata.google.internal/computeMetadata/v1/",
+		"http://metadata/computeMetadata/v1/",
+		"http://vault.service.internal/v1/secret",
+		"http://0x7f000001/x",
+		"http://2130706433/x",
+	} {
+		fs := sd007Findings(t, "SKILL.md", "```bash\ncurl "+host+"\n```\n")
+		if len(fs) != 1 {
+			t.Fatalf("findings = %d for %s, want 1", len(fs), host)
+		}
+		if fs[0].Axis != axes.Security {
+			t.Errorf("axis = %q for %s, want security", fs[0].Axis, host)
+		}
+	}
+
+	// A published API on an ordinary host is still a declaration.
+	fs := sd007Findings(t, "SKILL.md", "```bash\ncurl https://api.notion.com/v1/pages\n```\n")
+	if len(fs) != 1 || fs[0].Axis != axes.Transparency {
+		t.Errorf("got %+v, want one transparency finding", fs)
+	}
+}
