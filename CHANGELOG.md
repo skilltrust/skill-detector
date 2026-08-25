@@ -39,9 +39,17 @@
   backslash-continued lines were enough to hide a `curl` from SD-007 entirely.
   A detection bypass introduced by the de-duplication fix below, found in
   review before either shipped.
-- **`curl -T` / `--upload-file` count as sending local state.** They take a
-  bare filename, so they could never match a pattern ending in `\S*@\S` — and
-  they are the flags that most directly upload a local file.
+- **`curl -T` / `--upload-file` count as sending local state**, anchored to a
+  curl invocation. They take a bare filename, so they could never match a
+  pattern ending in `\S*@\S`, and they are the flags that most directly upload
+  a local file — but `reNetworkCommand` covers wget too, and GNU wget's `-T` is
+  `--timeout`, so an unqualified check read `wget -T 30 https://…` as an upload.
+- **A short option's value may be attached.** curl parses `-d@FILE` exactly as
+  `-d @FILE` (verified against curl 8.7.1: both fail with "error encountered
+  when reading a file", where a literal body reaches the connection attempt).
+  Requiring a separator made the whole check a one-character evasion.
+- **The body-flag list is complete**: `--data-ascii` was missing, and wget's
+  `--post-file=` — its equivalent of `curl -T` — is now covered too.
 - **An `@` inside a literal request body is no longer read as a file upload.**
   `-d '{"email":"user@example.com"}'` matched the upload idiom and kept the
   finding at High. The `@` now has to open the argument or a `field=` value.

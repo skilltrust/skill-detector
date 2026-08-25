@@ -91,23 +91,35 @@ var (
 	reDataFlag  = regexp.MustCompile(`(^|\s)(-d|--data|--data-binary|--data-raw|--form|-F)(\s|=)`)
 )
 
-// reFileUpload matches curl's @-prefixed upload idiom: `-d @path`,
-// `--data-binary @path`, `-F field=@path`. It reads a local file straight into
-// the request body with no command substitution anywhere, which is why it must
-// be tested independently of reCmdSubst — the repo's own canonical SD-007
-// fixture uses this form.
+// reFileUpload matches the request-body flags whose value is a file rather
+// than literal content: `-d @path`, `--data-binary @path`, `-F field=@path`,
+// and wget's `--post-file=path`. These read a local file straight into the
+// request with no command substitution anywhere, which is why they are tested
+// independently of reCmdSubst — the repo's own canonical SD-007 fixture uses
+// this form.
 //
-// The `@` has to open the argument, or a `field=` value. Allowing it anywhere
-// in the argument made an email address in a literal body — `-d
-// '{"email":"user@example.com"}'` — read as a file upload, which is the exact
-// false-positive shape this rule change exists to remove.
-var reFileUpload = regexp.MustCompile(`(^|\s)(-d|--data(-binary|-raw|-urlencode)?|--form|-F)(\s+|=)['"` + "`" + `]?(@|[\w.\[\]-]+=@)`)
+// Two things the pattern has to get right:
+//
+//   - The `@` must open the argument, or a `field=` value. Allowing it
+//     anywhere made an email address in a literal body —
+//     `-d '{"email":"user@example.com"}'` — read as a file upload.
+//   - A short option's value may be attached: curl parses `-d@FILE` exactly
+//     as `-d @FILE` (verified against curl 8.7.1 — both fail with "error
+//     encountered when reading a file", where a literal body reaches the
+//     connection attempt). Requiring a separator made the check a
+//     one-character evasion.
+var reFileUpload = regexp.MustCompile(
+	`(^|\s)(-d|-F)\s*` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` +
+		`|(^|\s)(--data(-ascii|-binary|-raw|-urlencode)?|--form)(\s+|=)` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` +
+		`|(^|\s)--post-file(\s+|=)` + "`" + `?['"]?[~/.\w]`)
 
-// reUploadFlag matches the flags that take a bare filename rather than an
-// @-prefixed one: `curl -T ~/.aws/credentials https://…`. They cannot match
-// reFileUpload's shape, and they are the flags that most directly upload a
-// local file, so they get their own branch.
-var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file)(\s+|=)['"` + "`" + `]?[~/.\w]`)
+// reUploadFlag matches curl's `-T` / `--upload-file`, which take a bare
+// filename and so cannot match reFileUpload's `@` shape.
+//
+// It is deliberately anchored to a curl invocation: reNetworkCommand covers
+// wget as well, and GNU wget's `-T` is `--timeout`, so an unqualified check
+// read `wget -T 30 https://…` — a documented fetch — as a file upload.
+var reUploadFlag = regexp.MustCompile(`\bcurl\b[^\n]*\s(-T|--upload-file)\s*` + "`" + `?['"]?[~/.\w]`)
 
 // exfiltratesLocalData reports whether the statement pipes local state into
 // the request rather than sending literal or user-supplied content.
