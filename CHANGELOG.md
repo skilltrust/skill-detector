@@ -39,11 +39,17 @@
   backslash-continued lines were enough to hide a `curl` from SD-007 entirely.
   A detection bypass introduced by the de-duplication fix below, found in
   review before either shipped.
-- **`curl -T` / `--upload-file` count as sending local state**, anchored to a
-  curl invocation. They take a bare filename, so they could never match a
+- **`curl -T` / `--upload-file` count as sending local state**, bound to the
+  command they belong to. They take a bare filename, so they could never match a
   pattern ending in `\S*@\S`, and they are the flags that most directly upload
   a local file — but `reNetworkCommand` covers wget too, and GNU wget's `-T` is
   `--timeout`, so an unqualified check read `wget -T 30 https://…` as an upload.
+  The binding is per command, not per statement: a statement is split on the
+  shell's separators, so `curl https://a && wget -T 30 https://b` is a call
+  followed by a fetch with a timeout and uploads nothing, while a backslash-
+  wrapped `curl -X PUT \ / -T ~/.aws/credentials \ / https://…` — the ordinary
+  way such a command is written in documentation — is still one curl carrying
+  an upload flag.
 - **A short option's value may be attached.** curl parses `-d@FILE` exactly as
   `-d @FILE` (verified against curl 8.7.1: both fail with "error encountered
   when reading a file", where a literal body reaches the connection attempt).

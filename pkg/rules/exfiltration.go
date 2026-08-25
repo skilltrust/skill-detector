@@ -115,16 +115,36 @@ var reFileUpload = regexp.MustCompile(
 
 // reUploadFlag matches curl's `-T` / `--upload-file`, which take a bare
 // filename and so cannot match reFileUpload's `@` shape.
+var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file)\s*` + "`" + `?['"]?[~/.\w]`)
+
+// uploadsLocalFile reports whether some command *within* the statement is a
+// curl invocation carrying an upload flag.
 //
-// It is deliberately anchored to a curl invocation: reNetworkCommand covers
-// wget as well, and GNU wget's `-T` is `--timeout`, so an unqualified check
-// read `wget -T 30 https://…` — a documented fetch — as a file upload.
-var reUploadFlag = regexp.MustCompile(`\bcurl\b[^\n]*\s(-T|--upload-file)\s*` + "`" + `?['"]?[~/.\w]`)
+// Both halves of that sentence are load-bearing. The flag has to belong to
+// curl, because reNetworkCommand covers wget too and GNU wget's `-T` is
+// `--timeout` — an unanchored check read `wget -T 30 https://…` as an upload.
+// And it has to be the *same* command, because a statement can hold several:
+// `curl https://a && wget -T 30 https://b` is a call followed by a fetch with
+// a timeout, and nothing in it uploads anything.
+//
+// Splitting on the shell's command separators also keeps backslash
+// continuations intact, since shellStatement joins those with a newline and a
+// wrapped upload is the ordinary way such a command is written in docs.
+func uploadsLocalFile(stmt string) bool {
+	for _, cmd := range strings.FieldsFunc(stmt, func(r rune) bool {
+		return r == ';' || r == '&' || r == '|'
+	}) {
+		if strings.Contains(cmd, "curl") && reUploadFlag.MatchString(cmd) {
+			return true
+		}
+	}
+	return false
+}
 
 // exfiltratesLocalData reports whether the statement pipes local state into
 // the request rather than sending literal or user-supplied content.
 func exfiltratesLocalData(stmt string) bool {
-	if reFileUpload.MatchString(stmt) || reUploadFlag.MatchString(stmt) {
+	if reFileUpload.MatchString(stmt) || uploadsLocalFile(stmt) {
 		return true
 	}
 	if !reCmdSubst.MatchString(stmt) {
