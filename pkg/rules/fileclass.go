@@ -127,13 +127,6 @@ func IsAgentFile(path string) bool {
 		IsClaudeSettings(path) || IsMCPConfig(path)
 }
 
-// isInAgentConfigDir returns true for any path under .claude/, .codex/,
-// .opencode/, .cursor/, .gemini/, .windsurf/, or .agents/. Used by rules that inspect
-// arbitrary files in agent config dirs (e.g., hook scripts at
-// .claude/scripts/foo.sh). Deliberately excludes .github/ and .vscode/ —
-// those dirs are walked for their specific instruction/MCP files (see
-// scanner.walkableHiddenDirs) but must not count as agent config dirs, or
-// every content rule would run over all of .github/workflows/.
 // agentConfigDirs are the per-harness directories whose whole subtree is in
 // scope. `.agents/` is the install path `npx skills add` writes to and the
 // convention third-party skill registries publish for — a skill installed the
@@ -142,6 +135,13 @@ var agentConfigDirs = []string{
 	".claude/", ".codex/", ".opencode/", ".cursor/", ".gemini/", ".windsurf/", ".agents/",
 }
 
+// isInAgentConfigDir returns true for any path under .claude/, .codex/,
+// .opencode/, .cursor/, .gemini/, .windsurf/, or .agents/. Used by rules that inspect
+// arbitrary files in agent config dirs (e.g., hook scripts at
+// .claude/scripts/foo.sh). Deliberately excludes .github/ and .vscode/ —
+// those dirs are walked for their specific instruction/MCP files (see
+// scanner.walkableHiddenDirs) but must not count as agent config dirs, or
+// every content rule would run over all of .github/workflows/.
 func isInAgentConfigDir(path string) bool {
 	clean := filepath.ToSlash(path)
 	for _, d := range agentConfigDirs {
