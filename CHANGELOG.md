@@ -47,10 +47,15 @@
   statement, an `&` inside a quoted query string, the word "curl" in a trailing
   comment. The rule no longer asks: the argument is a file (`~/…`, `/…`,
   `./…`) or a timeout (digits), and testing that needs no idea where a command
-  begins. `curl -T data.json` — a bare relative filename — no longer counts,
-  which is the one shape given up for removing the whole class.
+  begins — including when the path is written through a variable, where the
+  slash after it is what separates `$HOME/.aws/credentials` from `$TIMEOUT`.
+  `curl -T data.json` — a bare relative filename — no longer counts, which is
+  the one shape given up for removing the whole class. `-d @data.json` still
+  does: the `@` marks the argument as a file to read, so nothing is ambiguous
+  there.
 - **`-d @-` is stdin, not a file**, so a heredoc body is no longer read as an
-  upload.
+  upload. A quote between the `@` and the path (`-d @"/etc/passwd"`) is
+  stripped, since the shell strips it identically to `-d "@/etc/passwd"`.
 - **A short option's value may be attached.** curl parses `-d@FILE` exactly as
   `-d @FILE` (verified against curl 8.7.1: both fail with "error encountered
   when reading a file", where a literal body reaches the connection attempt).

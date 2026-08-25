@@ -108,9 +108,17 @@ var (
 //     encountered when reading a file", where a literal body reaches the
 //     connection attempt). Requiring a separator made the check a
 //     one-character evasion.
+//
+// pathArg is what an upload flag's value looks like when it names a file:
+// an absolute or home-rooted path, a `./` relative one, or any of those
+// written through a variable. The trailing slash after the variable is what
+// makes `$HOME/.aws/credentials` a path and `$TIMEOUT` a number — without it,
+// widening to variables would let wget's timeout back in.
+const pathArg = `(~/|\./|/|\$\{?\w+\}?/)`
+
 var reFileUpload = regexp.MustCompile(
-	`(^|\s)(-d|-F)\s*` + "`" + `?['"]?(@|[\w.\[\]-]+=@)[\w~./]` +
-		`|(^|\s)(--data(-ascii|-binary|-raw|-urlencode)?|--form)(\s+|=)` + "`" + `?['"]?(@|[\w.\[\]-]+=@)[\w~./]`)
+	`(^|\s)(-d|-F)\s*` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` + "`" + `?['"]?(` + pathArg + `|[\w~.])` +
+		`|(^|\s)(--data(-ascii|-binary|-raw|-urlencode)?|--form)(\s+|=)` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` + "`" + `?['"]?(` + pathArg + `|[\w~.])`)
 
 // reUploadFlag matches an upload flag whose argument is a path: `-T`,
 // `--upload-file`, and wget's `--post-file`.
@@ -125,13 +133,15 @@ var reFileUpload = regexp.MustCompile(
 //
 // None of that is what the demotion needs to know. This flag's argument is
 // either a file or a number of seconds: a path is `~/…`, `/…` or `./…`, and a
-// timeout is digits. Testing the argument separates them without knowing where
-// any command begins, which is why this rule no longer parses shell at all.
+// timeout is digits — including when the path is written through a variable,
+// where the slash after it is what separates `$HOME/.aws/…` from `$TIMEOUT`.
+// Testing the argument separates them without knowing where any command
+// begins, which is why this rule no longer parses shell at all.
 //
 // The cost, stated plainly: `curl -T data.json https://…` — a bare relative
 // filename — no longer reads as sending local state. Uploading a file from the
 // skill's own directory is not the shape this is looking for.
-var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file|--post-file)\s*=?` + "`" + `?['"]?(~/|\./|/)\S`)
+var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file|--post-file)\s*=?` + "`" + `?['"]?` + pathArg + `\S`)
 
 // exfiltratesLocalData reports whether the statement pipes local state into
 // the request rather than sending literal or user-supplied content.
