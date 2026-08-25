@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/velzepooz/skill-detector/pkg/config"
@@ -323,14 +324,70 @@ func TestScanner_DisabledRule_ProducesNoFindings(t *testing.T) {
 	}
 }
 
-func TestScan_SchemaVersionIs14(t *testing.T) {
+func TestScan_SchemaVersionIs15(t *testing.T) {
 	dir := t.TempDir()
 	s := scanner.New(rules.DefaultRegistry(), scanner.Options{})
 	res, err := s.Scan(context.Background(), dirInput(dir))
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if res.SchemaVersion != "1.4" {
-		t.Errorf("SchemaVersion = %q, want 1.4", res.SchemaVersion)
+	if res.SchemaVersion != "1.5" {
+		t.Errorf("SchemaVersion = %q, want 1.5", res.SchemaVersion)
+	}
+}
+
+// TestScanner_NoAgentSurface_NoGrades guards the second half of the scope
+// contract: when discovery finds nothing in scope, the scan has no evidence
+// for any grade. Emitting A ("no findings on this axis") would report
+// "checked and clean" for a tree that was never read. Absent axes plus a
+// warning is the honest shape — the reporters and --fail-on-axis already
+// treat a missing axis as "nothing to compare".
+func TestScanner_NoAgentSurface_NoGrades(t *testing.T) {
+	// README.md is discovered (a scannable extension) but is not agent
+	// surface, so every rule's path gate rejects it: the scan reads a file
+	// and still checks nothing.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runScan(t, newScanner(t, nil), root)
+
+	if len(result.Axes) != 0 {
+		t.Errorf("Axes = %v, want none on a scan that read no in-scope file", result.Axes)
+	}
+	if len(result.Permissions) != 0 {
+		t.Errorf("Permissions = %v, want none: nothing was inspected", result.Permissions)
+	}
+	if !result.NoAgentSurface {
+		t.Error("NoAgentSurface = false, want true")
+	}
+	var warned bool
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "no agent configuration files") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("Warnings = %v, want one naming the empty agent surface", result.Warnings)
+	}
+}
+
+// TestScanner_AgentSurfacePresent_KeepsGrades is the paired positive case:
+// one in-scope file is enough evidence to grade, and a clean one still
+// grades A.
+func TestScanner_AgentSurfacePresent_KeepsGrades(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\n---\nFormat files.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runScan(t, newScanner(t, nil), root)
+
+	if len(result.Axes) == 0 {
+		t.Fatal("Axes = none, want four graded axes when an in-scope file was read")
+	}
+	if g := result.Axes["security"].Grade; g != "A" {
+		t.Errorf("security grade = %q, want A", g)
 	}
 }

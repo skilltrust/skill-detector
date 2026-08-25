@@ -27,6 +27,7 @@ var walkableHiddenDirs = map[string]bool{
 	".cursor":   true,
 	".gemini":   true,
 	".windsurf": true,
+	".agents":   true,
 	".vscode":   true,
 	".github":   true,
 }
@@ -55,7 +56,7 @@ var scannableExts = map[string]bool{
 
 // agentDirExtraExts are additionally scanned when the file lives inside an
 // agent config dir (.claude/, .codex/, .opencode/, .cursor/, .gemini/,
-// .windsurf/): script languages, Cursor's rule-file extension, plus
+// .windsurf/, .agents/): script languages, Cursor's rule-file extension, plus
 // extensionless hook scripts. Outside those dirs the scannableExts allowlist
 // applies unchanged (noise control).
 var agentDirExtraExts = map[string]bool{
@@ -76,7 +77,7 @@ var instructionDotfiles = map[string]bool{".cursorrules": true, ".windsurfrules"
 // walkableHiddenDirs.
 func inAgentDir(rel string) bool {
 	clean := filepath.ToSlash(rel)
-	for _, d := range []string{".claude/", ".codex/", ".opencode/", ".cursor/", ".gemini/", ".windsurf/"} {
+	for _, d := range []string{".claude/", ".codex/", ".opencode/", ".cursor/", ".gemini/", ".windsurf/", ".agents/"} {
 		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
 			return true
 		}

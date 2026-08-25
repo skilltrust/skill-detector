@@ -55,8 +55,12 @@ func (t *TextReporter) Report(result model.ScanResult, w io.Writer) error {
 	findingCount := len(findings)
 	hasPerms := len(result.Permissions) > 0
 
-	// Verdict line (with inline permissions for clean scans).
-	if clean && hasPerms {
+	// Verdict line (with inline permissions for clean scans). NoAgentSurface
+	// means no in-scope file was read: there is no verdict to give, and the
+	// permission summary would describe files nothing ever checked.
+	if result.NoAgentSurface {
+		fmt.Fprintln(w, t.Theme.VerdictNothingScanned())
+	} else if clean && hasPerms {
 		fmt.Fprintln(w, t.Theme.VerdictIcon(clean, findingCount)+" · "+formatInlinePermissions(result.Permissions))
 	} else {
 		fmt.Fprintln(w, t.Theme.VerdictIcon(clean, findingCount))
