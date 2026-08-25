@@ -26,11 +26,24 @@
   | before | 0.644 | 0.707 | 0.390 | 117 / 300 |
   | after | 0.678 | 0.647 | 0.307 | 92 / 300 |
 
+  (Superseded by the combined figures below once the review fixes landed.)
+
   Recall on code-level behaviours (B1–B9) moves 0.97 → 0.94. Of the 11
   malicious samples that stop being flagged, all 11 were held up by SD-007
   alone and 9 of those by the prose verb; the two real ones are
   privilege-escalation *instructions* in a manifest, which SD-002 should catch
   deliberately rather than SD-007 catching by accident.
+- **A statement's continuation lines are no longer re-judged as statements.**
+  SD-007 read the URL from the backslash-joined statement but did not skip the
+  lines it consumed, so a wrapped command produced one finding per line —
+  three for a single call. Found in review of this PR; it removed 25 duplicate
+  findings from the 600-sample slice (SD-007 benign 901 → 881, malicious
+  1359 → 1354), which was small enough that the headline figures held.
+- **`curl -d @file` counts as sending local state again.** `exfiltratesLocalData`
+  returned early unless it saw `$(`, so the `@`-prefixed upload idiom —
+  `-d @path`, `--data-binary @path`, `-F field=@path`, the form the repo's own
+  canonical SD-007 fixture uses — was demoted to transparency in documentation.
+  Found in review of this PR.
 - **SD-008 no longer treats every long alphanumeric run as a payload.** `/` is
   in the base64 alphabet, so a deep path matched; so did a hex wallet address
   and any single-case identifier. Worst of all, npm lockfile `"integrity"`
@@ -41,8 +54,15 @@
   `b64decode`) are untouched — that is where the signal was all along
   (22.6% of malicious hits vs 2.0% of benign).
 
-  SD-008 findings across the same 600 samples: **benign 410 → 11**, malicious
-  221 → 119. Findings on benign skills overall 1724 → 1271; the worst single
+  SD-008 findings across the same 600 samples: **benign 410 → 31**, malicious
+  221 → 136. The exemption for path-shaped tokens is a case-stability test, not
+  a slash test: `/` is in the base64 alphabet, and across 20000 encodings of 30
+  random bytes **24.8%** contain a `/` with no `+` and no padding, so a slash
+  test discarded a quarter of all genuine payloads. A path is several word-like
+  segments — `claude/skills/CORE/USER/Art` flips case on 2% of its character
+  boundaries where random base64 flips on 33%. The shipped test catches 74.5%
+  of the corpus path tokens and discards **0 of 20000** genuine payloads. Found
+  in review of this PR. Findings on benign skills overall 1724 → 1271; the worst single
   benign skill went from 244 findings to 109.
 
 
