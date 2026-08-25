@@ -109,42 +109,34 @@ var (
 //     connection attempt). Requiring a separator made the check a
 //     one-character evasion.
 var reFileUpload = regexp.MustCompile(
-	`(^|\s)(-d|-F)\s*` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` +
-		`|(^|\s)(--data(-ascii|-binary|-raw|-urlencode)?|--form)(\s+|=)` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` +
-		`|(^|\s)--post-file(\s+|=)` + "`" + `?['"]?[~/.\w]`)
+	`(^|\s)(-d|-F)\s*` + "`" + `?['"]?(@|[\w.\[\]-]+=@)[\w~./]` +
+		`|(^|\s)(--data(-ascii|-binary|-raw|-urlencode)?|--form)(\s+|=)` + "`" + `?['"]?(@|[\w.\[\]-]+=@)[\w~./]`)
 
-// reUploadFlag matches curl's `-T` / `--upload-file`, which take a bare
-// filename and so cannot match reFileUpload's `@` shape.
-var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file)\s*` + "`" + `?['"]?[~/.\w]`)
-
-// uploadsLocalFile reports whether some command *within* the statement is a
-// curl invocation carrying an upload flag.
+// reUploadFlag matches an upload flag whose argument is a path: `-T`,
+// `--upload-file`, and wget's `--post-file`.
 //
-// Both halves of that sentence are load-bearing. The flag has to belong to
-// curl, because reNetworkCommand covers wget too and GNU wget's `-T` is
-// `--timeout` — an unanchored check read `wget -T 30 https://…` as an upload.
-// And it has to be the *same* command, because a statement can hold several:
-// `curl https://a && wget -T 30 https://b` is a call followed by a fetch with
-// a timeout, and nothing in it uploads anything.
+// The argument's shape is the whole test, deliberately. Earlier versions asked
+// which command the flag belonged to — anchoring to `curl`, then splitting the
+// statement on shell separators to bind the flag to one command — because GNU
+// wget's `-T` is `--timeout` and `wget -T 30` must not read as an upload.
+// Every one of those versions was wrong about shell syntax in a new way: a
+// newline inside a joined statement, an `&` inside a quoted query string, the
+// word "curl" in a trailing comment.
 //
-// Splitting on the shell's command separators also keeps backslash
-// continuations intact, since shellStatement joins those with a newline and a
-// wrapped upload is the ordinary way such a command is written in docs.
-func uploadsLocalFile(stmt string) bool {
-	for _, cmd := range strings.FieldsFunc(stmt, func(r rune) bool {
-		return r == ';' || r == '&' || r == '|'
-	}) {
-		if strings.Contains(cmd, "curl") && reUploadFlag.MatchString(cmd) {
-			return true
-		}
-	}
-	return false
-}
+// None of that is what the demotion needs to know. This flag's argument is
+// either a file or a number of seconds: a path is `~/…`, `/…` or `./…`, and a
+// timeout is digits. Testing the argument separates them without knowing where
+// any command begins, which is why this rule no longer parses shell at all.
+//
+// The cost, stated plainly: `curl -T data.json https://…` — a bare relative
+// filename — no longer reads as sending local state. Uploading a file from the
+// skill's own directory is not the shape this is looking for.
+var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file|--post-file)\s*=?` + "`" + `?['"]?(~/|\./|/)\S`)
 
 // exfiltratesLocalData reports whether the statement pipes local state into
 // the request rather than sending literal or user-supplied content.
 func exfiltratesLocalData(stmt string) bool {
-	if reFileUpload.MatchString(stmt) || uploadsLocalFile(stmt) {
+	if reFileUpload.MatchString(stmt) || reUploadFlag.MatchString(stmt) {
 		return true
 	}
 	if !reCmdSubst.MatchString(stmt) {

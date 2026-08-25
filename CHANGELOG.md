@@ -39,17 +39,18 @@
   backslash-continued lines were enough to hide a `curl` from SD-007 entirely.
   A detection bypass introduced by the de-duplication fix below, found in
   review before either shipped.
-- **`curl -T` / `--upload-file` count as sending local state**, bound to the
-  command they belong to. They take a bare filename, so they could never match a
-  pattern ending in `\S*@\S`, and they are the flags that most directly upload
-  a local file — but `reNetworkCommand` covers wget too, and GNU wget's `-T` is
-  `--timeout`, so an unqualified check read `wget -T 30 https://…` as an upload.
-  The binding is per command, not per statement: a statement is split on the
-  shell's separators, so `curl https://a && wget -T 30 https://b` is a call
-  followed by a fetch with a timeout and uploads nothing, while a backslash-
-  wrapped `curl -X PUT \ / -T ~/.aws/credentials \ / https://…` — the ordinary
-  way such a command is written in documentation — is still one curl carrying
-  an upload flag.
+- **`curl -T` / `--upload-file` / `wget --post-file` count as sending local
+  state, judged by the argument rather than by the command.** These flags take
+  a bare path, so they cannot match the `@file` shape. Deciding whether one
+  belongs to curl (GNU wget's `-T` is `--timeout`) took three attempts that
+  were each wrong about shell syntax in a new way — a newline inside a joined
+  statement, an `&` inside a quoted query string, the word "curl" in a trailing
+  comment. The rule no longer asks: the argument is a file (`~/…`, `/…`,
+  `./…`) or a timeout (digits), and testing that needs no idea where a command
+  begins. `curl -T data.json` — a bare relative filename — no longer counts,
+  which is the one shape given up for removing the whole class.
+- **`-d @-` is stdin, not a file**, so a heredoc body is no longer read as an
+  upload.
 - **A short option's value may be attached.** curl parses `-d@FILE` exactly as
   `-d @FILE` (verified against curl 8.7.1: both fail with "error encountered
   when reading a file", where a literal body reaches the connection attempt).
