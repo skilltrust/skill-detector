@@ -96,12 +96,23 @@ var (
 // the request body with no command substitution anywhere, which is why it must
 // be tested independently of reCmdSubst — the repo's own canonical SD-007
 // fixture uses this form.
-var reFileUpload = regexp.MustCompile(`(^|\s)(-d|--data(-binary|-raw|-urlencode)?|--form|-F|-T|--upload-file)(\s+|=)\S*@\S`)
+//
+// The `@` has to open the argument, or a `field=` value. Allowing it anywhere
+// in the argument made an email address in a literal body — `-d
+// '{"email":"user@example.com"}'` — read as a file upload, which is the exact
+// false-positive shape this rule change exists to remove.
+var reFileUpload = regexp.MustCompile(`(^|\s)(-d|--data(-binary|-raw|-urlencode)?|--form|-F)(\s+|=)['"` + "`" + `]?(@|[\w.\[\]-]+=@)`)
+
+// reUploadFlag matches the flags that take a bare filename rather than an
+// @-prefixed one: `curl -T ~/.aws/credentials https://…`. They cannot match
+// reFileUpload's shape, and they are the flags that most directly upload a
+// local file, so they get their own branch.
+var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file)(\s+|=)['"` + "`" + `]?[~/.\w]`)
 
 // exfiltratesLocalData reports whether the statement pipes local state into
 // the request rather than sending literal or user-supplied content.
 func exfiltratesLocalData(stmt string) bool {
-	if reFileUpload.MatchString(stmt) {
+	if reFileUpload.MatchString(stmt) || reUploadFlag.MatchString(stmt) {
 		return true
 	}
 	if !reCmdSubst.MatchString(stmt) {
@@ -119,15 +130,20 @@ func exfiltratesLocalData(stmt string) bool {
 func shellStatement(lines [][]byte, i int) (string, int) {
 	const maxJoin = 8
 	var b strings.Builder
-	n := 0
-	for ; i+n < len(lines) && n < maxJoin; n++ {
+	written := 0
+	for n := 0; i+n < len(lines) && n < maxJoin; n++ {
 		b.Write(lines[i+n])
+		written++
 		if !bytes.HasSuffix(bytes.TrimRight(lines[i+n], "\r"), []byte("\\")) {
 			break
 		}
 		b.WriteByte('\n')
 	}
-	return b.String(), n + 1
+	// Count what was written, not where the loop variable ended up. On the
+	// maxJoin path the loop exits with n one past the last line written, and
+	// reporting that let the caller skip a line nothing had scanned — eight
+	// continuations were enough to hide the next call from the rule.
+	return b.String(), written
 }
 
 type networkCallRule struct {

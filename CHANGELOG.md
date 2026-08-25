@@ -33,6 +33,18 @@
   alone and 9 of those by the prose verb; the two real ones are
   privilege-escalation *instructions* in a manifest, which SD-002 should catch
   deliberately rather than SD-007 catching by accident.
+- **A truncated statement no longer hides the line after it.** `shellStatement`
+  stops joining at 8 lines; it reported having consumed one line more than it
+  wrote, so the caller skipped a line nothing had scanned. Eight
+  backslash-continued lines were enough to hide a `curl` from SD-007 entirely.
+  A detection bypass introduced by the de-duplication fix below, found in
+  review before either shipped.
+- **`curl -T` / `--upload-file` count as sending local state.** They take a
+  bare filename, so they could never match a pattern ending in `\S*@\S` — and
+  they are the flags that most directly upload a local file.
+- **An `@` inside a literal request body is no longer read as a file upload.**
+  `-d '{"email":"user@example.com"}'` matched the upload idiom and kept the
+  finding at High. The `@` now has to open the argument or a `field=` value.
 - **A statement's continuation lines are no longer re-judged as statements.**
   SD-007 read the URL from the backslash-joined statement but did not skip the
   lines it consumed, so a wrapped command produced one finding per line —
