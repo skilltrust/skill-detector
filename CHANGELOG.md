@@ -3,6 +3,114 @@
 ## Unreleased
 
 ### Changed
+- **SD-007 tells a declared endpoint from a call.** In a documentation or
+  data file a URL is a disclosure — a Notion skill's manifest naming
+  `https://api.notion.com/v1/pages` is saying what it talks to, not doing
+  something wrong — and it now grades **Medium on `transparency`** instead of
+  **High on `security`**. It stays High/security when the statement sends
+  local state (`curl -d "$(env)"`), when the host is one a published API would
+  not use (bare IP, non-standard port, ephemeral tunnel or request-bin), when
+  the target is not visible, and always inside executable code. The URL is now
+  read from the whole shell statement, so a target on a backslash continuation
+  is seen. Registered severity stays High/security — that is the ceiling and
+  what `registry.Checksum()` hashes, so the checksum is unmoved.
+- **SD-007 no longer matches the English verb "fetch".** `\bfetch\s+` fired on
+  "a script to fetch live data" and "not visible to fetch". The JS `fetch(...)`
+  call and shell `fetch https://...` still fire.
+
+  Measured on a 600-sample MalSkillBench slice (300 malicious / 300 benign),
+  `--fail-on-axis security=B`, skills scanned as installed:
+
+  | | precision | recall | FP-rate | benign flagged |
+  |---|---|---|---|---|
+  | before | 0.644 | 0.707 | 0.390 | 117 / 300 |
+  | after | 0.678 | 0.647 | 0.307 | 92 / 300 |
+
+  (Superseded by the combined figures below once the review fixes landed.)
+
+  Recall on code-level behaviours (B1–B9) moves 0.97 → 0.94. Of the 11
+  malicious samples that stop being flagged, all 11 were held up by SD-007
+  alone and 9 of those by the prose verb; the two real ones are
+  privilege-escalation *instructions* in a manifest, which SD-002 should catch
+  deliberately rather than SD-007 catching by accident.
+- **A truncated statement no longer hides the line after it.** `shellStatement`
+  stops joining at 8 lines; it reported having consumed one line more than it
+  wrote, so the caller skipped a line nothing had scanned. Eight
+  backslash-continued lines were enough to hide a `curl` from SD-007 entirely.
+  A detection bypass introduced by the de-duplication fix below, found in
+  review before either shipped.
+- **`curl -T` / `--upload-file` / `wget --post-file` count as sending local
+  state, judged by the argument rather than by the command.** These flags take
+  a bare path, so they cannot match the `@file` shape. Deciding whether one
+  belongs to curl (GNU wget's `-T` is `--timeout`) took three attempts that
+  were each wrong about shell syntax in a new way — a newline inside a joined
+  statement, an `&` inside a quoted query string, the word "curl" in a trailing
+  comment. The rule no longer asks: the argument is a file (`~/…`, `/…`,
+  `./…`) or a timeout (digits), and testing that needs no idea where a command
+  begins — including when the path is written through a variable, where the
+  slash after it is what separates `$HOME/.aws/credentials` from `$TIMEOUT`.
+  `curl -T data.json` — a bare relative filename — no longer counts, which is
+  the one shape given up for removing the whole class. `-d @data.json` still
+  does: the `@` marks the argument as a file to read, so nothing is ambiguous
+  there.
+- **A bracketed IPv6 host survives URL extraction.** `reHTTPURL`'s character
+  class excludes `]`, so `http://[fd00:ec2::254]/latest/meta-data/` — the AWS
+  metadata service over IPv6 — was cut at the bracket, and the address never
+  reached the host test that would have kept it on the security axis. The IPv4
+  form of the same endpoint was always caught. Harmless while every match took
+  the registered severity; it decides the axis now.
+- **Internal-only and packed hosts count as suspicious.**
+  `metadata.google.internal`, a bare `metadata`, anything under the `.internal`
+  private TLD, and the numeric spellings of an IPv4 address that
+  `net.ParseIP` rejects (`2130706433`, `0x7f000001`). A published API does not
+  live at any of them, which is the criterion the bare-IP and port tests
+  already apply — these are the hosts that carry a name or an unusual base.
+- **`-d @-` is stdin, not a file**, so a heredoc body is no longer read as an
+  upload. A quote between the `@` and the path (`-d @"/etc/passwd"`) is
+  stripped, since the shell strips it identically to `-d "@/etc/passwd"`.
+- **A short option's value may be attached.** curl parses `-d@FILE` exactly as
+  `-d @FILE` (verified against curl 8.7.1: both fail with "error encountered
+  when reading a file", where a literal body reaches the connection attempt).
+  Requiring a separator made the whole check a one-character evasion.
+- **The body-flag list is complete**: `--data-ascii` was missing, and wget's
+  `--post-file=` — its equivalent of `curl -T` — is now covered too.
+- **An `@` inside a literal request body is no longer read as a file upload.**
+  `-d '{"email":"user@example.com"}'` matched the upload idiom and kept the
+  finding at High. The `@` now has to open the argument or a `field=` value.
+- **A statement's continuation lines are no longer re-judged as statements.**
+  SD-007 read the URL from the backslash-joined statement but did not skip the
+  lines it consumed, so a wrapped command produced one finding per line —
+  three for a single call. Found in review of this PR; it removed 25 duplicate
+  findings from the 600-sample slice (SD-007 benign 901 → 881, malicious
+  1359 → 1354), which was small enough that the headline figures held.
+- **`curl -d @file` counts as sending local state again.** `exfiltratesLocalData`
+  returned early unless it saw `$(`, so the `@`-prefixed upload idiom —
+  `-d @path`, `--data-binary @path`, `-F field=@path`, the form the repo's own
+  canonical SD-007 fixture uses — was demoted to transparency in documentation.
+  Found in review of this PR.
+- **SD-008 no longer treats every long alphanumeric run as a payload.** `/` is
+  in the base64 alphabet, so a deep path matched; so did a hex wallet address
+  and any single-case identifier. Worst of all, npm lockfile `"integrity"`
+  values matched — 322 findings on benign skills against **zero** on malicious
+  ones. The inline branch now requires the token to look encoded (mixed case
+  plus a digit or `+`/`/`, and not a path shape) and damps subresource-integrity
+  and hex-literal lines. The decode-call branches (`base64 -d`, `atob`,
+  `b64decode`) are untouched — that is where the signal was all along
+  (22.6% of malicious hits vs 2.0% of benign).
+
+  SD-008 findings across the same 600 samples: **benign 410 → 31**, malicious
+  221 → 136. The exemption for path-shaped tokens is a case-stability test, not
+  a slash test: `/` is in the base64 alphabet, and across 20000 encodings of 30
+  random bytes **24.8%** contain a `/` with no `+` and no padding, so a slash
+  test discarded a quarter of all genuine payloads. A path is several word-like
+  segments — `claude/skills/CORE/USER/Art` flips case on 2% of its character
+  boundaries where random base64 flips on 33%. The shipped test catches 74.5%
+  of the corpus path tokens and discards **0 of 20000** genuine payloads. Found
+  in review of this PR. Findings on benign skills overall 1724 → 1271; the worst single
+  benign skill went from 244 findings to 109.
+
+
+### Changed
 - **An empty scan no longer grades A.** Discovery is deliberately wider than
   the rules' path gates, so "N files scanned" never meant the agent surface was
   read. When no discovered file is agent surface, the scan now sets

