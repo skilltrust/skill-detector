@@ -627,6 +627,38 @@ func TestSD004_PublicKeyExemptionVetoedByShellInvocation(t *testing.T) {
 	}
 }
 
+// Structural pin from the final re-review: the two verb lists must stay
+// apart. reShellInvocation is shared with SD-013 (integrity.go), so a reader
+// verb reaching it re-opens the CRITICAL false positive that
+// TestSD013_ReaderVerbsInInterrogativeBulletNotFlagged covers. This test
+// fails the moment someone "simplifies" by merging them, which is the
+// mistake the doc comments are there to prevent.
+func TestReaderVerbsAreNotInSharedShellInvocationRegex(t *testing.T) {
+	for _, verb := range []string{
+		"head", "tail", "less", "awk", "sed", "grep",
+		"xxd", "strings", "od", "open", "pbcopy", "env", "printenv",
+	} {
+		line := []byte("- Could it " + verb + " .zshrc to check settings?")
+		if reShellInvocation.Match(line) {
+			t.Errorf("%q reached reShellInvocation, which SD-013 shares — it belongs in reCredentialFileReader", verb)
+		}
+		if !reCredentialFileReader.Match(line) {
+			t.Errorf("%q is not matched by reCredentialFileReader", verb)
+		}
+		if !invokesCommandOnCredentialLine(line) {
+			t.Errorf("%q must still veto credentialAccessRule's exemptions", verb)
+		}
+	}
+	// The original verbs must still reach the shared regex — this is what
+	// keeps SD-013's own veto working.
+	for _, verb := range []string{"cat", "curl", "chmod", "python3"} {
+		line := []byte("- Could it " + verb + " ~/.zshrc to persist?")
+		if !reShellInvocation.Match(line) {
+			t.Errorf("%q must still match reShellInvocation", verb)
+		}
+	}
+}
+
 // Final whole-branch review, bypass 5: reShellInvocation's verb list had no
 // file readers, so any documentary-shaped line that read a credential with
 // head/tail/less/awk/sed/grep/xxd/strings/od/open/pbcopy/env/printenv kept

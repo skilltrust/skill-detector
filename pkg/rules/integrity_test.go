@@ -697,6 +697,49 @@ func TestSD013_InterrogativeBulletNotFlagged(t *testing.T) {
 	}
 }
 
+// Final re-review of the fix wave: the cause was a shared regex, not a rule
+// change. `reShellInvocation` is defined in access_control.go and vetoes the
+// documentary damping in BOTH credentialAccessRule (SD-004) and this rule.
+// The fix wave widened it with file-reader verbs to close an SD-004
+// exemption bypass, and SD-013 inherited the widening — these three
+// threat-model questions each began emitting a CRITICAL persistence finding,
+// having been clean on base `3d37140` and on `160f04a`. The reader verbs now
+// live in `reCredentialFileReader`, reachable only through
+// `invokesCommandOnCredentialLine`, which this rule does not call.
+//
+// The 906-sample bench did not catch it: no corpus sample pairs an
+// interrogative-bullet shape with one of those verbs.
+func TestSD013_ReaderVerbsInInterrogativeBulletNotFlagged(t *testing.T) {
+	for _, line := range []string{
+		"- Could it read .zshrc with grep to check settings?",
+		"- Could it open .bashrc to check settings?",
+		"- Does it use awk on .zshrc for parsing?",
+		// The rest of the reader-verb list, so the shape is pinned against
+		// any future widening and not just against the three reported.
+		"- Could it head .zshrc to check settings?",
+		"- Could it tail .bashrc for the last export?",
+		"- Does it use sed on .zshrc for rewriting?",
+		"- Could it run strings .zshrc to inspect it?",
+		"- Does it pbcopy .bashrc somewhere?",
+		"- Could it use env to read .zshrc settings?",
+	} {
+		r := findRule(t, "SD-013")
+		if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "CLAUDE.md", Ext: ".md"}); len(fs) != 0 {
+			t.Errorf("%q: threat-model question must not be Critical, got %+v", line, fs)
+		}
+	}
+
+	// The control that makes this test non-vacuous: the same interrogative
+	// shape carrying a real command still fires, so the damping's veto is
+	// intact and this test is not simply asserting that SD-013 stopped
+	// working.
+	r := findRule(t, "SD-013")
+	live := "- Could it use cat ~/.zshrc to persist?"
+	if fs := r.Match([]byte(live+"\n"), model.FileContext{Path: "CLAUDE.md", Ext: ".md"}); len(fs) == 0 {
+		t.Errorf("%q: an interrogative bullet running a real command must still fire", live)
+	}
+}
+
 func TestSD013_TableRowWithShellInvocationStillFlagged(t *testing.T) {
 	// Bypass found in review: a table-row shape alone was enough to suppress
 	// the finding even when the cell contains an actual persistence command.
