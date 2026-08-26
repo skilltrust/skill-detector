@@ -1,6 +1,51 @@
 # Changelog
 
-## Unreleased
+## v0.7.0 — 2026-08-26
+
+The first release since `v0.6.0` (2026-08-14) and a large one: eleven commits
+carrying a measurement-driven precision programme, a scope fix, an
+empty-scan-honesty fix, and a rework of `networkCallRule`'s demotion policy.
+Read the two warnings below before upgrading.
+
+**Registry checksum unchanged** at `589619b6386d2c41`. Every rule change in
+this release is match-time logic — no rule's registered `(ID, Name, Severity,
+Category, Axis)` moved — so a consumer keyed on the checksum (for example
+`skilltrust`'s triage cache, ADR-0007) does not invalidate.
+
+**JSON schema `1.4` → `1.5`**, additively: `ScanResult` gains
+`no_agent_surface`. See the second warning.
+
+### ⚠️ This release changes grades. Builds that passed on v0.6.0 can fail.
+
+No new rule was added and the checksum did not move, but detection genuinely
+improved and a CI gate is a threshold over grades. Measured on a pinned
+906-sample MalSkillBench slice at `--fail-on-axis security=B` (security axis
+alone, strictly worse than B):
+
+| layout | malicious flagged | benign flagged | precision | recall |
+|---|---|---|---|---|
+| installed, v0.6.0 lineage | 187 / 300 | 82 / 300 | 0.695 | 0.623 |
+| installed, this release | **197 / 300** | 85 / 300 | 0.699 | **0.657** |
+| raw, v0.6.0 lineage | 113 / 300 | 41 / 300 | 0.734 | 0.377 |
+| raw, this release | **127 / 300** | 47 / 300 | 0.730 | **0.423** |
+
+Ten more malicious samples are caught per 300 on the installed layout, and
+fourteen more on the raw layout. Three benign samples per 300 newly fail on
+each. If a repository's build starts failing on this upgrade, the finding is
+probably real — read it before pinning back.
+
+### ⚠️ A scan that checked nothing no longer reports a grade
+
+Previously, a repository with no `SKILL.md`, no `CLAUDE.md`, no `.claude/` and
+no `.agents/` was graded **A across the board**, because no rule fired and no
+rule can fire on a file no rule reads. That is a false assurance, and it is now
+a distinct state: `ScanResult.NoAgentSurface` is `true`, `Axes` is empty, and
+the text verdict reads `∅ Nothing checked` instead of `✓ No concerns`.
+
+**Consumers must not store or display this as a passing result.** A consumer
+that reads "no axis grades" as "no problems" reproduces the bug one layer up,
+in whatever it renders. The exit code is unchanged (`0`, since there are no
+findings) — branch on the field, not on the code.
 
 ### Fixed (SD-007 demotion policy, 2026-08-26)
 
