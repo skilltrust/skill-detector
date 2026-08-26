@@ -600,3 +600,56 @@ func TestSD004_PrivateKeyAlongsidePublicKeyOnSameLineStillFlagged(t *testing.T) 
 		t.Error("a private key access alongside an unrelated .pub mention must still fire")
 	}
 }
+
+// Final whole-branch review, bypass 4: the fix for bypass 3 counts every
+// ~/.ssh/ token on the line, and reSSHPathToken only recognises the literal
+// `~/` spelling. A second read written `$HOME/.ssh/` or `${HOME}/.ssh/` is
+// not a token, so the line still read as all-public and was exempted whole —
+// permission_hygiene F to A, confirmed against 160f04a. Widening the token
+// regex would not have been enough (`$HOME/.ssh/` is in no credentialPaths
+// entry, so nothing detects it even on its own line); the exemption is
+// vetoed by reShellInvocation instead.
+func TestSD004_PublicKeyExemptionVetoedByShellInvocation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"$HOME spelling", `cat ~/.ssh/id_ed25519.pub && cat $HOME/.ssh/id_rsa`},
+		{"${HOME} spelling", `cat ~/.ssh/id_ed25519.pub && cat ${HOME}/.ssh/id_rsa`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := findRule(t, "SD-004")
+			fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+			if len(fs) == 0 {
+				t.Error("a private-key read spelled through $HOME must not be exempted by the .pub carve-out")
+			}
+		})
+	}
+}
+
+// Final whole-branch review, bypass 5: reShellInvocation's verb list had no
+// file readers, so any documentary-shaped line that read a credential with
+// head/tail/less/awk/sed/grep/xxd/strings/od/open/pbcopy/env/printenv kept
+// its damping. Confirmed against 160f04a: the `head` line below graded
+// permission_hygiene A.
+//
+// `ssh` is deliberately absent from that list — see reShellInvocation's doc
+// comment. TestSD004_SSHPublicKeyNotFlagged is the case it would have broken.
+func TestSD004_FileReaderVerbsVetoDocumentaryDamping(t *testing.T) {
+	for _, verb := range []string{
+		"head -c 4096", "tail -n 5", "less", "awk '{print}'", "sed -n 1p",
+		"grep -o .", "xxd", "strings", "od -c", "open", "pbcopy <",
+	} {
+		line := "- app.credentials: use " + verb + " ~/.credentials to read the token"
+		r := findRule(t, "SD-004")
+		if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) == 0 {
+			t.Errorf("%q: a doc bullet that reads the credential file must still fire", verb)
+		}
+	}
+	// env/printenv reach the same veto through a different credential path.
+	line := "- app.credentials: run printenv AWS_SECRET | tee ~/.aws/creds"
+	r := findRule(t, "SD-004")
+	if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) == 0 {
+		t.Error("printenv in a doc bullet must veto the damping")
+	}
+}

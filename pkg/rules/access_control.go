@@ -53,7 +53,35 @@ var reDocumentaryContext = regexp.MustCompile(`(?i)^\s*(\|.*\|\s*$|[-*]\s+(could
 // `$VAR`) and excludes a preceding `-`, so a Markdown arrow ("writes to
 // .zshrc -> persistence") does not veto — `>>` (append) still vetoes
 // unconditionally since it has no legitimate non-shell reading in prose.
-var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|wget|nc|dd|tar|base64|openssl|eval|exec|source|sh|bash|zsh|chmod|chown|python3?|perl|ruby|node)\b\s+\S|\$\(|>>|(?:^|[^-])>\s*[~./$]`)
+//
+// The verb list originally carried only the copy/move/fetch family, so
+// reading a file by any other means was not an invocation:
+// `- app.credentials: use head -c 4096 ~/.credentials to read the token`
+// kept its reCredentialsFieldDoc exemption and graded A. The final
+// whole-branch review added the file readers and inspectors — head, tail,
+// less, awk, sed, grep, xxd, strings, od, open, pbcopy, env, printenv.
+//
+// `ssh` was on that review's list and is deliberately NOT here. This regex
+// is matched case-insensitively against prose, and `\bSSH\b\s+\S` matches
+// the corpus's own benign line `# Add ~/.ssh/id_ed25519.pub to GitHub
+// Settings -> SSH Keys` on the words "SSH Keys" — which, now that
+// allSSHPathsArePublic is vetoed by this regex too, would have re-flagged
+// the exact benign shape that exemption exists for
+// (TestSD004_SSHPublicKeyNotFlagged). `ssh` as a remote-exec verb is worth
+// less than that costs; `scp` and `rsync` already cover the file-transfer
+// half of it.
+//
+// Widening this regex makes findings MORE likely, not less: it is a veto on
+// two damping predicates (reDocumentaryContext, used here and in
+// integrity.go, and reCredentialsFieldDoc). Measured on the 906-sample
+// bench before shipping: 45 lines across the benign corpus are
+// documentary-shaped AND contain one of the added verbs, so the veto now
+// fires on 45 lines where it previously did not — and findings on benign
+// moved by zero, because none of those 45 lines also names a credential
+// path, which is the conjunction a finding needs. Benign findings 1253,
+// benign flagged at `security=B` 78, benign security-F 18, and every
+// per-rule count on both populations are unchanged.
+var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|wget|nc|dd|tar|base64|openssl|eval|exec|source|sh|bash|zsh|chmod|chown|python3?|perl|ruby|node|head|tail|less|awk|sed|grep|xxd|strings|od|open|pbcopy|env|printenv)\b\s+\S|\$\(|>>|(?:^|[^-])>\s*[~./$]`)
 
 // Credential path patterns as literal byte slices for bytes.Contains matching.
 var credentialPaths = [][]byte{
@@ -128,6 +156,20 @@ var reSSHPathToken = regexp.MustCompile(`~/\.ssh/[^\s"')\]>,;|&#${}` + "`" + `]*
 // construction if a private key is itself saved under a `.pub`-suffixed
 // filename — an accepted, disclosed tradeoff, same as reNegatedGuidance
 // elsewhere in this file.
+//
+// "Every occurrence" can only mean every occurrence this regex recognises,
+// and it is anchored to a literal `~/`. The final whole-branch review found
+// that a second read spelled `$HOME/.ssh/id_rsa` or `${HOME}/.ssh/id_rsa` is
+// not a token here, so the line still read as all-public and was exempted
+// whole. Widening reSSHPathToken to cover the variable spellings would not
+// have been enough — `$HOME/.ssh/` is not in credentialPaths either, so
+// nothing detects it even alone. The caller therefore vetoes this exemption
+// with reShellInvocation, exactly as it already does for
+// reCredentialsFieldDoc: a line that runs a command is not a line
+// documenting a public key, whatever paths it names. The corpus shape this
+// exemption was built for (`# Add ~/.ssh/id_ed25519.pub to GitHub Settings
+// -> SSH Keys`, pinned by TestSD004_SSHPublicKeyNotFlagged) has no command
+// on it and stays exempt.
 func allSSHPathsArePublic(line []byte) bool {
 	tokens := reSSHPathToken.FindAll(line, -1)
 	if len(tokens) == 0 {
@@ -162,7 +204,8 @@ func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []mo
 					(reCredentialsFieldDoc.Match(line) && !reShellInvocation.Match(line))) {
 					continue
 				}
-				if string(pattern) == "~/.ssh/" && allSSHPathsArePublic(line) {
+				if string(pattern) == "~/.ssh/" && allSSHPathsArePublic(line) &&
+					!reShellInvocation.Match(line) {
 					continue
 				}
 				if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < bytes.Index(line, pattern) {
