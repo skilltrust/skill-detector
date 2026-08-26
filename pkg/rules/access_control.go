@@ -80,9 +80,9 @@ var reShellInvocation = regexp.MustCompile(`(?i)\b(cat|cp|mv|rm|scp|rsync|curl|w
 // documentary damping, so ordinary threat-model questions started firing a
 // CRITICAL persistence finding.
 //
-//	- Could it read .zshrc with grep to check settings?   -> SD-013 CRITICAL
-//	- Could it open .bashrc to check settings?            -> SD-013 CRITICAL
-//	- Does it use awk on .zshrc for parsing?              -> SD-013 CRITICAL
+//   - Could it read .zshrc with grep to check settings?   -> SD-013 CRITICAL
+//   - Could it open .bashrc to check settings?            -> SD-013 CRITICAL
+//   - Does it use awk on .zshrc for parsing?              -> SD-013 CRITICAL
 //
 // All three are clean on either side of that mistake, and
 // TestSD013_ReaderVerbsInInterrogativeBulletNotFlagged pins them. Keeping
@@ -165,11 +165,12 @@ var reCredentialsFieldDoc = regexp.MustCompile(`^\s*-\s+[\w.]*\.credentials[\w.]
 // chain would suppress those too, so only the two unambiguous shapes above
 // (import statement, doc bullet) are exempted.
 
-// reSSHPathToken extracts one whole ~/.ssh/-rooted path token from a line
+// reSSHPathToken extracts one whole .ssh/-rooted path token from a line
 // (same trailing-terminator exclusion set as reFullPath's path-token class:
 // stops at whitespace, quotes, or a shell/Markdown metacharacter that isn't
-// part of a filename).
-var reSSHPathToken = regexp.MustCompile(`~/\.ssh/[^\s"')\]>,;|&#${}` + "`" + `]*`)
+// part of a filename). Three spellings of the home directory are recognised:
+// `~/`, `$HOME/` and `${HOME}/`.
+var reSSHPathToken = regexp.MustCompile(`(?:~|\$\{?HOME\}?)/\.ssh/[^\s"')\]>,;|&#${}` + "`" + `]*`)
 
 // allSSHPathsArePublic reports whether EVERY ~/.ssh/-rooted path token on
 // the line ends in `.pub`. A public key is meant to be shared and carries
@@ -183,19 +184,32 @@ var reSSHPathToken = regexp.MustCompile(`~/\.ssh/[^\s"')\]>,;|&#${}` + "`" + `]*
 // filename — an accepted, disclosed tradeoff, same as reNegatedGuidance
 // elsewhere in this file.
 //
-// "Every occurrence" can only mean every occurrence this regex recognises,
-// and it is anchored to a literal `~/`. The final whole-branch review found
-// that a second read spelled `$HOME/.ssh/id_rsa` or `${HOME}/.ssh/id_rsa` is
-// not a token here, so the line still read as all-public and was exempted
-// whole. Widening reSSHPathToken to cover the variable spellings would not
-// have been enough — `$HOME/.ssh/` is not in credentialPaths either, so
-// nothing detects it even alone. The caller therefore vetoes this exemption
-// with invokesCommandOnCredentialLine, exactly as it already does for
-// reCredentialsFieldDoc: a line that runs a command is not a line
-// documenting a public key, whatever paths it names. The corpus shape this
-// exemption was built for (`# Add ~/.ssh/id_ed25519.pub to GitHub Settings
-// -> SSH Keys`, pinned by TestSD004_SSHPublicKeyNotFlagged) has no command
-// on it and stays exempt.
+// "Every occurrence" can only mean every occurrence reSSHPathToken
+// recognises. That regex was anchored to a literal `~/`, so a second read
+// spelled `$HOME/.ssh/id_rsa` or `${HOME}/.ssh/id_rsa` was not a token and
+// the line still read as all-public. Two independent closures apply, because
+// the hole is reachable two ways:
+//
+//   - The caller vetoes this exemption with invokesCommandOnCredentialLine,
+//     exactly as it already does for reCredentialsFieldDoc: a line that runs
+//     a command is not a line documenting a public key, whatever paths it
+//     names.
+//   - reSSHPathToken itself now recognises the variable spellings, which
+//     covers the lines that name a private key with no command on them —
+//     an instruction to an agent is a program in an agent manifest.
+//
+// An earlier round rejected the second closure on the grounds that
+// `$HOME/.ssh/` is not in credentialPaths, so nothing detects it even alone.
+// That reasoning is correct about DETECTION and wrong about THIS EXEMPTION:
+// the token only has to be RECOGNISED for the line to stop reading as
+// all-public. The variable spellings are deliberately still absent from
+// credentialPaths — adding them is a detection widening, which is a
+// separate, separately measured change.
+//
+// The corpus shape this exemption was built for (`# Add
+// ~/.ssh/id_ed25519.pub to GitHub Settings -> SSH Keys`, pinned by
+// TestSD004_SSHPublicKeyNotFlagged) names one public key with no command on
+// it and stays exempt.
 func allSSHPathsArePublic(line []byte) bool {
 	tokens := reSSHPathToken.FindAll(line, -1)
 	if len(tokens) == 0 {
