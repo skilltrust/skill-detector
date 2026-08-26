@@ -91,6 +91,14 @@ func (r *persistenceRule) Match(content []byte, ctx model.FileContext) []model.F
 			// the documentary damping when the "documentary" line smuggles an
 			// actual command. Bypassable by construction — see reNegatedGuidance
 			// / reDocumentaryContext comments in access_control.go for the tradeoff.
+			//
+			// reShellInvocation is defined in access_control.go and shared with
+			// SD-004. It is deliberately NOT the widened
+			// invokesCommandOnCredentialLine: adding the file-reader verbs to
+			// this veto makes ordinary threat-model questions ("Could it read
+			// .zshrc with grep to check settings?") fire a CRITICAL persistence
+			// finding. That happened, was caught in re-review, and is pinned by
+			// TestSD013_ReaderVerbsInInterrogativeBulletNotFlagged.
 			if reDocumentaryContext.Match(line) && !reShellInvocation.Match(line) {
 				continue
 			}

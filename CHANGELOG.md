@@ -2,6 +2,149 @@
 
 ## Unreleased
 
+### Changed (engine precision programme, 2026-08-26)
+
+Measurement-driven follow-on to the SD-007/SD-008 work below: one rule
+change per class actually measured to separate malicious from benign, one
+class per entry left alone with the lift table that says why. Registry
+checksum unmoved at `589619b6386d2c41` throughout — every change here is
+match-time logic, not a registered `(ID, Name, Severity, Category, Axis)`
+field. Method, per-task reports, and the full-pool re-measurement:
+`docs/product/research/methodology-audit-and-validation-2026-08-24.md`
+Part 5f (workspace repo).
+
+Headline, 906-sample slice (Set A = 300 benign / 300 malicious),
+`--fail-on-axis security=B`, installed layout — the gate metric here is the
+**security axis alone**, which is what that flag tests:
+
+| | benign flagged | malicious flagged | precision | recall |
+|---|---|---|---|---|
+| before (`3d37140`) | 82 / 300 | 187 / 300 | 0.695 | 0.623 |
+| after | 80 / 300 | 187 / 300 | 0.700 | 0.623 |
+
+Nothing on the malicious side moves: B1–B9 recall 0.94 and B10–B15 recall
+0.12 are unchanged to four decimal places, and the malicious finding count
+is identical. Reproduction bundle and the run this table comes from:
+`docs/product/research/bench-2026-08-24/` (`results-s1-trim.tsv`,
+`metrics-s1-trim.txt`).
+
+- **SD-002: a ZWJ directly between two emoji codepoints is not a hidden
+  payload** (`d3c2c92`). `isInvisibleRune` correctly treats U+200D ZERO
+  WIDTH JOINER as payload-carrying in general, but 9 of the 10 benign
+  SD-002 findings in the validation corpus were ordinary compound emoji —
+  🧙‍♂️, 👨‍🍳, 👨‍🏫, 🧑‍🚀 — that Unicode renders as one glyph using exactly that
+  codepoint. New carve-out: an invisible rune is exempted from the count
+  when it is a ZWJ with a pictograph on **both** sides — a codepoint in one
+  of five named pictograph blocks (`U+1F300–U+1F5FF`, `U+1F600–U+1F64F`,
+  `U+1F680–U+1F6FF`, `U+1F900–U+1F9FF`, `U+1FA70–U+1FAFF`), or one of an
+  explicit 10-codepoint set of symbol-block modifiers that Unicode's RGI
+  role/profession sequences actually pair with (`U+2640`, `U+2642`,
+  `U+2695`, `U+2696`, `U+26A7`, `U+2602`, `U+2620`, `U+26D1`, `U+2708`,
+  `U+2764`). Two wider first versions were cut in review: the whole
+  `U+2600–U+27BF` block, which also holds ordinary prose furniture (check
+  marks, scissors, arrows), and the single span `U+1F300–U+1FAFF`, which
+  swallows the Ornamental Dingbats, Alchemical, Geometric-Shapes-Extended,
+  Supplemental-Arrows-C and Chess blocks — a ZWJ between two chess pieces
+  was exempt (`1d170ad`). The exemption is applied per rune, not only to a
+  line carrying a single invisible rune, and at most `maxExemptZWJPerLine`
+  = 4 per line qualify; past that none are exempted and the whole line
+  counts as before, which is what closes the covert channel of encoding one
+  bit per adjacent emoji pair. A ZWSP/ZWNJ (not ZWJ), and any invisible
+  rune without a pictograph on both sides, fire exactly as before — those
+  separate cleanly (65.5%/58.6% malicious vs 0% benign in the corpus).
+  Measured a hard gate before shipping: the carve-out fires on **zero**
+  malicious SD-002 findings in the corpus, not merely a favorable ratio.
+  906-sample slice, installed layout: benign flagged at `security=B`
+  82 → 80 (both un-flagged samples are SD-002's: `cursor-council`,
+  `personas`), benign security-axis grade F 20 → 18, SD-002 findings on
+  benign 10 → 1, malicious side and B1–B9 recall completely unmoved. A
+  candidate predicate for the plan's originally-targeted class
+  (documentary/prose injection) was also measured and found to be a
+  provable no-op — zero hits on both populations across the whole
+  corpus — and closed with no engine change; see Part 5f.
+- **SD-004: `.credentials` no longer matches inside an unrelated dotted
+  identifier chain** (`13a2505`). `credentialPaths`' `.credentials` entry
+  was a bare `bytes.Contains` substring test with no word boundary, so it
+  fired on `from google.oauth2.credentials import Credentials`, on a
+  markdown field-doc bullet (`broker.credentials.apiKey: ...`), and on an
+  SSH **public** key path (`~/.ssh/id_ed25519.pub` — the `.pub` suffix
+  marks it non-secret). Three narrow, measured exemptions ship — Python
+  import statements, markdown field-doc bullets naming a credential field
+  without accessing it, and `.pub`-suffixed SSH paths — an ambiguous
+  identifier-chain access (`args.credentials`) and a genuinely documentary
+  line inside a skill whose stated purpose is vetting other skills both
+  stay flagged, on purpose. All three candidate predicates the plan
+  proposed measured **zero of 11** benign hits before this — none matched
+  the real shape; reading the 11 lines directly is what found the actual
+  bug. 906-sample slice, installed layout: SD-004 findings on benign
+  11 → 2 (−82%), zero malicious-side cost. SD-004 grades
+  `permission_hygiene`, so none of this moves the `security=B` gate.
+- **Every one of those three exemptions is vetoed on a line that acts**
+  (`53c0f78`, `279aa69`, `1d170ad` for the SD-002 sibling). Each exemption
+  recognises a *shape*, and a shape ships in a public repo where an
+  attacker reads it. So: a doc-bullet or public-key line that also runs a
+  command loses its exemption (the veto list is `reShellInvocation` plus a
+  reader-verb set — `head`/`tail`/`less`/`awk`/`sed`/`grep`/`xxd`/
+  `strings`/`od`/`open`/`pbcopy`/`env`/`printenv`); an import clause with
+  anything appended after it no longer matches; and a `.pub` line naming a
+  second, private key does not read as all-public, including when that
+  second path is spelled `$HOME/.ssh/` or `${HOME}/.ssh/` and no command
+  appears on the line at all. The variable spellings are deliberately
+  **not** added to `credentialPaths` — recognising a token so the
+  exemption stops applying is a different question from detecting it, and
+  the detection widening is its own separately measured change. Every hole
+  is pinned by a regression test naming the bypass it closes.
+- **The SD-004 widening is kept out of the regex SD-013 shares**
+  (`e42b9da`). The reader verbs above live in their own regex with exactly
+  one caller, because `reShellInvocation` is also SD-013's documentary
+  veto: a reader verb reaching it re-flags ordinary threat-model questions
+  ("Could it grep .zshrc to check settings?") as CRITICAL persistence.
+  `TestReaderVerbsAreNotInSharedShellInvocationRegex` fails the moment
+  someone merges the two lists.
+- **SD-007's printed-URL demotion — implemented, measured, and dropped.**
+  A `print(url)` / `console.log(url)` / `echo $url` statement discloses a
+  target rather than reaching one, and demoting it to
+  Medium/`transparency` measured well as a predicate (inverse lift 18.4).
+  It is not in this release: the benefit was **2 benign samples out of
+  300**, and review found four constructible bypasses inside it — a
+  printed URL sharing a line with a reverse shell (`bash -i >&
+  /dev/tcp/...`, a `python3`/`perl` socket-exec one-liner, or an
+  `Invoke-WebRequest` download) rode along on the demotion and took the
+  sample from D to A. The three demotion sites in `networkCallRule` are
+  being reworked together as one policy — demote only when the statement
+  is nothing but the call and its URL — instead of extending a deny-list
+  of dangerous verbs that an attacker can read.
+- **SD-003 `/tmp`/`/var/folders` workspace-path exemption — measured and
+  rejected, no engine change.** The proposed exemption would carve out
+  paths malware uses at a *higher* rate than benign skills do: on the
+  absolute-path branch specifically, malicious 53.7% vs benign 49.4%
+  (real cryptominer/SUID-bash payloads staged in `/tmp`, against ordinary
+  benign report-writing at the same path prefix). SD-003's 242 benign
+  findings (`permission_hygiene` axis, not read by `--fail-on-axis
+  security=B`) are unchanged; this is a measured no-op, not a deferral.
+- **SD-007 class 1 (a skill calling its own API from its own script) and
+  SD-009's installer-domain allowlist — both measured and rejected, no
+  engine change.** SD-007: `host also named in SKILL.md` fires on 51.8% of
+  malicious and 47.1% of benign findings (inverse lift 0.91, re-verified at
+  0.916 on the non-tautological subset) — no separation. SD-009: the
+  plan's guessed domain list matches zero real benign findings; the actual
+  benign domains (`cli.inference.sh`, `foundry.paradigm.xyz`) also cover 2
+  of 6 malicious findings hiding behind the same vendor domain, and even
+  where the predicate is unambiguous, demoting Critical→Medium only moves
+  the affected benign samples from security F to C — still failing
+  `--fail-on-axis security=B` — so it wouldn't have changed the gate
+  outcome regardless.
+- **Grade scale reachability — documented, no code change.** The stale
+  worklist item ("B is unreachable, map something to Low or say A/C/D/F")
+  was already false: the SD-007 declared-endpoint demotion (below) puts a
+  Medium finding on `transparency`, which the cap table maps to B. The
+  scale actually produced: A/C/D/F on security and permission_hygiene, A/B
+  on transparency (C/D unreachable there by construction — no rule ever
+  emits High/Critical on transparency), A-only on quality (no rule assigns
+  that axis). No rule anywhere emits Low or Info severity. Registry
+  checksum unmoved — this is a documentation correction, not a cap-table
+  edit.
+
 ### Changed
 - **SD-007 tells a declared endpoint from a call.** In a documentation or
   data file a URL is a disclosure — a Notion skill's manifest naming
