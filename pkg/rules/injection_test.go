@@ -750,3 +750,48 @@ func TestSD002_HeartOnFireSequenceStillFlagged(t *testing.T) {
 		t.Fatalf("a ZWJ preceded by a variation selector must still be flagged, got %d findings", len(findings))
 	}
 }
+
+// --- Final whole-branch review: the range claims more blocks than it means ---
+
+func TestSD002_ZWJBetweenNonPictographBlocksStillFlagged(t *testing.T) {
+	// isEmojiRune's range was U+1F300-U+1FAFF in one span, which the doc
+	// comment described as "Miscellaneous Symbols and Pictographs through
+	// Symbols and Pictographs Extended-A". That span also swallows five
+	// non-pictograph blocks whose codepoints take no ZWJ and are ordinary
+	// document furniture -- the same defect the check-mark case above
+	// closed at the U+2600 end, still open at the U+1F300 end.
+	for _, tc := range []struct {
+		name  string
+		left  rune
+		right rune
+	}{
+		{"Ornamental Dingbats", 0x1F650, 0x1F651},
+		{"Alchemical Symbols", 0x1F700, 0x1F701},
+		{"Geometric Shapes Extended", 0x1F780, 0x1F781},
+		{"Supplemental Arrows-C", 0x1F800, 0x1F801},
+		{"Chess Symbols", 0x1FA00, 0x1FA01},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := []byte(string(tc.left) + "\u200d" + string(tc.right) + "\n")
+			r := findRule(t, "SD-002")
+			findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+			if len(findings) != 1 {
+				t.Fatalf("a ZWJ between two %s codepoints must still be flagged, got %d findings", tc.name, len(findings))
+			}
+		})
+	}
+}
+
+func TestSD002_ZWJInExtendedAHandshakeNotFlagged(t *testing.T) {
+	// Upper-boundary pin for the narrowing above: U+1FAF1 RIGHTWARDS HAND
+	// and U+1FAF2 LEFTWARDS HAND are Symbols and Pictographs Extended-A,
+	// and Unicode's RGI sequences join exactly this pair (the handshake
+	// glyph). Narrowing isEmojiRune must not cut Extended-A off along with
+	// the chess block that precedes it.
+	content := []byte("\U0001FAF1\u200d\U0001FAF2\n")
+	r := findRule(t, "SD-002")
+	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(findings) != 0 {
+		t.Fatalf("the RGI handshake sequence must stay exempt, got %d findings: %+v", len(findings), findings)
+	}
+}

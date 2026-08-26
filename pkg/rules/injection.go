@@ -58,19 +58,45 @@ var emojiZWJModifiers = map[rune]bool{
 	0x2764: true, // HEAVY BLACK HEART
 }
 
-// isEmojiRune reports whether r is a pictograph emoji codepoint
-// (U+1F300-U+1FAFF, Miscellaneous Symbols and Pictographs through Symbols
-// and Pictographs Extended-A — covers the person/cook/mage/rocket glyphs
-// observed in the bench corpus, Task 5b predicate_lift.py SD-002) or one
-// of the explicit symbol-emoji modifiers in emojiZWJModifiers above. This
+// emojiPictographBlocks is the block list isEmojiRune's doc comment claims,
+// spelled out one block at a time. An earlier version wrote it as the single
+// span U+1F300-U+1FAFF, which also swallows five non-pictograph blocks that
+// take no ZWJ and are ordinary document furniture — the same mistake the
+// first version of emojiZWJModifiers made with the whole U+2600-U+27BF
+// block, still open at this end. The gaps below are deliberate:
+//
+//	U+1F650-U+1F67F  Ornamental Dingbats
+//	U+1F700-U+1F77F  Alchemical Symbols
+//	U+1F780-U+1F7FF  Geometric Shapes Extended
+//	U+1F800-U+1F8FF  Supplemental Arrows-C
+//	U+1FA00-U+1FA6F  Chess Symbols
+//
+// TestSD002_ZWJBetweenNonPictographBlocksStillFlagged pins all five.
+var emojiPictographBlocks = [...]struct{ lo, hi rune }{
+	{0x1F300, 0x1F5FF}, // Miscellaneous Symbols and Pictographs
+	{0x1F600, 0x1F64F}, // Emoticons
+	{0x1F680, 0x1F6FF}, // Transport and Map Symbols
+	{0x1F900, 0x1F9FF}, // Supplemental Symbols and Pictographs
+	{0x1FA70, 0x1FAFF}, // Symbols and Pictographs Extended-A
+}
+
+// isEmojiRune reports whether r is a pictograph emoji codepoint (one of the
+// emojiPictographBlocks above — covering the person/cook/mage/rocket glyphs
+// observed in the bench corpus, Task 5b predicate_lift.py SD-002) or one of
+// the explicit symbol-emoji modifiers in emojiZWJModifiers. This
 // deliberately does NOT cover regional-indicator flag pairs
-// (U+1F1E6-U+1F1FF) or skin-tone modifiers (U+1F3FB-U+1F3FF): no sample in
-// the corpus exercises either, so widening the definition to include them
-// would be unmeasured. Used only to narrow the ZWJ carve-out below — it is
-// not a general-purpose emoji detector.
+// (U+1F1E6-U+1F1FF): no sample in the corpus exercises them, so widening the
+// definition to include them would be unmeasured. Skin-tone modifiers
+// (U+1F3FB-U+1F3FF) sit inside Miscellaneous Symbols and Pictographs and are
+// therefore covered, which is what RGI sequences like `person + tone + ZWJ +
+// profession` need — the ZWJ's left neighbour there is the tone modifier,
+// not the person. Used only to narrow the ZWJ carve-out below — it is not a
+// general-purpose emoji detector.
 func isEmojiRune(r rune) bool {
-	if r >= 0x1F300 && r <= 0x1FAFF {
-		return true
+	for _, b := range emojiPictographBlocks {
+		if r >= b.lo && r <= b.hi {
+			return true
+		}
 	}
 	return emojiZWJModifiers[r]
 }
