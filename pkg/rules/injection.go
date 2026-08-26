@@ -87,11 +87,23 @@ func isEmojiRune(r rune) bool {
 // version of this carve-out as a covert channel: encode one bit per
 // adjacent emoji pair by choosing whether a ZWJ sits between them
 // (unsupported ZWJ sequences render as the two emoji side by side, so
-// 😀‍😀 and 😀😀 look identical to a human) — with no cap, every present
+// <grin><U+200D><grin> and <grin><grin> look identical to a human — written
+// here in codepoints precisely because they do) — with no cap, every present
 // ZWJ was exempt and the line stayed silent regardless of how many bits
 // it carried. Beyond this cap, none of the line's qualifying ZWJs are
 // exempted — the whole line is treated as untrusted, not just the
 // excess.
+//
+// The cap is per line, and that is all it closes. A file of 20 such lines
+// still exempts up to 80 joiners in total, so the channel is narrowed
+// rather than sealed: stated plainly because the earlier wording here
+// claimed more than the code does. There is deliberately no file-level cap.
+// Each exempted bit costs the author a visible run of emoji to hide it
+// behind — 4 bits per line, each needing its own 5-pictograph sequence — so
+// a payload of any useful length is a wall of emoji, which is not a covert
+// channel any more. A file-level cap would buy nothing against that and
+// would make a long, genuinely emoji-heavy document start firing on its
+// later lines for reasons invisible in those lines.
 const maxExemptZWJPerLine = 4
 
 // zwjExemptIndices returns the indices within runes of every ZWJ character
@@ -104,7 +116,7 @@ const maxExemptZWJPerLine = 4
 func zwjExemptIndices(runes []rune) map[int]bool {
 	qualifying := make(map[int]bool)
 	for idx, ru := range runes {
-		if ru != '‍' {
+		if ru != '\u200D' {
 			continue
 		}
 		if idx == 0 || idx == len(runes)-1 {
