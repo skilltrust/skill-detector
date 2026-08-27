@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased
+
+### SD-025 Reverse Shell (new rule)
+
+Added **SD-025 Reverse Shell** — Critical, security axis, category `"Reverse
+Shell"`. The first rule in the engine to detect a socket bound to a shell.
+
+**Registry checksum MOVED** `589619b6386d2c41` → **`2414c32f04000b5d`**
+(24 → 25 rules). This is the first checksum move since v0.6.0. A consumer keyed
+on the checksum (e.g. `skilltrust`'s triage cache, ADR-0007) invalidates — that
+is correct, the ruleset genuinely changed. On release, all three downstream pins
+move: `scan-action/action.yml`, `skilltrust/go.mod`, skilltrust's CI fixture
+clone (`make versions` is the gate; runbook: `release.md#downstream-propagation`).
+
+**JSON schema unchanged** at `1.5` — SD-025 adds no wire field.
+
+`expectedChecksum` is not pinned (ADR-0003); the value above is recorded here as
+the fingerprint, not a gate.
+
+**What it detects.** The carrier is *a socket and a shell in the same program*
+(ADR-0009), not a list of literal one-liner forms. Two paths: a single line that
+is already socket+shell (`nc -e`, an interactive shell redirected onto
+`/dev/tcp|udp`, a `mkfifo`/`openssl s_client` relay), or a low-level socket
+library call and a shell-exec primitive both present in one file — the multi-line
+python/perl/php/node/powershell payloads that are MalSkillBench behaviour B6.
+Previously all of `bash -i >& /dev/tcp/…`, the python `socket`+`dup2`+`pty.spawn`
+one-liner, and the `mkfifo`+`openssl` relay graded A; only `nc -e` fired, and only
+incidentally via SD-007.
+
+**Measured (pinned 906-sample MalSkillBench slice, `--fail-on-axis security=B`).**
+Benign false positives do **not** rise on either layout; a few malicious samples
+newly cross the gate (most reverse-shell malware was already flagged worse-than-B
+by SD-007/SD-009):
+
+| layout | mal flagged | benign flagged | precision | recall |
+|---|---|---|---|---|
+| installed, before | 197 / 300 | 85 / 300 | 0.699 | 0.657 |
+| installed, SD-025 | **200 / 300** | 85 / 300 | 0.702 | **0.667** |
+| raw, before | 127 / 300 | 47 / 300 | 0.730 | 0.423 |
+| raw, SD-025 | **129 / 300** | 47 / 300 | 0.733 | **0.430** |
+
+B6 reverse-shell recall (Set B, threshold C) rose: CI 0.60→0.90, PI 0.70→1.00
+installed. On the full 7944-sample pool, SD-025 is the **sole** reason security crosses the gate (worse than B) for **78 malicious samples on the installed layout and 33 on raw — with zero new benign crossings on either** (the 4 benign files it fires on were already flagged by another security rule). The 906-slice delta above is smaller only because Set A's malware is sparse in reverse shells. Predicate separation on the full 7944-sample pool: malware 6.31% vs
+benign 0.10%, lift 63 — the benign hits are security/sysadmin reference docs that
+quote revshell payloads verbatim. Full write-up:
+`<workspace>/docs/product/research/bench-2026-08-24/metrics-sd025.txt`.
+
+**Grading changes; builds that passed can fail.** A repository shipping a reverse
+shell in an installed skill now grades security F where it graded A. If a build
+starts failing on this change, the finding is real — read it before pinning back.
+
+Also surfaced while building the negative fixtures: `nc -zv host port` port scans
+grade security D via a pre-existing SD-007 behaviour (bare `nc` matches its
+network-command regex; SD-007 only demotes when a URL is present). Unrelated to
+SD-025, logged for the SD-007 false-positive backlog.
+
+
 ## v0.7.0 — 2026-08-26
 
 The first release since `v0.6.0` (2026-08-14) and a large one: eleven commits
