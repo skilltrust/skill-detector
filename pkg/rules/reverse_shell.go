@@ -59,7 +59,7 @@ type reverseShellRule struct {
 // paired with a shell exec/bind somewhere in the file — the multi-line
 // interpreter payload shape (MalSkillBench behaviour B6).
 func (r *reverseShellRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	lines := bytes.Split(content, []byte("\n"))

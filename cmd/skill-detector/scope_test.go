@@ -125,7 +125,11 @@ func TestScopeInstallLayoutParity(t *testing.T) {
 	}
 
 	grades := map[string]string{}
-	for _, layout := range []string{".claude/skills/demo", ".agents/skills/demo"} {
+	// "demo" is the RAW layout: the skill directory as it sits in a
+	// repository, which is what the hosted scanner and the Action point at.
+	// It graded A here until SKILL.md became a scope root — the helper
+	// beside the manifest was never read. See ADR-0010.
+	for _, layout := range []string{".claude/skills/demo", ".agents/skills/demo", "demo"} {
 		dir := t.TempDir()
 		for name, body := range skill {
 			full := filepath.Join(dir, filepath.FromSlash(layout), name)
@@ -148,11 +152,15 @@ func TestScopeInstallLayoutParity(t *testing.T) {
 		grades[layout] = string(res.Axes["security"].Grade)
 	}
 
-	if grades[".claude/skills/demo"] != grades[".agents/skills/demo"] {
-		t.Errorf("security grade differs by install layout: .claude=%q .agents=%q",
-			grades[".claude/skills/demo"], grades[".agents/skills/demo"])
+	for _, layout := range []string{".agents/skills/demo", "demo"} {
+		if grades[layout] != grades[".claude/skills/demo"] {
+			t.Errorf("security grade differs by layout: .claude/skills/demo=%q %s=%q",
+				grades[".claude/skills/demo"], layout, grades[layout])
+		}
 	}
-	if got := grades[".agents/skills/demo"]; got != "F" {
-		t.Errorf("security grade under .agents/ = %q, want F (curl-pipe-bash is Critical)", got)
+	for layout, got := range grades {
+		if got != "F" {
+			t.Errorf("security grade under %s = %q, want F (curl-pipe-bash is Critical)", layout, got)
+		}
 	}
 }

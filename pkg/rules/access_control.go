@@ -228,7 +228,7 @@ type credentialAccessRule struct {
 }
 
 func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding
@@ -267,7 +267,7 @@ type pathTraversalRule struct {
 }
 
 func (r *pathTraversalRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding

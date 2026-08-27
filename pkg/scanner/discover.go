@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	stdpath "path"
 	"path/filepath"
 	"strings"
 
@@ -72,12 +73,28 @@ var agentDirExtraExts = map[string]bool{
 // scannable regardless of extension or location.
 var instructionDotfiles = map[string]bool{".cursorrules": true, ".windsurfrules": true}
 
-// inAgentDir mirrors pkg/rules' isInAgentConfigDir (the scanner package must
-// not import pkg/rules). Deliberately excludes .github/ and .vscode/ — see
-// walkableHiddenDirs.
+// inAgentDir mirrors pkg/rules' isInAgentConfigDir, which is unexported and
+// therefore unreachable from here even though pkg/scanner does import
+// pkg/rules (see scanner.go). The invariant that actually holds is the other
+// direction: pkg/rules must never import pkg/scanner. Deliberately excludes
+// .github/ and .vscode/ — see walkableHiddenDirs.
 func inAgentDir(rel string) bool {
 	clean := filepath.ToSlash(rel)
 	for _, d := range []string{".claude/", ".codex/", ".opencode/", ".cursor/", ".gemini/", ".windsurf/", ".agents/"} {
+		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
+			return true
+		}
+	}
+	return false
+}
+
+// inSkillRootExcludedDir mirrors pkg/rules' inSkillRootExcludedDir (unexported
+// there, as isInAgentConfigDir is). .github/ and .vscode/ are walked for their
+// specific instruction and MCP files but must not be pulled into scope wholesale
+// by a SKILL.md sitting above them — see walkableHiddenDirs and ADR-0010.
+func inSkillRootExcludedDir(rel string) bool {
+	clean := filepath.ToSlash(rel)
+	for _, d := range []string{".github/", ".vscode/"} {
 		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
 			return true
 		}
@@ -112,6 +129,45 @@ func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext
 	return discoverImpl(root, opts)
 }
 
+// skillManifestName is the marker that makes a directory a skill root. Only
+// SKILL.md: skill.yaml is an alternate manifest spelling no harness loads a
+// subtree for, and admitting it would widen scope with no measured benefit.
+// See ADR-0010.
+const skillManifestName = "SKILL.md"
+
+// walkCandidate is a file the walk admitted, held until the skill-root set
+// is complete. Content is deliberately NOT read here: the extension gate
+// depends on the skill roots, and the roots are only known once the walk
+// has finished.
+type walkCandidate struct {
+	rel  string
+	name string
+	ext  string
+}
+
+// nearestSkillRoot returns the closest ancestor directory of rel that holds
+// a SKILL.md, as a slash-separated path relative to the scan root ("." for
+// the scan root itself), or "" when rel lies inside no skill root.
+func nearestSkillRoot(rel string, roots map[string]bool) string {
+	if len(roots) == 0 {
+		return ""
+	}
+	d := stdpath.Dir(filepath.ToSlash(rel))
+	for {
+		if roots[d] {
+			return d
+		}
+		if d == "." || d == "/" {
+			return ""
+		}
+		parent := stdpath.Dir(d)
+		if parent == d {
+			return ""
+		}
+		d = parent
+	}
+}
+
 func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, DiscoverStats, error) {
 	root = filepath.Clean(root)
 
@@ -134,6 +190,13 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 	}
 
 	var files []model.FileContext
+	var candidates []walkCandidate
+	// skillRoots holds every directory the walk found a SKILL.md in, keyed
+	// by its slash-separated path relative to root ("." for root itself).
+	// A SKILL.md the walk never reached — skipped dir, gitignored, hidden —
+	// does not create a root, which is what keeps node_modules/ and
+	// vendor/ out (ADR-0010).
+	skillRoots := make(map[string]bool)
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -210,33 +273,20 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 			return nil
 		}
 
-		// Check extension against scannable set. Root-level instruction
-		// dotfiles (.cursorrules, .windsurfrules) have no conventional
-		// extension and are always in scope. Inside agent config dirs, also
-		// scan script languages and extensionless hook scripts.
-		ext := filepath.Ext(path)
-		if !scannableExts[ext] && !instructionDotfiles[d.Name()] {
-			if !inAgentDir(relPath) || !agentDirExtraExts[ext] {
-				return nil
-			}
+		// Record skill roots as the walk finds them. The extension gate
+		// below cannot run yet: WalkDir visits a directory's entries in
+		// lexical order, so a subdirectory sorting before "SKILL.md" is
+		// walked in full before the manifest beside it is seen. Phase two,
+		// after the walk, is the first point at which the root set is
+		// complete.
+		if d.Name() == skillManifestName {
+			skillRoots[stdpath.Dir(filepath.ToSlash(relPath))] = true
 		}
 
-		// Read file content via scoped root to prevent TOCTOU races.
-		content, err := readFromRoot(osRoot, relPath)
-		if err != nil {
-			// Unreadable file — skip silently.
-			return nil
-		}
-
-		// Skip binary files.
-		if isBinary(content) {
-			return nil
-		}
-
-		files = append(files, model.FileContext{
-			Path:    relPath,
-			Ext:     ext,
-			Content: content,
+		candidates = append(candidates, walkCandidate{
+			rel:  relPath,
+			name: d.Name(),
+			ext:  filepath.Ext(path),
 		})
 
 		return nil
@@ -244,6 +294,44 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 
 	if err != nil {
 		return nil, stats, fmt.Errorf("discover: %w", err)
+	}
+
+	// Phase two: the skill-root set is complete, so each candidate's scope
+	// can be decided. Reads still go through the scoped os.Root, so the
+	// TOCTOU and symlink-escape protection is unchanged; candidates are
+	// consumed in walk order, so the output order is too.
+	for _, c := range candidates {
+		skillRoot := nearestSkillRoot(c.rel, skillRoots)
+		if skillRoot != "" && inSkillRootExcludedDir(c.rel) {
+			skillRoot = ""
+		}
+
+		// Root-level instruction dotfiles (.cursorrules, .windsurfrules)
+		// have no conventional extension and are always in scope. Inside an
+		// agent config dir OR inside a skill root, also scan script
+		// languages and extensionless hook scripts.
+		if !scannableExts[c.ext] && !instructionDotfiles[c.name] {
+			inWideScope := inAgentDir(c.rel) || skillRoot != ""
+			if !inWideScope || !agentDirExtraExts[c.ext] {
+				continue
+			}
+		}
+
+		content, err := readFromRoot(osRoot, c.rel)
+		if err != nil {
+			// Unreadable file — skip silently.
+			continue
+		}
+		if isBinary(content) {
+			continue
+		}
+
+		files = append(files, model.FileContext{
+			Path:      c.rel,
+			Ext:       c.ext,
+			Content:   content,
+			SkillRoot: skillRoot,
+		})
 	}
 
 	return files, stats, nil

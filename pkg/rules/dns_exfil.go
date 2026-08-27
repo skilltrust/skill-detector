@@ -29,7 +29,7 @@ type dnsExfilRule struct {
 }
 
 func (r *dnsExfilRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding

@@ -211,4 +211,19 @@ type FileContext struct {
 	Path    string
 	Ext     string
 	Content []byte
+	// SkillRoot is the slash-separated path, relative to the scan root, of
+	// the nearest ancestor directory that contains a SKILL.md — "." when
+	// that directory is the scan root itself, "" when the file lies inside
+	// no skill root at all.
+	//
+	// This is the one piece of file classification that is a FILESYSTEM
+	// fact rather than a path-shape fact: whether some ancestor holds a
+	// SKILL.md cannot be decided from the path string. Discovery computes
+	// it once per walk and carries it here so pkg/rules can gate on it
+	// without walking the disk itself. See ADR-0010.
+	//
+	// Not part of the JSON wire format: FileContext has no JSON tags and is
+	// not reachable from ScanResult, so adding this field does not move
+	// model.SchemaVersion.
+	SkillRoot string
 }
