@@ -106,6 +106,21 @@ var adversarialCases = []adversarialCase{
 		why: "nc -zv never trips SD-025 (no -e, no shell); the D it earns is SD-007's unconditional nc-is-a-network-command match, which has no URL to demote on"},
 	{dir: "control-tcpclient-connectivity", axis: axes.Security, atMost: "A",
 		why: "a TCPClient.Connect/.Close connectivity check has no exec/IEX/shell=True anywhere in the file to pair with the socket"},
+
+	// --- Skill root as a scope root (ADR-0010). The attack cases graded A
+	// on security before this change: the manifest above the payload was in
+	// scope and the payload was not. ---
+	{dir: "skillroot-repo-root", axis: axes.Security, atLeast: "F",
+		why: "SKILL.md at the repository root makes the whole tree a skill subtree, so scripts/sync.py is read"},
+	{dir: "skillroot-subdir", axis: axes.Security, atLeast: "F",
+		why: "the skill root is packages/demo, not the repository root — a subtree scopes to its own nearest root"},
+
+	// --- Skill-root controls: the cost side. Widening scope must not
+	// widen it here. ---
+	{dir: "control-not-a-skill-root", axis: axes.Security, atMost: "A",
+		why: "tools/ holds no SKILL.md, so payload.md stays gated and payload.py is never even discovered"},
+	{dir: "control-vendored-skill", axis: axes.Security, atMost: "A",
+		why: "a SKILL.md inside node_modules/ or vendor/ must not create a scope root — the hardcoded skip list sits above the rule"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not

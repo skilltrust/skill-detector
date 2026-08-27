@@ -5,8 +5,10 @@ dist/
 # macOS
 .DS_Store
 
-# Vendor (if used)
-vendor/
+# Vendor (if used). Anchored to the repo root: an unanchored pattern also
+# swallows testdata fixtures that model a vendored skill, and those must be
+# committed (git add -f is reserved for fixture CLAUDE.md in this repo).
+/vendor/
 
 .codex/
 .claude/
