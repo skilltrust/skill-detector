@@ -30,3 +30,5 @@ docs/*
 # packages cloned by --fetch; never commit them on this public repo.
 .corpus/
 .corpus-results/
+# Local dev worktrees (see docs/runbooks/, superpowers workflow)
+.worktrees/
