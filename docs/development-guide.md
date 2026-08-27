@@ -114,7 +114,7 @@ go test -v -run TestBenchRecall ./cmd/skill-detector/
 
 - **`testdata/clean/`** — Skills that should pass with zero findings
 - **`testdata/malicious/`** — Agent-file-shaped fixtures that should trigger specific rules
-  - Paths must satisfy `IsAgentFile()` or `isInClaudeOrCodexDir()` (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/<orig>.sh`) so path-gated rules can fire
+  - Paths must satisfy `InScope(ctx)` (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/<orig>.sh`, or any file sitting beside a `SKILL.md` — a skill root, ADR-0010) so path-gated rules can fire
   - Subdirs: `credential-theft/`, `shell-injection/`, `prompt-injection/`, `exfiltration/`, `supply-chain/`, `persistence/`, `claude-md-sql/`, `claude-md-cnc/`, `settings-bash-curl/`, `settings-bypass/`, `settings-hook/`, `hooks-interp/`, `mcp-domain/`
 - **`testdata/cve/`** — Minimal CVE reproducer repos used by `cmd/skill-detector/cve_repro_test.go` for both Go-API and binary E2E paths
 - **`testdata/bench/`** — Curated malicious slice for the recall tripwire (`cmd/skill-detector/bench_recall_test.go`); every case must stay flagged
@@ -139,7 +139,7 @@ Configuration is in `.golangci.yml`:
 
 1. Create a new file in `pkg/rules/` (e.g., `new_threat.go`)
 2. Implement the Rule interface defined in `pkg/rules/rule.go`. Embed `baseRule` and set the `axis` field at registration so `baseRule.newFinding` can stamp `Finding.Axis` automatically.
-3. **Add a path gate as the FIRST statement of `Match()`** — typically `if !IsAgentFile(ctx.Path) { return nil }`, or compose with `isInClaudeOrCodexDir(ctx.Path)` if the rule should also fire on arbitrary files inside `.claude/`, `.codex/`, `.opencode/` dirs. Without a gate, the rule will fire on every file with a matching extension and balloon the noise floor on real-world repos.
+3. **Add a path gate as the FIRST statement of `Match()`** — typically `if !InScope(ctx) { return nil }`. `InScope` is `IsAgentFile(path) || isInAgentConfigDir(path) || InSkillSubtree(ctx)`: an agent file by name, any file inside `.claude/`, `.codex/`, `.opencode/` and friends, or any file inside a directory containing a `SKILL.md` (ADR-0010). Use a narrower composition only when a rule must deliberately not fire on one of those classes. Without a gate, the rule will fire on every file with a matching extension and balloon the noise floor on real-world repos.
 4. Register the rule in `pkg/rules/registry.go::DefaultRegistry()` — the CLI builds its registry from that one function.
 5. Add test fixtures in `testdata/malicious/<rule>/` at agent-file-shaped paths (e.g. `SKILL.md`, `CLAUDE.md`, `.claude/settings.json`, `.claude/scripts/foo.sh`) so the path gate doesn't block them.
 6. Write tests in `pkg/rules/new_threat_test.go`. Each rule needs:
