@@ -59,6 +59,7 @@ func TestRuleAxisMappings(t *testing.T) {
 		"settingsjson":              {axes.PermissionHygiene},
 		"hooks":                     {axes.Security},
 		"mcp":                       {axes.PermissionHygiene, axes.Transparency},
+		"reverse shell":             {axes.Security},
 	}
 	for _, rule := range r.All() {
 		cat := strings.ToLower(rule.Category())
