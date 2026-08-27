@@ -18,7 +18,7 @@ func (b benchDir) Path() string { return string(b) }
 // Tripwire: the curated malicious slice must always be flagged (worst grade
 // C/D/F). A drop here means a rule change reduced recall on a known attack.
 func TestBenchRecall_CuratedSliceAllFlagged(t *testing.T) {
-	cases := []string{"exfil-curl-env", "cnc-comment", "dns-exfil"}
+	cases := []string{"exfil-curl-env", "cnc-comment", "dns-exfil", "revshell-devtcp"}
 	reg := rules.DefaultRegistry()
 	for _, id := range cases {
 		sc := scanner.New(reg, scanner.Options{Version: "test"})
