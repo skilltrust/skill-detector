@@ -71,13 +71,31 @@ func (r *reverseShellRule) Match(content []byte, ctx model.FileContext) []model.
 		}
 	}
 	if reRevShellSocket.Match(content) && reRevShellExec.Match(content) {
-		for i, line := range lines {
-			if reRevShellSocket.Match(line) {
-				return []model.Finding{r.newFinding(ctx, i+1,
-					"reverse shell: socket bound to a shell",
-					"Remove the reverse-shell payload; a skill must not open a socket and attach a shell to it")}
+		// The whole-content match can succeed even when no single line
+		// matches reRevShellSocket, because \s in RE2 spans newlines (e.g. a
+		// socket.socket(...) call split across lines). Never return nil once
+		// both content predicates matched — fall back to the exec line, then
+		// line 1, so the detection is never silently dropped.
+		line := 1
+		found := false
+		for i, l := range lines {
+			if reRevShellSocket.Match(l) {
+				line = i + 1
+				found = true
+				break
 			}
 		}
+		if !found {
+			for i, l := range lines {
+				if reRevShellExec.Match(l) {
+					line = i + 1
+					break
+				}
+			}
+		}
+		return []model.Finding{r.newFinding(ctx, line,
+			"reverse shell: socket bound to a shell",
+			"Remove the reverse-shell payload; a skill must not open a socket and attach a shell to it")}
 	}
 	return nil
 }

