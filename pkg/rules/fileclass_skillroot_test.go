@@ -91,3 +91,24 @@ func TestRules_SilentOutsideSkillRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestInSkillSubtree_ExcludesGithubAndVscode(t *testing.T) {
+	for _, p := range []string{
+		".github/workflows/ci.yml",
+		".vscode/tasks.json",
+		"sub/.github/workflows/ci.yml",
+	} {
+		ctx := model.FileContext{Path: p, SkillRoot: "."}
+		if InSkillSubtree(ctx) {
+			t.Errorf("InSkillSubtree(%q) = true, want false", p)
+		}
+		if InScope(ctx) {
+			t.Errorf("InScope(%q) = true, want false", p)
+		}
+	}
+	// The isInAgentConfigDir arm is unaffected.
+	ctx := model.FileContext{Path: ".claude/skills/demo/.github/workflows/ci.yml"}
+	if !InScope(ctx) {
+		t.Error("a .github/ nested inside .claude/ must still be in scope via isInAgentConfigDir")
+	}
+}

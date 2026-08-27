@@ -88,6 +88,20 @@ func inAgentDir(rel string) bool {
 	return false
 }
 
+// inSkillRootExcludedDir mirrors pkg/rules' inSkillRootExcludedDir (unexported
+// there, as isInAgentConfigDir is). .github/ and .vscode/ are walked for their
+// specific instruction and MCP files but must not be pulled into scope wholesale
+// by a SKILL.md sitting above them — see walkableHiddenDirs and ADR-0010.
+func inSkillRootExcludedDir(rel string) bool {
+	clean := filepath.ToSlash(rel)
+	for _, d := range []string{".github/", ".vscode/"} {
+		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
+			return true
+		}
+	}
+	return false
+}
+
 // DiscoverOptions controls walker behavior.
 type DiscoverOptions struct {
 	// ScanAll disables .gitignore filtering. Hardcoded skip-dirs
@@ -288,6 +302,9 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 	// consumed in walk order, so the output order is too.
 	for _, c := range candidates {
 		skillRoot := nearestSkillRoot(c.rel, skillRoots)
+		if skillRoot != "" && inSkillRootExcludedDir(c.rel) {
+			skillRoot = ""
+		}
 
 		// Root-level instruction dotfiles (.cursorrules, .windsurfrules)
 		// have no conventional extension and are always in scope. Inside an

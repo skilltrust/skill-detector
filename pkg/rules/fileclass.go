@@ -154,6 +154,26 @@ func isInAgentConfigDir(path string) bool {
 	return false
 }
 
+// skillRootExcludedDirs are directories the skill-root arm must not reach.
+// They are walked so the gated predicates can match the specific files that
+// live in them (copilot-instructions.md, mcp.json), but they are deliberately
+// NOT agent config dirs — see isInAgentConfigDir and scanner.walkableHiddenDirs.
+// A SKILL.md at a repository root would otherwise pull every CI workflow and
+// editor task file into scope, which is the noise ADR-0004 exists to prevent.
+// The isInAgentConfigDir arm is unaffected: a .github/ nested inside .claude/
+// still reaches the rules through that arm, as it always did.
+var skillRootExcludedDirs = []string{".github/", ".vscode/"}
+
+func inSkillRootExcludedDir(path string) bool {
+	clean := filepath.ToSlash(path)
+	for _, d := range skillRootExcludedDirs {
+		if strings.HasPrefix(clean, d) || strings.Contains(clean, "/"+d) {
+			return true
+		}
+	}
+	return false
+}
+
 // InSkillSubtree reports whether ctx's file lies inside a skill root — a
 // directory containing a SKILL.md.
 //
@@ -165,9 +185,9 @@ func isInAgentConfigDir(path string) bool {
 // The excluded-directory check is repeated here rather than trusted from
 // discovery: pkg/rules is a published API and a caller may build a
 // FileContext by hand. A vendored skill must not re-enter scope by either
-// route.
+// route. .github/ and .vscode/ are excluded too — see skillRootExcludedDirs.
 func InSkillSubtree(ctx model.FileContext) bool {
-	return ctx.SkillRoot != "" && !isExcluded(ctx.Path)
+	return ctx.SkillRoot != "" && !isExcluded(ctx.Path) && !inSkillRootExcludedDir(ctx.Path)
 }
 
 // InScope is the standard file-class gate: an agent file by name, any file

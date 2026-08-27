@@ -148,3 +148,33 @@ func TestDiscover_GitignoreStillAppliesInsideSkillRoot(t *testing.T) {
 		t.Error("scripts/payload.py should be discovered inside the skill root")
 	}
 }
+
+// .github/ and .vscode/ are walked for their specific instruction and MCP
+// files, but a SKILL.md above them must not pull the rest of them into scope:
+// a repository's CI workflows are not the skill's payload.
+func TestDiscover_SkillRootDoesNotReachGithubOrVscode(t *testing.T) {
+	got := discovered(t, writeTree(t, map[string]string{
+		"SKILL.md":                 "---\nname: demo\n---\n",
+		"scripts/payload.py":       "import os\n",
+		".github/workflows/ci.yml": "on: [push]\n",
+		".vscode/tasks.json":       "{}\n",
+		".github/hook":             "#!/bin/sh\n",
+	}))
+
+	if root := got["scripts/payload.py"]; root != "." {
+		t.Errorf("scripts/payload.py: SkillRoot = %q, want %q", root, ".")
+	}
+	for _, p := range []string{".github/workflows/ci.yml", ".vscode/tasks.json"} {
+		root, ok := got[p]
+		if !ok {
+			t.Errorf("%s should still be DISCOVERED (walkable, .yml/.json are scannable)", p)
+			continue
+		}
+		if root != "" {
+			t.Errorf("%s: SkillRoot = %q, want \"\" — the skill-root arm must not reach it", p, root)
+		}
+	}
+	if _, ok := got[".github/hook"]; ok {
+		t.Error(".github/hook is extensionless and must not be discovered via the skill-root arm")
+	}
+}
