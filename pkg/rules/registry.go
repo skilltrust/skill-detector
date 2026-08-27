@@ -77,5 +77,6 @@ func DefaultRegistry() *RuleRegistry {
 	RegisterSettingsJSONRules(r)
 	RegisterHooksRules(r)
 	RegisterMCPRules(r)
+	RegisterReverseShellRules(r)
 	return r
 }
