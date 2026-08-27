@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+### Skill root scope — raw and installed layouts now grade identically
+
+**Any directory containing a `SKILL.md` is a skill root, and its whole
+subtree is now in scope**, wherever that directory sits — at a repository's
+root, nested arbitrarily deep, or under `.claude/skills/`. Before this
+change, scope was decided purely by path shape (`SKILL.md`, `CLAUDE.md`,
+`.claude/...`), which made a skill directory sitting plainly in a repository
+(`raw` layout) a strictly narrower scope than the identical directory
+installed under `.claude/skills/` (`installed` layout) — the manifest above
+a payload was read either way, the payload itself only when installed.
+
+**Your grade may move.** A repository that graded A may now grade D,
+because a payload in `scripts/` beside a `SKILL.md` is now read where
+before only the manifest above it was. That is the point of the change,
+not a regression.
+
+**Registry checksum unchanged** at `2414c32f04000b5d` (25 rules) — this is
+file-class logic, not rule registration. **JSON schema unchanged** at `1.5`
+— `model.FileContext` gains `SkillRoot string` (additive, not part of the
+wire format: `FileContext` has no JSON tags and isn't reachable from
+`ScanResult`).
+
+**Measured (pinned 906-sample MalSkillBench slice, `--fail-on-axis
+security=B`):**
+
+| layout | prec, before | prec, after | recall, before | recall, after |
+|---|---|---|---|---|
+| installed | 0.7018 | 0.7018 (unchanged) | 0.6667 | 0.6667 (unchanged) |
+| raw | 0.7330 | 0.7018 | 0.4300 | **0.6667** |
+
+`raw` recall **+23.7 points**, precision **−3.1 points**, F1 **+14.2
+points**; `installed` is byte-identical in every measured cell. The two
+layouts converge **exactly**: across all 906 samples, 0 differ in security
+grade, 0 in any axis grade, 0 in finding set. Of the findings newly visible
+on `raw`, 100% already existed in `installed`'s finding set before this
+change — the precision cost is `installed`'s existing false-positive rate
+becoming visible on `raw`, not new debt. Of the security-axis findings that
+newly cross the gate on 38 previously-clean benign samples, 37 are noise (a
+rule misreading benign documented behaviour) and 1 (`clauditor`) is a
+genuine, defensible catch of real masquerading/persistence techniques.
+Full detail: ADR-0010 and
+`<workspace>/docs/product/research/bench-2026-08-24/metrics-skillroot.txt`.
+
+**Stored scans are not silently re-graded.** Existing gallery entries and
+stored scan results were measured by an older engine and stay as they are,
+labelled with the engine version that produced them. Re-scanning happens on
+the normal refresh path, not as a migration, so nobody's badge changes
+without a scan they can point at. `skilltrust` owns surfacing the engine
+version beside a stored grade; that work is tracked there, not here.
+
+`node_modules`, `vendor`, `dist`, `build`, `target`, `.next`, `.git` stay
+excluded — the hardcoded skip-dir list sits above the new skill-root logic,
+so a `SKILL.md` inside any of them creates no scope root. User-level
+installs (`~/.claude/`) remain out of scope — separate work.
+
 ### SD-025 Reverse Shell (new rule)
 
 Added **SD-025 Reverse Shell** — Critical, security axis, category `"Reverse
