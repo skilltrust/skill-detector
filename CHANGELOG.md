@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0 — 2026-08-27
 
 ### Skill root scope — raw and installed layouts now grade identically
 
