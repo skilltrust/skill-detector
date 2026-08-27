@@ -141,7 +141,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 	// --fail-on-axis treats a missing axis as "nothing to compare".
 	var agentSurface int
 	for _, f := range files {
-		if rules.IsAgentFile(f.Path) || inAgentDir(f.Path) {
+		if rules.InScope(f) {
 			agentSurface++
 		}
 	}

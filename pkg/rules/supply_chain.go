@@ -34,7 +34,7 @@ type curlBashRule struct {
 }
 
 func (r *curlBashRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding
@@ -55,7 +55,7 @@ type runtimeDownloadRule struct {
 }
 
 func (r *runtimeDownloadRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding
@@ -88,7 +88,7 @@ type vulnerableDepsRule struct {
 }
 
 func (r *vulnerableDepsRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding

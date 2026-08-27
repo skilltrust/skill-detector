@@ -209,7 +209,7 @@ type shellInjectionRule struct {
 }
 
 func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var fenced map[int]bool
@@ -242,7 +242,12 @@ type promptInjectionRule struct {
 }
 
 func (r *promptInjectionRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsSkillManifest(ctx.Path) && !IsInstructionFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	// Deliberately narrower than InScope: settings.json and .mcp.json are
+	// structured config, not prose an agent is instructed by. The skill-root
+	// arm is added so a raw-layout skill reaches the same files an installed
+	// one already does.
+	if !IsSkillManifest(ctx.Path) && !IsInstructionFile(ctx.Path) &&
+		!isInAgentConfigDir(ctx.Path) && !InSkillSubtree(ctx) {
 		return nil
 	}
 	var findings []model.Finding

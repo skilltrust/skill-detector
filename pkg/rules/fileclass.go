@@ -3,6 +3,8 @@ package rules
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/velzepooz/skill-detector/pkg/model"
 )
 
 // File-class predicates used by the new SP-1 rule packs to decide whether
@@ -150,4 +152,28 @@ func isInAgentConfigDir(path string) bool {
 		}
 	}
 	return false
+}
+
+// InSkillSubtree reports whether ctx's file lies inside a skill root — a
+// directory containing a SKILL.md.
+//
+// Unlike every other predicate in this file this is NOT a path-shape test.
+// Whether some ancestor directory holds a SKILL.md is a filesystem fact and
+// cannot be decided from the path string, so the discovery pass computes it
+// once per walk and hands it over on FileContext.SkillRoot. See ADR-0010.
+//
+// The excluded-directory check is repeated here rather than trusted from
+// discovery: pkg/rules is a published API and a caller may build a
+// FileContext by hand. A vendored skill must not re-enter scope by either
+// route.
+func InSkillSubtree(ctx model.FileContext) bool {
+	return ctx.SkillRoot != "" && !isExcluded(ctx.Path)
+}
+
+// InScope is the standard file-class gate: an agent file by name, any file
+// inside an agent config dir, or any file inside a skill root. Rules that
+// need a narrower class (SD-002 excludes settings and MCP JSON) compose the
+// individual predicates instead.
+func InScope(ctx model.FileContext) bool {
+	return IsAgentFile(ctx.Path) || isInAgentConfigDir(ctx.Path) || InSkillSubtree(ctx)
 }

@@ -363,7 +363,7 @@ func (r *networkCallRule) endpointFinding(ctx model.FileContext, line int, url, 
 }
 
 func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	declared := isDocFile(ctx.Path) || isDeclarativeFile(ctx.Path)
@@ -435,7 +435,7 @@ type base64ObfuscationRule struct {
 }
 
 func (r *base64ObfuscationRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsAgentFile(ctx.Path) && !isInAgentConfigDir(ctx.Path) {
+	if !InScope(ctx) {
 		return nil
 	}
 	var findings []model.Finding
