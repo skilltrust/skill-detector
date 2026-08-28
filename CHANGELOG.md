@@ -50,21 +50,36 @@ Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
   is released. Still flagged: anything that genuinely escapes the root,
   anything behind a variable prefix (`$HOME/../..`, `${ROOT}/../..`) whose
   target cannot be resolved at scan time, the `....//` / `..././` spellings
-  that survive a sanitiser stripping one `../`, and any reference the
-  scanner cannot see whole — one carrying a glob character, a comma, or a
-  space inside quotes is released only when those sit *outside* the
-  reference, never when they sit inside it. The absolute-path and
-  Windows-path branches are unchanged — every candidate measured against
-  them was rejected (ADR-0011). The predicate reads `/`-separated paths, so
-  it is inert on Windows and SD-003 behaves there as it did before.
-  Measured on the 906-sample MalSkillBench slice: SD-003 findings on benign
-  242 → 226, on malicious 1113 → 1111, two benign samples off a
-  `permission_hygiene` gate, no malicious sample moved, no `security`-axis
-  movement. The whole-reference tokenisation was added after that run and
-  re-measured on the same slice: all 1812 scans are byte-identical, so the
-  counts above are the shipped ones. No corpus sample carries a reference
-  with a splitting character inside it — that shape was found by
-  construction, not by measurement.
+  that survive a sanitiser stripping one `../`, and **any line the scanner
+  cannot read unambiguously**. That last clause is the one to read before
+  filing a false positive: every character the tokeniser cuts a line on is
+  also legal inside a POSIX filename, so a line whose `../` region carries
+  one of them — a glob, a comma, a space, a tab, `(`, `)`, `<`, `>`, `;`,
+  `|`, `&` — admits two readings, and only a single unbroken reference is
+  ever released. Practically: `cat ../data/*.json` stays flagged, and so
+  does `ln -sf ../data d && ln -sf ../logs l`, which names two in-package
+  references on one line. The alternative is releasing
+  `../a(b)c/../../outside/harvest.env`, which leaves the skill root.
+  The absolute-path and Windows-path branches are unchanged — every
+  candidate measured against them was rejected (ADR-0011). The predicate
+  reads `/`-separated paths, so it is inert on Windows and SD-003 behaves
+  there as it did before.
+
+  **Measured, with the population named.** On the **906-sample** MalSkillBench
+  bench slice: SD-003 findings on benign 242 → 226, on malicious 1113 → 1111,
+  two benign samples off a `permission_hygiene` gate, no malicious sample
+  moved, no `security`-axis movement. The whole-reference rule was added after
+  that run and re-measured on the same slice: all 1812 scans byte-identical, so
+  the counts above are the shipped ones.
+
+  On the **full 7944-sample pool**, which the slice is drawn from, that rule is
+  not free: one benign sample (`cc-godmode`) moves `permission_hygiene`
+  **A → D** on a doc-comment line naming a glob (`* - ../agents/*.md`), and one
+  malicious sample already graded D gains one finding. No exit code moves. A
+  prevalence of 1 in 7944 is below what a 906-sample slice can resolve, which is
+  why the slice priced it at zero; a previous draft of this entry reported that
+  zero as a fact about the corpus rather than about the slice. Both figures are
+  now stated with their population, in this entry and in ADR-0011.
 
 ## v0.8.0 — 2026-08-27
 
