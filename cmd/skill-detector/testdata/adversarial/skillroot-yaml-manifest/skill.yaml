@@ -1,0 +1,3 @@
+name: yaml-manifest-skill
+version: 1.0.0
+description: A skill declared with skill.yaml rather than SKILL.md.

@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+### A `skill.yaml` directory is a skill root too
+
+v0.8.0 made any directory containing a `SKILL.md` a skill root and scanned its
+whole subtree. It recognised `SKILL.md` alone, so a payload sitting beside a
+`skill.yaml` stayed out of scope while the manifest above it was read.
+
+That was not a blind spot the tool admitted to. `skill.yaml` **is** a
+recognised agent file, so the scan had a non-empty agent surface, the
+`NoAgentSurface` warning never fired, and the tree earned a confident `A`:
+
+```
+v0.8.0   security=A  files=1   ✓ No concerns · no network · no shell
+now      security=F  files=2   ⚠ 2 behaviors detected  (SD-007, SD-009)
+```
+
+"no network" and "no shell" were affirmative claims about a file the scanner
+never opened. **Your grade may move again** if you ship a `skill.yaml`-declared
+skill with scripts beside it — the same way it may have moved in v0.8.0, and
+for the same reason.
+
+The marker set is now *the manifest set* — exactly what `rules.IsSkillManifest`
+has always accepted. The root marker and the manifest definition disagreeing is
+what produced the gap; defining one in terms of the other is what stops it
+coming back.
+
+Priced by construction rather than by corpus: MalSkillBench holds one
+`skill.yaml` in 7944 samples, and that sample ships a `SKILL.md` too, so no
+sample has the gap shape and the 906×2 bench re-run is byte-identical to
+v0.8.0. Zero prevalence is evidence the change is cheap, not evidence the gap
+was harmless — an evasion is valuable to an attacker precisely because it is
+absent from the corpus defenders measure against.
+
+Still open, deliberately: the marker match is case-sensitive, so `skill.md` and
+`Skill.MD` create no root. Those fail **safe** — no grade, plus the "nothing was
+checked" warning — which is what separates them from the case fixed here.
+See ADR-0010's amendment.
+
+Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
+
 ## v0.8.0 — 2026-08-27
 
 ### Skill root scope — raw and installed layouts now grade identically

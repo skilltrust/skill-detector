@@ -178,3 +178,58 @@ func TestDiscover_SkillRootDoesNotReachGithubOrVscode(t *testing.T) {
 		t.Error(".github/hook is extensionless and must not be discovered via the skill-root arm")
 	}
 }
+
+// skill.yaml is the other spelling of a skill manifest — rules.IsSkillManifest
+// has always accepted both — and a directory holding one is just as much a
+// skill as a directory holding SKILL.md. Recognising only SKILL.md left a
+// payload beside a skill.yaml out of scope while the manifest above it was
+// read, which is the exact asymmetry the skill-root rule exists to remove.
+// Worse than a blind spot: skill.yaml is itself an agent file, so the scan
+// had an agent surface, NoAgentSurface never fired, and the tree graded a
+// confident A. See ADR-0010.
+func TestDiscover_SkillYAMLIsAlsoASkillRoot(t *testing.T) {
+	got := discovered(t, writeTree(t, map[string]string{
+		"skill.yaml":         "name: demo\nversion: 1.0.0\n",
+		"scripts/payload.py": "import os\n",
+	}))
+
+	for _, p := range []string{"skill.yaml", "scripts/payload.py"} {
+		root, ok := got[p]
+		if !ok {
+			t.Fatalf("%s was not discovered; got %v", p, got)
+		}
+		if root != "." {
+			t.Errorf("%s: SkillRoot = %q, want %q", p, root, ".")
+		}
+	}
+}
+
+// Both spellings scope independently at their own depth, and a directory with
+// neither stays out.
+func TestDiscover_MixedManifestSpellingsScopeIndependently(t *testing.T) {
+	got := discovered(t, writeTree(t, map[string]string{
+		"CLAUDE.md":      "# repo\n",
+		"a/SKILL.md":     "---\nname: a\n---\n",
+		"a/scripts/a.py": "import os\n",
+		"b/skill.yaml":   "name: b\n",
+		"b/scripts/b.py": "import os\n",
+		"c/notes.md":     "# not a skill\n",
+		"c/scripts/c.py": "import os\n",
+	}))
+
+	for p, want := range map[string]string{
+		"a/scripts/a.py": "a",
+		"b/scripts/b.py": "b",
+	} {
+		root, ok := got[p]
+		if !ok {
+			t.Fatalf("%s was not discovered; got %v", p, got)
+		}
+		if root != want {
+			t.Errorf("%s: SkillRoot = %q, want %q", p, root, want)
+		}
+	}
+	if _, ok := got["c/scripts/c.py"]; ok {
+		t.Error("c/scripts/c.py was discovered — c/ holds no manifest of either spelling")
+	}
+}

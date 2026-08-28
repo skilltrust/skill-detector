@@ -91,7 +91,7 @@ func inAgentDir(rel string) bool {
 // inSkillRootExcludedDir mirrors pkg/rules' inSkillRootExcludedDir (unexported
 // there, as isInAgentConfigDir is). .github/ and .vscode/ are walked for their
 // specific instruction and MCP files but must not be pulled into scope wholesale
-// by a SKILL.md sitting above them — see walkableHiddenDirs and ADR-0010.
+// by a skill manifest sitting above them — see walkableHiddenDirs and ADR-0010.
 func inSkillRootExcludedDir(rel string) bool {
 	clean := filepath.ToSlash(rel)
 	for _, d := range []string{".github/", ".vscode/"} {
@@ -129,11 +129,22 @@ func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext
 	return discoverImpl(root, opts)
 }
 
-// skillManifestName is the marker that makes a directory a skill root. Only
-// SKILL.md: skill.yaml is an alternate manifest spelling no harness loads a
-// subtree for, and admitting it would widen scope with no measured benefit.
+// skillManifestNames are the markers that make a directory a skill root.
+// Deliberately the same set rules.IsSkillManifest accepts, mirrored here
+// because pkg/scanner/discover.go does not import pkg/rules — keeping the two
+// definitions identical is the point, since the gap this closed was exactly
+// them disagreeing.
+//
+// v0.8.0 recognised SKILL.md alone. That left a payload beside a skill.yaml
+// out of scope while the manifest above it was read — and because skill.yaml
+// is itself an agent file, the scan had an agent surface, NoAgentSurface never
+// fired, and the tree earned a confident A rather than a warning that nothing
+// was checked. A false clean bill is worse than an admitted blind spot.
 // See ADR-0010.
-const skillManifestName = "SKILL.md"
+var skillManifestNames = map[string]bool{
+	"SKILL.md":   true,
+	"skill.yaml": true,
+}
 
 // walkCandidate is a file the walk admitted, held until the skill-root set
 // is complete. Content is deliberately NOT read here: the extension gate
@@ -145,9 +156,10 @@ type walkCandidate struct {
 	ext  string
 }
 
-// nearestSkillRoot returns the closest ancestor directory of rel that holds
-// a SKILL.md, as a slash-separated path relative to the scan root ("." for
-// the scan root itself), or "" when rel lies inside no skill root.
+// nearestSkillRoot returns the closest ancestor directory of rel that holds a
+// skill manifest (see skillManifestNames), as a slash-separated path relative
+// to the scan root ("." for the scan root itself), or "" when rel lies inside
+// no skill root.
 func nearestSkillRoot(rel string, roots map[string]bool) string {
 	if len(roots) == 0 {
 		return ""
@@ -191,9 +203,9 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 
 	var files []model.FileContext
 	var candidates []walkCandidate
-	// skillRoots holds every directory the walk found a SKILL.md in, keyed
-	// by its slash-separated path relative to root ("." for root itself).
-	// A SKILL.md the walk never reached — skipped dir, gitignored, hidden —
+	// skillRoots holds every directory the walk found a skill manifest in,
+	// keyed by its slash-separated path relative to root ("." for root itself).
+	// A manifest the walk never reached — skipped dir, gitignored, hidden —
 	// does not create a root, which is what keeps node_modules/ and
 	// vendor/ out (ADR-0010).
 	skillRoots := make(map[string]bool)
@@ -279,7 +291,7 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 		// walked in full before the manifest beside it is seen. Phase two,
 		// after the walk, is the first point at which the root set is
 		// complete.
-		if d.Name() == skillManifestName {
+		if skillManifestNames[d.Name()] {
 			skillRoots[stdpath.Dir(filepath.ToSlash(relPath))] = true
 		}
 

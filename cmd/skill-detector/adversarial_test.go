@@ -121,6 +121,13 @@ var adversarialCases = []adversarialCase{
 		why: "tools/ holds no SKILL.md, so payload.md stays gated and payload.py is never even discovered"},
 	{dir: "control-vendored-skill", axis: axes.Security, atMost: "A",
 		why: "a SKILL.md inside node_modules/ or vendor/ must not create a scope root — the hardcoded skip list sits above the rule"},
+
+	// --- The skill.yaml half of the same rule. v0.8.0 recognised only
+	// SKILL.md, so this graded a confident A — "no network, no shell" —
+	// about a payload it never opened, because skill.yaml IS an agent file
+	// and NoAgentSurface therefore never fired. ---
+	{dir: "skillroot-yaml-manifest", axis: axes.Security, atLeast: "F",
+		why: "skill.yaml is a skill manifest too, so its directory is a skill root and scripts/sync.py is read"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
