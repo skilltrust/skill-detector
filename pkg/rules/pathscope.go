@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"bytes"
 	stdpath "path"
 	"regexp"
 	"strings"
@@ -183,14 +182,22 @@ func relativeRefStaysInSkill(line []byte, ctx model.FileContext) bool {
 }
 
 // referenceRegionIsUnambiguous reports whether the span of the line that carries
-// the `../` references — from the first `../` on the line to the end of the last
-// `../`-bearing match — is free of every character the tokeniser cuts on.
+// the `../` references — from the start of the first `../`-bearing match to the
+// end of the last — is free of every character the tokeniser cuts on.
 //
 // A character from referenceAmbiguityChars inside that span means the line can
 // be read two ways: as several separate references, or as one longer reference
 // whose filename happens to contain that byte. The two readings resolve to
 // different places, and only the first one is what the per-match walk below
 // actually computes, so the span is refused outright rather than guessed at.
+//
+// The span is anchored on the first match rather than on the first literal
+// `../`, which is the same answer with no unreachable code: the two differ only
+// by the first match's own prefix (`./` in `./../data/x`), and those bytes lie
+// inside a match, which by construction holds no character this function looks
+// for. Searching the raw line for `../` instead would need a "not found" branch
+// for a state the caller cannot produce — every match contains a literal `../`,
+// and the caller only calls this with a non-empty match set.
 //
 // With the current tokeniser this is equivalent to "release only a line carrying
 // exactly one `../` match", because reRelativePathToken's matches are maximal
@@ -200,12 +207,9 @@ func relativeRefStaysInSkill(line []byte, ctx model.FileContext) bool {
 // narrowing reRelativePathToken would silently break the short spelling and
 // leave this one correct.
 func referenceRegionIsUnambiguous(line []byte, matches [][]int) bool {
-	first := bytes.Index(line, []byte("../"))
-	if first < 0 {
-		return false // no literal `../` to anchor the region on
-	}
+	start := matches[0][0]
 	end := matches[len(matches)-1][1]
-	for _, c := range line[first:end] {
+	for _, c := range line[start:end] {
 		if strings.IndexByte(referenceAmbiguityChars, c) >= 0 {
 			return false
 		}
@@ -279,6 +283,23 @@ func tokenStaysInside(tok string, depth int) bool {
 			// the ordinary-segment case below.
 			return false
 		case isDotRun(seg) || !reOrdinarySegment.MatchString(seg):
+			return false
+		case strings.Contains(seg, ".."):
+			// A `..` embedded in a longer segment — `file@..`, `docs@..`,
+			// `a..b`. reOrdinarySegment allows `@` and `.` anywhere, but the
+			// sigil trim above only strips `@` at the START of a token, so
+			// `file@../../../outside/x` reads `file@..` as an ordinary
+			// directory (+1) where a sigil-aware reading gives `..` (-1). That
+			// two-level swing releases a reference that genuinely leaves the
+			// skill root.
+			//
+			// The engine does not model which sigils and separators a given
+			// agent honours mid-word, so a segment that embeds `..` inside a
+			// longer name cannot be told apart from one that is really a climb
+			// wearing a prefix. Same treatment as a dot-run: unresolvable,
+			// refused outright, never pushed as an ordinary segment. Guessing
+			// costs two levels of climb, and the guess that is wrong is the one
+			// that under-flags.
 			return false
 		default:
 			depth++

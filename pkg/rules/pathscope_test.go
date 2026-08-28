@@ -90,6 +90,19 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		{"tilde is home expansion, not a directory", `cat ~/../../etc/passwd`, nested, false},
 		{"tilde inside a command", `bash -c "cp ~/../etc/passwd ./x"`, nested, false},
 		{"tilde-user form", `cat ~root/../../etc/passwd`, nested, false},
+		// The sigil trim only strips `@` at the start of a token, but
+		// reOrdinarySegment allows `@` anywhere, so a `..` glued to the end of
+		// a longer segment was walked as an ordinary directory (+1) where the
+		// sigil reading gives a climb (-1) — a two-level swing that released a
+		// real escape. Both of these leave the skill root.
+		{"sigil glued to a preceding word", `Read file@../../../outside/harvest.env`, nested, false},
+		{"sigil glued, two levels", `docs@../../outside/y`, nested, false},
+		// This third one pins BEHAVIOUR only: the walk already refuses it
+		// (`..`, `a..b`, `..`, `..` from depth 1 goes negative on the last
+		// segment), so it passes with the embedded-`..` rejection removed. It
+		// is kept because it is the shape a reader reaches for first, and a
+		// test that silently proves nothing is worse than one that says so.
+		{"dots embedded in a longer segment", `cat ../a..b/../../outside/x`, nested, false},
 
 		// --- filter-bypass forms: must stay flagged (A4 is NOT shipped) ---
 		{"dot-run bypass", `....//....//etc/passwd`, nested, false},
