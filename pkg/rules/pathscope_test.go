@@ -47,6 +47,7 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		{"dot-slash prefix is a no-op", `cat ./../data/x.txt`, deep, true},
 		{"two tokens, both inside", `ln -sf ../data d && ln -sf ../logs l`, nested, true},
 		{"exactly cancels out to the root", `cat ../SKILL.md`, nested, true},
+		{"trailing tilde is an ordinary backup name", `cat ../references/notes.md~`, nested, true},
 
 		// --- escapes: must stay flagged ---
 		{"one level too many", `cat ../../etc/passwd`, nested, false},
@@ -59,6 +60,9 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		{"brace-expanded prefix", `cat ${ROOT}/../../etc/passwd`, nested, false},
 		{"percent-encoded segment", `cat ..%2f..%2fetc/passwd`, nested, false},
 		{"no skill root is known", `cat ../data/x.txt`, noRoot, false},
+		{"tilde is home expansion, not a directory", `cat ~/../../etc/passwd`, nested, false},
+		{"tilde inside a command", `bash -c "cp ~/../etc/passwd ./x"`, nested, false},
+		{"tilde-user form", `cat ~root/../../etc/passwd`, nested, false},
 
 		// --- filter-bypass forms: must stay flagged (A4 is NOT shipped) ---
 		{"dot-run bypass", `....//....//etc/passwd`, nested, false},

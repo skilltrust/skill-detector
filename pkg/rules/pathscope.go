@@ -33,6 +33,8 @@ import (
 var reRelativePathToken = regexp.MustCompile("[^\\s\"'`()\\[\\]<>,;|&*]*\\.\\./[^\\s\"'`()\\[\\]<>,;|&*]*")
 
 // reOrdinarySegment is the allow-list charset for a single path segment.
+// `+` is inert for path resolution (no shell or filesystem meaning here); it's
+// allow-listed only because it's a legal filename character.
 var reOrdinarySegment = regexp.MustCompile(`^[A-Za-z0-9._@+~-]+$`)
 
 // unresolvableSegmentChars are the characters that make a token's target
@@ -105,6 +107,15 @@ func tokenStaysInside(tok string, depth int) bool {
 			}
 		case seg == ".":
 			// no-op
+		case strings.HasPrefix(seg, "~"):
+			// A leading `~` is shell home-directory expansion (`~` or
+			// `~user`) — an absolute path to a home directory, not a
+			// subdirectory of the current one — so it can never be pushed
+			// as an ordinary segment. Same unresolvable-prefix class as
+			// `$HOME` and `${ROOT}` above. A trailing `~` (e.g. a
+			// `notes.md~` backup file) is unaffected — it falls through to
+			// the ordinary-segment case below.
+			return false
 		case isDotRun(seg) || !reOrdinarySegment.MatchString(seg):
 			return false
 		default:
