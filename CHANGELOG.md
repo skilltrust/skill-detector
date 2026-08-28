@@ -41,6 +41,60 @@ See ADR-0010's amendment.
 
 Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
 
+### Fixed
+
+- **SD-003** no longer reports an in-package `../` reference as directory
+  traversal. The `../` branch now resolves the reference against the file's
+  own skill root (`FileContext.SkillRoot`, ADR-0010) instead of
+  pattern-matching it: a reference that never takes the walk below that root
+  is released. Still flagged: anything that genuinely escapes the root,
+  anything behind a variable prefix (`$HOME/../..`, `${ROOT}/../..`) whose
+  target cannot be resolved at scan time, the `....//` / `..././` spellings
+  that survive a sanitiser stripping one `../`, and **any line the scanner
+  cannot read unambiguously**. That last clause is the one to read before
+  filing a false positive: every character the tokeniser cuts a line on is
+  also legal inside a POSIX filename, so a line whose `../` region carries
+  one of them — a glob, a comma, a space, a tab, `(`, `)`, `<`, `>`, `;`,
+  `|`, `&` — admits two readings, and only a single unbroken reference is
+  ever released. Practically: `cat ../data/*.json` stays flagged, and so
+  does `ln -sf ../data d && ln -sf ../logs l`, which names two in-package
+  references on one line. The alternative is releasing
+  `../a(b)c/../../outside/harvest.env`, which leaves the skill root.
+  Also still flagged: a path segment that **contains** `..` without being
+  exactly `..` — `file@../../../outside/x`, `0x123.../videos/intro.mp4`.
+  A sigil or separator glued to a `..` cannot be told apart from an ordinary
+  directory name, and reading it as one costs two levels of climb.
+  The absolute-path and Windows-path branches are unchanged — every
+  candidate measured against them was rejected (ADR-0011). The predicate
+  reads `/`-separated paths, so it is inert on Windows and SD-003 behaves
+  there as it did before.
+
+  **Measured, with the population named.** On the **906-sample** MalSkillBench
+  bench slice: SD-003 findings on benign 242 → 226, on malicious 1113 → 1111,
+  two benign samples off a `permission_hygiene` gate, no malicious sample
+  moved, no `security`-axis movement. The whole-reference rule was added after
+  that run and re-measured on the same slice: all 1812 scans byte-identical, so
+  the counts above are the shipped ones.
+
+  On the **full 7944-sample pool**, which the slice is drawn from, that rule is
+  not free: one benign sample (`cc-godmode`) moves `permission_hygiene`
+  **A → D** on a doc-comment line naming a glob (`* - ../agents/*.md`), and one
+  malicious sample already graded D gains one finding. No exit code moves. A
+  prevalence of 1 in 7944 is below what a 906-sample slice can resolve, which is
+  why the slice priced it at zero; a previous draft of this entry reported that
+  zero as a fact about the corpus rather than about the slice. Both figures are
+  now stated with their population, in this entry and in ADR-0011.
+
+  **Headline metrics: recall untouched, precision up by one sample.** Set A,
+  both bench layouts identically, threshold B: precision 0.638 → 0.640 with
+  false positives 124 → 123, recall 0.730 unmoved (C: 0.662 → 0.664; D:
+  0.641 → 0.643). The one sample that moves is `portfolio-tracker`, whose only
+  finding was this SD-003 line. Behaviour-class recall (B1-B9 0.97, bar 0.92)
+  and the malware rule-hit counts are unchanged. Note that metric is a
+  **composite** over `security` / `permission_hygiene` / `transparency`, which
+  is why a `permission_hygiene`-only change moves it; the `security`-axis-alone
+  gate is unmoved, because `pathTraversalRule` never stamps that axis.
+
 ## v0.8.0 — 2026-08-27
 
 ### Skill root scope — raw and installed layouts now grade identically
