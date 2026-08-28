@@ -142,6 +142,8 @@ var adversarialCases = []adversarialCase{
 		why: "....// and ..././ survive a sanitiser that strips one ../; a resolver that read a dot-run as an ordinary name would exempt both"},
 	{dir: "sd003-escape-tilde", axis: axes.PermissionHygiene, atLeast: "D",
 		why: "a leading ~ is home expansion, not a directory; pushing it as an ordinary segment let the ../ walk appear to land back inside the skill"},
+	{dir: "sd003-escape-split-token", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "a quoted space and a glob star end a shell word but are legal inside a filename; cutting the reference there judges each half from the file's own depth and grants the climb budget twice"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
