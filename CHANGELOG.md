@@ -48,14 +48,23 @@ Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
   own skill root (`FileContext.SkillRoot`, ADR-0010) instead of
   pattern-matching it: a reference that never takes the walk below that root
   is released. Still flagged: anything that genuinely escapes the root,
-  anything behind a variable or percent-encoded prefix that cannot be
-  resolved at scan time, and the `....//` / `..././` spellings that survive a
-  sanitiser stripping one `../`. The absolute-path and Windows-path branches
-  are unchanged — every candidate measured against them was rejected
-  (ADR-0011). Measured on the 906-sample MalSkillBench slice: SD-003 findings
-  on benign 242 → 226, on malicious 1113 → 1111, two benign samples off a
+  anything behind a variable prefix (`$HOME/../..`, `${ROOT}/../..`) whose
+  target cannot be resolved at scan time, the `....//` / `..././` spellings
+  that survive a sanitiser stripping one `../`, and any reference the
+  scanner cannot see whole — one carrying a glob character, a comma, or a
+  space inside quotes is released only when those sit *outside* the
+  reference, never when they sit inside it. The absolute-path and
+  Windows-path branches are unchanged — every candidate measured against
+  them was rejected (ADR-0011). The predicate reads `/`-separated paths, so
+  it is inert on Windows and SD-003 behaves there as it did before.
+  Measured on the 906-sample MalSkillBench slice: SD-003 findings on benign
+  242 → 226, on malicious 1113 → 1111, two benign samples off a
   `permission_hygiene` gate, no malicious sample moved, no `security`-axis
-  movement.
+  movement. The whole-reference tokenisation was added after that run and
+  re-measured on the same slice: all 1812 scans are byte-identical, so the
+  counts above are the shipped ones. No corpus sample carries a reference
+  with a splitting character inside it — that shape was found by
+  construction, not by measurement.
 
 ## v0.8.0 — 2026-08-27
 
