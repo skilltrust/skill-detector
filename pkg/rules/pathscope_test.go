@@ -67,15 +67,23 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		{"long climb", `cat ../../../../../../outside`, deep, false},
 
 		// --- unresolvable: must stay flagged, never guessed ---
+		//
+		// These four pin the BEHAVIOUR — the line stays flagged — and nothing
+		// more. None of them proves unresolvableTokenChars does any work:
+		// every character in that set is also outside reOrdinarySegment, so
+		// the segment walk refuses these tokens on its own and deleting the
+		// whole-token guard fails no test in this repository. See the comment
+		// on the constant for why it is kept anyway.
 		{"variable prefix", `cat $HOME/../../etc/passwd`, nested, false},
 		{"brace-expanded prefix", `cat ${ROOT}/../../etc/passwd`, nested, false},
 		// The pure percent-encoded form carries no literal `../` at all, so it
-		// is refused by the empty-match guard and never reaches the `%` entry
-		// in unresolvableTokenChars. SD-003 does not match this line either —
-		// it is here to pin the guard, not to claim a detection.
+		// is refused earlier still, by the empty-match guard. SD-003 does not
+		// match this line in the first place — before this branch or after it —
+		// so this case claims no detection, only that nothing releases it.
 		{"percent-encoded separators, nothing tokenised", `cat ..%2f..%2fetc/passwd`, nested, false},
-		// This one does reach the `%` entry: a literal `../` plus a
-		// percent-encoded segment whose target cannot be known statically.
+		// A literal `../` plus a percent-encoded segment: refused by the
+		// ordinary-segment charset, which is the check that actually decides
+		// every line in this block.
 		{"percent-encoded segment inside a real reference", `cat ../a%2fb/../../outside/x`, nested, false},
 		{"no skill root is known", `cat ../data/x.txt`, noRoot, false},
 		{"tilde is home expansion, not a directory", `cat ~/../../etc/passwd`, nested, false},

@@ -73,6 +73,15 @@ var reOrdinarySegment = regexp.MustCompile(`^[A-Za-z0-9._@+~-]+$`)
 // unresolvableTokenChars are the characters that make a token's target
 // impossible to know statically. Tested against the whole token, not per
 // segment: a token carrying any of them anywhere is never released.
+//
+// This check is deliberately REDUNDANT today and no test can prove otherwise:
+// every character in the set also falls outside reOrdinarySegment, so the
+// segment walk below refuses the same tokens on its own — removing this `if`
+// breaks nothing in the suite (verified by construction, not assumed). It is
+// kept as a cheap early exit and as depth: it becomes load-bearing the moment
+// reOrdinarySegment is widened, which is a live possibility (see ADR-0011's
+// residual false positives, where the ASCII-only charset is the recorded cost).
+// Widening that charset without keeping this guard would release `$HOME/../..`.
 const unresolvableTokenChars = `${}%\`
 
 // referenceBoundaryChars are the characters that may stand immediately next to a
