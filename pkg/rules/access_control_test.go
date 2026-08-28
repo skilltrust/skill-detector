@@ -713,3 +713,83 @@ func TestSD004_FileReaderVerbsVetoDocumentaryDamping(t *testing.T) {
 		t.Error("printenv in a doc bullet must veto the damping")
 	}
 }
+
+// SD-003's ../ branch reports traversal only when the reference actually
+// leaves the skill. These cases all carry a SkillRoot, which is what tells the
+// rule where "inside" is; the older tables above deliberately leave it empty,
+// which is the "root unknown, keep flagging" path.
+func TestPathTraversalResolvesAgainstSkillRoot(t *testing.T) {
+	registry := NewRegistry()
+	RegisterAccessControlRules(registry)
+
+	tests := []struct {
+		name      string
+		content   string
+		path      string
+		skillRoot string
+		ext       string
+		wantCount int
+	}{
+		{"in-package sibling directory", "open('../references/holdings.md')",
+			"scripts/update.py", ".", ".py", 0},
+		{"workspace member manifest", `detector = { path = "../detector" }`,
+			"crates/alerter/Cargo.toml", ".", ".toml", 0},
+		{"in-package, installed layout", "cat ../data/input.txt",
+			".claude/skills/x/scripts/run.sh", ".claude/skills/x", ".sh", 0},
+		{"escapes by one level", "cat ../../secrets/db.env",
+			"scripts/run.sh", ".", ".sh", 1},
+		{"escapes from the skill root itself", "cat ../sibling/SKILL.md",
+			"SKILL.md", ".", ".md", 1},
+		{"dips below the root then rejoins", "cat ../scripts/../../outside/payload.sh",
+			"scripts/run.sh", ".", ".sh", 1},
+		{"variable prefix is never resolved", "cat $HOME/../../etc/passwd",
+			"scripts/run.sh", ".", ".sh", 1},
+		{"filter-bypass spelling stays flagged", "cat ....//....//etc/passwd",
+			"scripts/run.sh", ".", ".sh", 1},
+		{"no skill root known keeps the old behaviour", "cat ../data/input.txt",
+			".claude/settings.json", "", ".json", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := model.FileContext{
+				Path: tt.path, SkillRoot: tt.skillRoot, Ext: tt.ext,
+				Content: []byte(tt.content),
+			}
+			var findings []model.Finding
+			for _, rule := range registry.RulesFor(tt.ext) {
+				if rule.ID() == "SD-003" {
+					findings = append(findings, rule.Match(ctx.Content, ctx)...)
+				}
+			}
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d: %+v", len(findings), tt.wantCount, findings)
+			}
+		})
+	}
+}
+
+// The absolute-path and Windows-path branches were measured and no candidate
+// cleared the bar, so this change must leave them exactly as they were even
+// when the line also carries an in-package ../ reference.
+func TestPathTraversalOtherBranchesUnaffected(t *testing.T) {
+	registry := NewRegistry()
+	RegisterAccessControlRules(registry)
+
+	ctx := model.FileContext{
+		Path: "scripts/run.sh", SkillRoot: ".", Ext: ".sh",
+		Content: []byte("cp ../data/x.txt /etc/hosts"),
+	}
+	var findings []model.Finding
+	for _, rule := range registry.RulesFor(".sh") {
+		if rule.ID() == "SD-003" {
+			findings = append(findings, rule.Match(ctx.Content, ctx)...)
+		}
+	}
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1 (the absolute-path branch): %+v", len(findings), findings)
+	}
+	if !strings.Contains(findings[0].Description, "/etc/hosts") {
+		t.Errorf("Description = %q, want the absolute-path finding", findings[0].Description)
+	}
+}

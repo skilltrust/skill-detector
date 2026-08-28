@@ -277,7 +277,7 @@ func (r *pathTraversalRule) Match(content []byte, ctx model.FileContext) []model
 
 		hasURL := reURLScheme.Match(line)
 
-		if rePathTraversal.Match(line) && !hasURL {
+		if rePathTraversal.Match(line) && !hasURL && !relativeRefStaysInSkill(line, ctx) {
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"path traversal pattern detected — access outside skill directory",
 				"Use relative paths within the skill directory; avoid ../ references"))
