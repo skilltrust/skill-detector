@@ -41,6 +41,22 @@ See ADR-0010's amendment.
 
 Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
 
+### Fixed
+
+- **SD-003** no longer reports an in-package `../` reference as directory
+  traversal. The `../` branch now resolves the reference against the file's
+  own skill root (`FileContext.SkillRoot`, ADR-0010) instead of
+  pattern-matching it: a reference that never takes the walk below that root
+  is released. Still flagged: anything that genuinely escapes the root,
+  anything behind a variable or percent-encoded prefix that cannot be
+  resolved at scan time, and the `....//` / `..././` spellings that survive a
+  sanitiser stripping one `../`. The absolute-path and Windows-path branches
+  are unchanged — every candidate measured against them was rejected
+  (ADR-0011). Measured on the 906-sample MalSkillBench slice: SD-003 findings
+  on benign 242 → 226, on malicious 1113 → 1111, two benign samples off a
+  `permission_hygiene` gate, no malicious sample moved, no `security`-axis
+  movement.
+
 ## v0.8.0 — 2026-08-27
 
 ### Skill root scope — raw and installed layouts now grade identically
