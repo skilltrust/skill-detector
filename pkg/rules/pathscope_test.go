@@ -43,6 +43,7 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 	deep := model.FileContext{Path: "crates/alerter/Cargo.toml", SkillRoot: "."}
 	root := model.FileContext{Path: "SKILL.md", SkillRoot: "."}
 	noRoot := model.FileContext{Path: ".claude/settings.json", SkillRoot: ""}
+	installed := model.FileContext{Path: ".claude/skills/x/scripts/run.sh", SkillRoot: ".claude/skills/x"}
 	uncanonical := model.FileContext{Path: "./scripts/run.sh", SkillRoot: "."}
 	doubledSep := model.FileContext{Path: "a//b/run.sh", SkillRoot: "."}
 
@@ -56,9 +57,9 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		{"sibling dir from a nested script", `open('../references/holdings.md')`, nested, true},
 		{"workspace member from a nested manifest", `detector = { path = "../detector" }`, deep, true},
 		{"dot-slash prefix is a no-op", `cat ./../data/x.txt`, deep, true},
-		{"two tokens, both inside", `ln -sf ../data d && ln -sf ../logs l`, nested, true},
 		{"exactly cancels out to the root", `cat ../SKILL.md`, nested, true},
 		{"trailing tilde is an ordinary backup name", `cat ../references/notes.md~`, nested, true},
+		{"installed layout, sibling dir", `cat ../data/input.txt`, installed, true},
 
 		// --- escapes: must stay flagged ---
 		{"one level too many", `cat ../../etc/passwd`, nested, false},
@@ -109,6 +110,20 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		{"comma inside the path", `cat ../a,b/../../outside/harvest.env`, nested, false},
 		{"quoted redirection character inside the path", `cat "../a>b/../../outside/harvest.env"`, nested, false},
 		{"unbalanced quote does not un-quote the space", `cat "../my data/../../outside/harvest.env`, nested, false},
+		// The rest of the same class. Every character reRelativePathToken cuts
+		// on is a legal POSIX filename character, so each of these is one real
+		// path that the tokeniser sees as two. None of them involves a shell:
+		// SD-003 reads SKILL.md, CLAUDE.md and docs, where `(`, `;`, `&` and a
+		// space are ordinary prose and nothing word-splits them.
+		{"parentheses in the path", `cat ../a(b)c/../../outside/x`, nested, false},
+		{"semicolon in the path", `cat ../a;b/../../outside/x`, nested, false},
+		{"ampersand in the path", `cat ../a&b/../../outside/x`, nested, false},
+		{"pipe in the path", `cat ../a|b/../../outside/x`, nested, false},
+		{"angle brackets in the path", `cat ../a<b>c/../../outside/x`, nested, false},
+		{"unquoted space in the path", `cat ../a b/../../outside/x`, nested, false},
+		{"tab in the path", "cat ../a\tb/../../outside/x", nested, false},
+		{"markdown link, split reference", `[d](../a b/../../outside/x)`, nested, false},
+		{"two refs, one ambiguous", `cat ../references/a.md ../a(b)c/../../outside/x`, nested, false},
 		// The same escape spelled without a splitting character: it is the walk
 		// that refuses this one, which is what makes the four above a test of
 		// the tokenisation unit and not of the walk.
@@ -116,6 +131,13 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 		// A glob beside an in-package reference is ambiguous — `*` is legal
 		// inside a filename — so it stays flagged. Residual FP, on purpose.
 		{"glob beside an in-package reference", `cat ../data/*.json`, nested, false},
+		// Two in-package references on one line are equally ambiguous: the
+		// bytes between them are all legal in a filename, so the line reads
+		// just as well as one long reference. Refusing it is the price of
+		// refusing the split-reference escape above, and it is the safe
+		// direction — a false positive, never a missed escape. Residual FP,
+		// on purpose; recorded in ADR-0011.
+		{"two in-package references on one line", `ln -sf ../data d && ln -sf ../logs l`, nested, false},
 
 		// --- defensive: nothing tokenised ---
 		{"no token the tokeniser recognises", `..////`, nested, false},
