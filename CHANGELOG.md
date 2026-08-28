@@ -60,6 +60,10 @@ Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
   does `ln -sf ../data d && ln -sf ../logs l`, which names two in-package
   references on one line. The alternative is releasing
   `../a(b)c/../../outside/harvest.env`, which leaves the skill root.
+  Also still flagged: a path segment that **contains** `..` without being
+  exactly `..` — `file@../../../outside/x`, `0x123.../videos/intro.mp4`.
+  A sigil or separator glued to a `..` cannot be told apart from an ordinary
+  directory name, and reading it as one costs two levels of climb.
   The absolute-path and Windows-path branches are unchanged — every
   candidate measured against them was rejected (ADR-0011). The predicate
   reads `/`-separated paths, so it is inert on Windows and SD-003 behaves
@@ -80,6 +84,16 @@ Registry checksum unchanged at `2414c32f04000b5d`; schema unchanged at `1.5`.
   why the slice priced it at zero; a previous draft of this entry reported that
   zero as a fact about the corpus rather than about the slice. Both figures are
   now stated with their population, in this entry and in ADR-0011.
+
+  **Headline metrics: recall untouched, precision up by one sample.** Set A,
+  both bench layouts identically, threshold B: precision 0.638 → 0.640 with
+  false positives 124 → 123, recall 0.730 unmoved (C: 0.662 → 0.664; D:
+  0.641 → 0.643). The one sample that moves is `portfolio-tracker`, whose only
+  finding was this SD-003 line. Behaviour-class recall (B1-B9 0.97, bar 0.92)
+  and the malware rule-hit counts are unchanged. Note that metric is a
+  **composite** over `security` / `permission_hygiene` / `transparency`, which
+  is why a `permission_hygiene`-only change moves it; the `security`-axis-alone
+  gate is unmoved, because `pathTraversalRule` never stamps that axis.
 
 ## v0.8.0 — 2026-08-27
 
