@@ -175,7 +175,8 @@ func inSkillRootExcludedDir(path string) bool {
 }
 
 // InSkillSubtree reports whether ctx's file lies inside a skill root — a
-// directory containing a SKILL.md.
+// directory containing a skill manifest (SKILL.md or skill.yaml, the same set
+// IsSkillManifest accepts).
 //
 // Unlike every other predicate in this file this is NOT a path-shape test.
 // Whether some ancestor directory holds a SKILL.md is a filesystem fact and
