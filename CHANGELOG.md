@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.9.0 — 2026-08-28
+
+Two behaviour changes, one release. Neither moves the registry checksum, which
+stays `2414c32f04000b5d` (25 rules) — **grades can still move**, because both
+changes alter what gets scanned and what counts as a finding, not the rule set
+itself. Read both entries before upgrading a pinned consumer.
 
 ### A `skill.yaml` directory is a skill root too
 
