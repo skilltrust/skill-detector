@@ -128,6 +128,20 @@ var adversarialCases = []adversarialCase{
 	// and NoAgentSurface therefore never fired. ---
 	{dir: "skillroot-yaml-manifest", axis: axes.Security, atLeast: "F",
 		why: "skill.yaml is a skill manifest too, so its directory is a skill root and scripts/sync.py is read"},
+
+	// --- SD-003's ../ branch now resolves the reference against the file's
+	// own skill root. These five pin the boundary: one shape released, four
+	// that must survive it. ---
+	{dir: "sd003-inpackage-relative", axis: axes.PermissionHygiene, atMost: "A",
+		why: "scripts/build.sh is one level down, so ../references/ lands back on the skill root — an in-package reference, not an escape"},
+	{dir: "sd003-escape-rejoin", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "climbing and descending repeatedly still dips below the skill root; counting ../ instead of walking the segments would release it"},
+	{dir: "sd003-escape-variable-prefix", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "${BASE_DIR} makes the target unknowable at scan time, so the reference must never be released"},
+	{dir: "sd003-escape-dotrun", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "....// and ..././ survive a sanitiser that strips one ../; a resolver that read a dot-run as an ordinary name would exempt both"},
+	{dir: "sd003-escape-tilde", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "a leading ~ is home expansion, not a directory; pushing it as an ordinary segment let the ../ walk appear to land back inside the skill"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
