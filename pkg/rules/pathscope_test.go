@@ -70,6 +70,8 @@ func TestRelativeRefStaysInSkill(t *testing.T) {
 
 		// --- sigils must not be read as a path segment ---
 		{"claude file-reference sigil", `@./../_shared/commands.md`, root, false},
+		{"doubled sigil does not hide a tilde", `@@~/../etc/passwd`, nested, false},
+		{"doubled sigil does not hide a climb", `@@../../outside/x`, nested, false},
 
 		// --- defensive: nothing tokenised ---
 		{"no token the tokeniser recognises", `..////`, nested, false},

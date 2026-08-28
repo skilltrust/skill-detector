@@ -86,8 +86,13 @@ func relativeRefStaysInSkill(line []byte, ctx model.FileContext) bool {
 func tokenStaysInside(tok string, depth int) bool {
 	// `@` is Claude Code's file-reference sigil, not a path segment: `@./..`
 	// is `./..`, one level up, and reading the `@.` as a directory name would
-	// hide exactly one level of climb.
-	tok = strings.TrimPrefix(tok, "@")
+	// hide exactly one level of climb. Trim every leading sigil, not just one:
+	// a doubled sigil (`@@~/..`) only ever exposes more of the token underneath
+	// (a `..` or `~` that TrimPrefix would leave stuck to the `@` and read as an
+	// ordinary segment), so trimming further can only push the result toward
+	// flagged, never toward released. A directory genuinely named `@@foo` is
+	// still an ordinary segment either way, so nothing legitimate is lost.
+	tok = strings.TrimLeft(tok, "@")
 	if strings.HasPrefix(tok, "/") {
 		return false // absolute — the other branch's business, never this one's
 	}
