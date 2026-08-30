@@ -168,6 +168,55 @@ var uncoveredShapes = []adversarialCase{
 		why: "SELF recognises only >&, <>, 0>&1 etc. on /dev/tcp (plain >/< are omitted to spare benign port probes), and /dev/tcp is not a PAIR socket signal — a known gap, see ADR-0009."},
 }
 
+// knownGapCases are shapes a rule DOES find and a suppression then drops or
+// demotes. They assert the grade the engine gives TODAY, which is the WRONG
+// one — that is the point. A hole recorded only in a code comment is a hole
+// that gets forgotten; a hole with a test announces itself the moment somebody
+// closes it and does not notice.
+//
+// NEVER RELAX AN ASSERTION HERE TO MAKE IT PASS. A failure means the engine
+// changed, not that the test is wrong. The fix is to MOVE the case into
+// adversarialCases with the grade it now earns — not to edit the grade here,
+// and not to delete the case. Each `why` names the mechanism and what would
+// close it; anyone proposing to close one should read it first.
+//
+// A gap case sets atMost on the axis the suppression sits on, which makes it
+// structurally identical to a control case. The table it lives in is the only
+// thing that says the grade is wrong rather than desired — which is why these
+// are not mixed into adversarialCases.
+var knownGapCases = []adversarialCase{
+	{dir: "gap-sd004-private-key-named-pub", axis: axes.PermissionHygiene, atMost: "A",
+		why: "allSSHPathsArePublic trusts the .pub suffix, and a filename is not evidence about a file's contents; no command on the line means invokesCommandOnCredentialLine does not veto it either. Closed by dropping the suffix exemption (its measured benign population is one corpus line) or by resolving the file when the scan has the package on disk"},
+}
+
+func TestAdversarial_KnownGaps(t *testing.T) {
+	reg := rules.DefaultRegistry()
+	for _, tc := range knownGapCases {
+		t.Run(tc.dir, func(t *testing.T) {
+			if tc.atMost == "" {
+				t.Fatal("a known-gap case must set atMost — it pins the grade the engine gives today")
+			}
+			sc := scanner.New(reg, scanner.Options{Version: "test"})
+			res, err := sc.Scan(context.Background(),
+				benchDir(filepath.Join("testdata", "adversarial", tc.dir)))
+			if err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			ar, ok := res.Axes[tc.axis]
+			if !ok {
+				t.Fatalf("no %s axis in the result — nothing was scanned", tc.axis)
+			}
+			if !gradeAtLeastAsBad(ar.Grade, tc.atMost) || ar.Grade == axes.Grade(tc.atMost) {
+				return
+			}
+			t.Errorf("%s now grades %s, better than the %s this gap was pinned at — the gap is CLOSED.\n"+
+				"Do NOT relax this assertion. Move %s into adversarialCases with the grade it now earns.\n"+
+				"  gap: %s\n  rationale: %s",
+				tc.axis, ar.Grade, tc.atMost, tc.dir, tc.why, ar.Rationale)
+		})
+	}
+}
+
 func TestAdversarial_UncoveredShapes(t *testing.T) {
 	reg := rules.DefaultRegistry()
 	for _, tc := range uncoveredShapes {
