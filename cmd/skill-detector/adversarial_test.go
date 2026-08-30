@@ -287,7 +287,7 @@ var knownGapCases = []adversarialCase{
 	{dir: "gap-sd008-hash-marker-on-line", axis: axes.Security, atMost: "A",
 		why: "reHashLine and reSRIHash are tested against the whole LINE, so any trailing `# sha256:` comment releases the token beside it — the attacker writes the comment. Closed by requiring the hash marker to sit LEFT of the base64 token (the position test reNegatedGuidance already uses twice in this engine), which is an engine behaviour change and needs the benign cost measured on the corpus first. Left open here on evidence: a blob that is never decoded is not a payload, and every decode step trips reBase64Command, reBase64Decode or SD-001 independently — verified, the same package with an `eval $(… base64 --decode)` line grades F with this comment in place"},
 	{dir: "gap-sd008-payload-inside-url", axis: axes.Security, atMost: "A",
-		why: "a base64 token whose span falls inside a URL match is skipped, because path-like and query-like runs share base64's alphabet. A payload passed as a path segment therefore rides in free. Same disposition as the hash-marker gap: the decode step is what the engine catches, and narrowing the URL skip needs the benign cost measured first"},
+		why: "a base64 token whose span falls inside a URL match is skipped, because path-like and query-like runs share base64's alphabet. A payload passed as a path segment therefore rides in free. Note the span the engine evaluates here is `com/d/<token>`, not the bare token — reBase64Inline's class includes `/` and runs back through the host's last label, so anyone narrowing this skip is reasoning about a wider span than the fixture text suggests. Same disposition as the hash-marker gap: the decode step is what the engine catches, and narrowing the URL skip needs the benign cost measured first"},
 	{dir: "gap-sd019-pipe-to-interpreter", axis: axes.PermissionHygiene, atMost: "A",
 		why: "the veto on the in-repo release enumerates `| sh` and `| bash` — a deny-list of two spellings — so piping the same download into python3, perl, node or ruby keeps the release. Closed by inverting it into an allow-list of form (no pipe at all in an in-repo command), which is a behaviour change needing the benign cost measured, and the same standing rule that made isSoleCall an allow-list applies here"},
 	{dir: "gap-sd020-hook-claude-prefixed-var", axis: axes.Security, atMost: "A",
@@ -316,7 +316,7 @@ func TestAdversarial_KnownGaps(t *testing.T) {
 			if !gradeAtLeastAsBad(ar.Grade, tc.atMost) || ar.Grade == axes.Grade(tc.atMost) {
 				return
 			}
-			t.Errorf("%s now grades %s, better than the %s this gap was pinned at — the gap is CLOSED.\n"+
+			t.Errorf("%s now grades %s, worse than the %s this gap was pinned at — the gap is CLOSED.\n"+
 				"Do NOT relax this assertion. Move %s into adversarialCases with the grade it now earns.\n"+
 				"  gap: %s\n  rationale: %s",
 				tc.axis, ar.Grade, tc.atMost, tc.dir, tc.why, ar.Rationale)
