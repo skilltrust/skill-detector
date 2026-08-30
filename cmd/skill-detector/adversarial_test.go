@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -322,6 +323,11 @@ func TestAdversarial_KnownGaps(t *testing.T) {
 			if tc.atMost == "" {
 				t.Fatal("a known-gap case must set atMost — it pins the grade the engine gives today")
 			}
+			if !strings.HasPrefix(tc.dir, "gap-") {
+				t.Fatalf("%q is in knownGapCases but its directory does not start with gap- — "+
+					"every knownGapCases entry must be gap-prefixed so a case cannot be moved out of "+
+					"this table without the name giving it away", tc.dir)
+			}
 			sc := scanner.New(reg, scanner.Options{Version: "test"})
 			res, err := sc.Scan(context.Background(),
 				benchDir(filepath.Join("testdata", "adversarial", tc.dir)))
@@ -332,7 +338,7 @@ func TestAdversarial_KnownGaps(t *testing.T) {
 			if !ok {
 				t.Fatalf("no %s axis in the result — nothing was scanned", tc.axis)
 			}
-			if !gradeAtLeastAsBad(ar.Grade, tc.atMost) || ar.Grade == axes.Grade(tc.atMost) {
+			if !gradeAtLeastAsBad(t, ar.Grade, tc.atMost) || ar.Grade == axes.Grade(tc.atMost) {
 				return
 			}
 			t.Errorf("%s now grades %s, worse than the %s this gap was pinned at — the gap is CLOSED.\n"+
@@ -366,6 +372,11 @@ func TestAdversarial_DemotionPolicy(t *testing.T) {
 	reg := rules.DefaultRegistry()
 	for _, tc := range adversarialCases {
 		t.Run(tc.dir, func(t *testing.T) {
+			if strings.HasPrefix(tc.dir, "gap-") {
+				t.Fatalf("%q is in adversarialCases but is gap-prefixed — a gap-* case is a still-open "+
+					"suppression and belongs in knownGapCases, not here; moving it into this table makes "+
+					"it textually indistinguishable from a control and hides that the gap is still open", tc.dir)
+			}
 			sc := scanner.New(reg, scanner.Options{Version: "test"})
 			res, err := sc.Scan(context.Background(),
 				benchDir(filepath.Join("testdata", "adversarial", tc.dir)))
@@ -378,13 +389,13 @@ func TestAdversarial_DemotionPolicy(t *testing.T) {
 			}
 			switch {
 			case tc.atLeast != "":
-				if gradeAtLeastAsBad(ar.Grade, tc.atLeast) {
+				if gradeAtLeastAsBad(t, ar.Grade, tc.atLeast) {
 					return
 				}
 				t.Errorf("%s graded %s, want %s or worse\n  why: %s\n  rationale: %s",
 					tc.axis, ar.Grade, tc.atLeast, tc.why, ar.Rationale)
 			case tc.atMost != "":
-				if !gradeAtLeastAsBad(ar.Grade, tc.atMost) || ar.Grade == axes.Grade(tc.atMost) {
+				if !gradeAtLeastAsBad(t, ar.Grade, tc.atMost) || ar.Grade == axes.Grade(tc.atMost) {
 					return
 				}
 				t.Errorf("%s graded %s, want %s or better\n  why: %s\n  rationale: %s",
@@ -399,9 +410,18 @@ func TestAdversarial_DemotionPolicy(t *testing.T) {
 var adversarialGradeRank = map[axes.Grade]int{"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
 
 // gradeAtLeastAsBad reports whether got is want or worse on the A<B<C<D<F
-// scale.
-func gradeAtLeastAsBad(got axes.Grade, want string) bool {
-	g, ok1 := adversarialGradeRank[got]
-	w, ok2 := adversarialGradeRank[axes.Grade(want)]
-	return ok1 && ok2 && g >= w
+// scale. Fails the test LOUDLY on an unrecognised grade on either side
+// instead of returning false: in the atMost branches, a silent false would
+// make the caller's negation true and the case would pass without asserting
+// anything at all.
+func gradeAtLeastAsBad(t *testing.T, got axes.Grade, want string) bool {
+	g, ok := adversarialGradeRank[got]
+	if !ok {
+		t.Fatalf("unrecognised grade %q returned by the scanner", got)
+	}
+	w, ok := adversarialGradeRank[axes.Grade(want)]
+	if !ok {
+		t.Fatalf("unrecognised grade %q in a case's atLeast/atMost", want)
+	}
+	return g >= w
 }
