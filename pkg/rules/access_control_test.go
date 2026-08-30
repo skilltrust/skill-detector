@@ -793,3 +793,162 @@ func TestPathTraversalOtherBranchesUnaffected(t *testing.T) {
 		t.Errorf("Description = %q, want the absolute-path finding", findings[0].Description)
 	}
 }
+
+// Programme item 8: credentialPaths held literal `~/`-spelled byte slices, so
+// a credential read written through the home-directory variable produced zero
+// findings while its `~/` twin graded permission_hygiene F. The four lines
+// below are the spec's own reproduction, confirmed against v0.9.0.
+func TestSD004_VariableSpelledCredentialPathsDetected(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"$HOME ssh", `cat $HOME/.ssh/id_rsa`},
+		{"${HOME} aws", `cat ${HOME}/.aws/credentials`},
+		{"$HOME env", `cat $HOME/.env`},
+		{"$HOME gnupg", `cat $HOME/.gnupg/secring.gpg`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := findRule(t, "SD-004")
+			fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+			if len(fs) == 0 {
+				t.Errorf("no finding for %q — the variable spelling is not detected", tc.line)
+			}
+		})
+	}
+}
+
+// The finding names the spelling actually written, not the canonical entry:
+// a report that says `~/.ssh/` about a line reading `$HOME/.ssh/` sends the
+// reader looking for text that is not in the file. Lines spelled `~/` keep
+// their exact historical description, which is what makes the corpus
+// before/after delta a like-for-like comparison.
+func TestSD004_FindingNamesTheSpellingWritten(t *testing.T) {
+	r := findRule(t, "SD-004")
+	fs := r.Match([]byte("cat $HOME/.ssh/id_rsa\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(fs) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(fs))
+	}
+	if !strings.Contains(fs[0].Description, "$HOME/.ssh/") {
+		t.Errorf("description %q does not name the spelling on the line", fs[0].Description)
+	}
+	fs = r.Match([]byte("cat ~/.ssh/id_rsa\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(fs) != 1 || fs[0].Description != "access to credential path ~/.ssh/" {
+		t.Errorf("the ~/ description must be byte-identical to before, got %+v", fs)
+	}
+}
+
+// The `.pub` exemption is spelling-blind for the same reason the detection
+// is: reSSHPathToken already recognises all three spellings, so a public key
+// named through the variable is exempt exactly as its `~/` twin is. This is
+// the cost side of the widening and it must not regress.
+func TestSD004_VariableSpelledPublicKeyStillExempt(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, line := range []string{
+		"# Add $HOME/.ssh/id_ed25519.pub to GitHub Settings -> SSH Keys",
+		"# Add ${HOME}/.ssh/id_ed25519.pub to GitHub Settings -> SSH Keys",
+	} {
+		if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) != 0 {
+			t.Errorf("fired on a public key spelled through the variable: %q -> %+v", line, fs)
+		}
+	}
+}
+
+// One finding per line, whichever spelling trips first — the loop has always
+// emitted at most one SD-004 finding per line and the widening must not turn
+// a line naming two credential paths into two findings.
+func TestSD004_OneFindingPerLineAcrossSpellings(t *testing.T) {
+	r := findRule(t, "SD-004")
+	fs := r.Match([]byte("cp ~/.aws/credentials $HOME/.ssh/backup\n"),
+		model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(fs) != 1 {
+		t.Errorf("want exactly 1 finding for a line naming two credential paths, got %d: %+v", len(fs), fs)
+	}
+}
+
+// The documentary damping judges the LINE, not the pattern, so it covers the
+// variable spellings without being told about them. This test is what says so
+// out loud: the predicted false-positive shape for the widening is
+// documentation naming the user's own credential path, and the mechanisms for
+// it already exist. Building a second mechanism beside them is what the spec
+// forbids.
+func TestSD004_DampingCoversVariableSpellings(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"table row", `| $HOME/.ssh/id_rsa | the user's private key | not read |`},
+		{"interrogative bullet", `- Could it read $HOME/.aws/credentials at startup?`},
+		{"negated guidance", `Never read ${HOME}/.ssh/id_rsa or any other private key.`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) != 0 {
+				t.Errorf("documentation shape flagged: %q -> %+v", tc.line, fs)
+			}
+		})
+	}
+}
+
+// ...and the veto still bites through the variable spelling: a documentary
+// shape carrying a real command is not documentation, whichever way the path
+// is written.
+func TestSD004_DampingVetoedByCommandOnVariableSpelling(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"table row with cat", `| step | cat $HOME/.ssh/id_rsa | run this now |`},
+		{"bullet with reader verb", `- Could it use head -c 4096 ${HOME}/.aws/credentials to read the token?`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) == 0 {
+				t.Errorf("a documentary shape carrying a command must still fire: %q", tc.line)
+			}
+		})
+	}
+}
+
+// Final whole-branch review, finding 1: find() walked homePrefixes in order
+// and returned the first spelling that occurs ANYWHERE on the line, not the
+// one that occurs LEFTMOST. reNegatedGuidance's position test
+// (`loc[0] < idx`) compares prohibition phrasing against that offset, so a
+// line naming the same canonical entry twice — a real read in one spelling,
+// then a trailing comment in another spelling that happens to carry a
+// negation word — released the finding whenever the WRONG-spelling
+// occurrence outran the prohibition, even though the real read sits to the
+// prohibition's right too. Confirmed against f3ebe64: all four cases below
+// graded permission_hygiene A.
+func TestSD004_NegationPositionUsesLeftmostSpelling(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"ssh", `cat $HOME/.ssh/id_rsa   # never touch ~/.ssh/known_hosts`},
+		{"aws", `cat $HOME/.aws/credentials   # never touch ~/.aws/backup`},
+		{"gnupg", `cat $HOME/.gnupg/secring.gpg   # never touch ~/.gnupg/pubring.gpg`},
+		{"env", `cat $HOME/.env   # never touch ~/.env.example`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) == 0 {
+				t.Errorf("a real read in one spelling must still fire even when a later-in-prefix-order "+
+					"spelling of the same entry appears earlier on the line in a negated comment: %q", tc.line)
+			}
+		})
+	}
+}
+
+// Control for the same fix: when the prohibition genuinely sits to the LEFT
+// of every spelling of the entry on the line, the line must still release —
+// that is the disclosed reNegatedGuidance tradeoff (word-order gaming, see
+// gap-sd004-negation-phrasing in adversarial_test.go) and this fix must not
+// change it.
+func TestSD004_NegationLeftOfLeftmostSpellingStillReleases(t *testing.T) {
+	r := findRule(t, "SD-004")
+	line := `never touch $HOME/.ssh/id_rsa or ~/.ssh/known_hosts`
+	if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) != 0 {
+		t.Errorf("a prohibition genuinely left of every spelling on the line must still release: %q -> %+v", line, fs)
+	}
+}

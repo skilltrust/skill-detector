@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.10.0
+
+**Grade-changing.** A package that reads `$HOME/.ssh/id_rsa`,
+`${HOME}/.aws/credentials`, `$HOME/.gnupg/...` or `$HOME/.env` used to grade
+`permission_hygiene A` and now grades `F`. Nothing about the package changed:
+SD-004's path list held only the `~/`-spelled form, so the identical read
+written through the home-directory variable was invisible. If your grade
+moved on this release, the finding was always true and the engine could not
+see it.
+
+- SD-004 matches the four home-rooted credential paths (`.aws/`, `.ssh/`,
+  `.gnupg/`, `.env`) in three spellings — `~/`, `$HOME/`, `${HOME}/`. The
+  finding description names the spelling actually written; a line that
+  already matched on `~/` produces a byte-identical description to before
+  this release.
+- The `.pub` exemption and the documentary damping are unchanged and cover
+  the new spellings with no engine change: both judge the line's text, never
+  the path's spelling. The negation damping is different — it is a position
+  test against the leftmost occurrence of the path on the line, so it is
+  spelling-aware by construction, and a leftmost-offset fix landed alongside
+  this change is what makes that the right offset to test. ADR-0013.
+- Windows spellings (`$env:USERPROFILE\`, `%USERPROFILE%\`) were measured on
+  the full 7944-sample MalSkillBench pool and NOT added — `%USERPROFILE%\`
+  has zero malicious hits, `$env:USERPROFILE\` has lift 0.7 and its two
+  malicious hits are not credential access on inspection. See ADR-0013.
+- Measured on the full pool (malware=3944, benign=4000): SD-004 findings
+  malware 457 → 458 (+1 sample), benign 172 → 176 (+4 findings, 0 new
+  samples). `permission_hygiene`-axis-alone gate: TP 1634 FP 586, unmoved.
+  `security`-axis-alone gate: TP 2728 FP 1285, unmoved by construction
+  (SD-004 never stamps `security`). Zero samples cross either gate on either
+  label — the one malicious sample this closes (`neon-vercel-postgres`) was
+  already `permission_hygiene D`, and the one benign sample it costs
+  (`arc-sentinel`) was already `permission_hygiene F` from a pre-existing
+  `~/.ssh/` finding. Full accounting: ADR-0013 and
+  `<workspace>/docs/product/research/bench-2026-08-24/metrics-sd004-home.txt`.
+- Registry checksum unmoved at `2414c32f04000b5d`; schema unmoved at `1.5`.
+
+This release also carries programme item 10 (the adversarial corpus standing
+gate, PR #27, merge `8fc81ce`), merged to `main` on 2026-08-30 and
+deliberately left unreleased on its own: it has zero hunks under `pkg/`, so
+it changes no engine behaviour by itself. It ships now bundled with the
+SD-004 fix above rather than as a separate patch release.
+
 ## v0.9.0 — 2026-08-28
 
 Two behaviour changes, one release. Neither moves the registry checksum, which
