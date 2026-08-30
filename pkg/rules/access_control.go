@@ -111,9 +111,15 @@ func invokesCommandOnCredentialLine(line []byte) bool {
 
 // Credential path patterns as literal byte slices. Entries rooted at `~/` are
 // matched in every spelling in homePrefixes (see credentialPathSpellings
-// below); the rest are matched literally. The exemptions in Match() key on the
-// entry as written here, never on the spelling found, so a new spelling can
-// never detach an exemption from the path it guards.
+// below); the rest are matched literally. Match()'s two PATTERN-KEYED
+// exemptions — the `.credentials` import/field-doc carve-outs and the
+// `~/.ssh/` `.pub` carve-out — key on the entry as written here, never on
+// the spelling found, so a new spelling can never detach either of them from
+// the path it guards. reNegatedGuidance is different: it is a POSITION test
+// against the offset find() returns, so it is spelling-aware by
+// construction — the offset it compares against has to be the leftmost
+// occurrence of the entry in ANY spelling for that test to ask the right
+// question, which is what find()'s doc comment explains.
 var credentialPaths = [][]byte{
 	[]byte("~/.aws/"),
 	[]byte("~/.ssh/"),
@@ -157,16 +163,23 @@ type credentialPathSpelling struct {
 	spellings [][]byte
 }
 
-// find returns the offset of the first spelling present on the line, in
-// homePrefixes order, and the spelling actually written there. idx < 0 when
-// the line names none of them.
+// find returns the offset of the LEFTMOST spelling present on the line
+// (across every spelling of this entry, not the first one that happens to
+// occur), and the spelling found at that offset. idx < 0 when the line names
+// none of them. Leftmost, not first-in-homePrefixes-order, because the
+// offset feeds reNegatedGuidance's position test in Match() below: "where on
+// the line is this path" and "which spelling did we happen to check first"
+// are different questions, and returning the wrong one lets a same-entry
+// occurrence spelled later in homePrefixes order but earlier on the line
+// mask a real, unnegated read of the same path in another spelling.
 func (e credentialPathSpelling) find(line []byte) (int, []byte) {
+	best, bestSpelling := -1, []byte(nil)
 	for _, s := range e.spellings {
-		if i := bytes.Index(line, s); i >= 0 {
-			return i, s
+		if i := bytes.Index(line, s); i >= 0 && (best < 0 || i < best) {
+			best, bestSpelling = i, s
 		}
 	}
-	return -1, nil
+	return best, bestSpelling
 }
 
 // credentialPathSpellings is credentialPaths expanded across homePrefixes,

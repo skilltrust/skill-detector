@@ -15,9 +15,12 @@ see it.
   finding description names the spelling actually written; a line that
   already matched on `~/` produces a byte-identical description to before
   this release.
-- The `.pub` exemption and the documentary/negation damping are unchanged
-  and cover the new spellings with no engine change: all three judge the
-  line's text, never the path's spelling. ADR-0013.
+- The `.pub` exemption and the documentary damping are unchanged and cover
+  the new spellings with no engine change: both judge the line's text, never
+  the path's spelling. The negation damping is different — it is a position
+  test against the leftmost occurrence of the path on the line, so it is
+  spelling-aware by construction, and a leftmost-offset fix landed alongside
+  this change is what makes that the right offset to test. ADR-0013.
 - Windows spellings (`$env:USERPROFILE\`, `%USERPROFILE%\`) were measured on
   the full 7944-sample MalSkillBench pool and NOT added — `%USERPROFILE%\`
   has zero malicious hits, `$env:USERPROFILE\` has lift 0.7 and its two

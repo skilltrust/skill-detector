@@ -909,3 +909,46 @@ func TestSD004_DampingVetoedByCommandOnVariableSpelling(t *testing.T) {
 		})
 	}
 }
+
+// Final whole-branch review, finding 1: find() walked homePrefixes in order
+// and returned the first spelling that occurs ANYWHERE on the line, not the
+// one that occurs LEFTMOST. reNegatedGuidance's position test
+// (`loc[0] < idx`) compares prohibition phrasing against that offset, so a
+// line naming the same canonical entry twice — a real read in one spelling,
+// then a trailing comment in another spelling that happens to carry a
+// negation word — released the finding whenever the WRONG-spelling
+// occurrence outran the prohibition, even though the real read sits to the
+// prohibition's right too. Confirmed against f3ebe64: all four cases below
+// graded permission_hygiene A.
+func TestSD004_NegationPositionUsesLeftmostSpelling(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"ssh", `cat $HOME/.ssh/id_rsa   # never touch ~/.ssh/known_hosts`},
+		{"aws", `cat $HOME/.aws/credentials   # never touch ~/.aws/backup`},
+		{"gnupg", `cat $HOME/.gnupg/secring.gpg   # never touch ~/.gnupg/pubring.gpg`},
+		{"env", `cat $HOME/.env   # never touch ~/.env.example`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) == 0 {
+				t.Errorf("a real read in one spelling must still fire even when a later-in-prefix-order "+
+					"spelling of the same entry appears earlier on the line in a negated comment: %q", tc.line)
+			}
+		})
+	}
+}
+
+// Control for the same fix: when the prohibition genuinely sits to the LEFT
+// of every spelling of the entry on the line, the line must still release —
+// that is the disclosed reNegatedGuidance tradeoff (word-order gaming, see
+// gap-sd004-negation-phrasing in adversarial_test.go) and this fix must not
+// change it.
+func TestSD004_NegationLeftOfLeftmostSpellingStillReleases(t *testing.T) {
+	r := findRule(t, "SD-004")
+	line := `never touch $HOME/.ssh/id_rsa or ~/.ssh/known_hosts`
+	if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) != 0 {
+		t.Errorf("a prohibition genuinely left of every spelling on the line must still release: %q -> %+v", line, fs)
+	}
+}
