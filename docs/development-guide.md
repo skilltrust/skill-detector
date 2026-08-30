@@ -144,6 +144,11 @@ gating on `--fail-on-axis security=B`, disappeared.
 Every attack fixture needs a benign twin — the measured shape the suppression exists for — or
 the suite ratchets towards flagging everything.
 
+Both halves have to be watched failing. An attack fixture proves nothing until you have broken
+the suppression and seen it fail; a control proves nothing until you have deleted the
+suppression and seen it fail too. A control that would pass with the suppression gone is not
+measuring the suppression — it is measuring nothing.
+
 Three tables in `cmd/skill-detector/adversarial_test.go`:
 
 | Table | Asserts | Add a case when |
