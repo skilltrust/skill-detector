@@ -34,3 +34,6 @@ docs/*
 .corpus-results/
 # Local dev worktrees (see docs/runbooks/, superpowers workflow)
 .worktrees/
+
+# Superpowers subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
