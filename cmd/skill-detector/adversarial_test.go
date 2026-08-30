@@ -214,6 +214,23 @@ var adversarialCases = []adversarialCase{
 		why: "an 84-character mixed-case base64 run with no hash marker, no SRI key and no path shape around it is the population the inline branch exists for — this is the case every damping below is measured against"},
 	{dir: "control-sd008-lockfile-integrity", axis: axes.Security, atMost: "A",
 		why: "an npm/yarn integrity value is a checksum, not a payload — 322 benign corpus hits and zero malicious ones, the largest single false-positive class the inline branch had"},
+
+	// --- SD-019 / SD-020 / SD-021: three finding-removing predicates outside
+	// the spec's list, found by sweeping every suppression in the engine.
+	// SD-019 and SD-021 are Medium on permission_hygiene (a finding is C);
+	// SD-020 is Critical on security (a finding is F). ---
+	{dir: "sd019-hook-pipes-to-shell", axis: axes.PermissionHygiene, atLeast: "C",
+		why: "an in-repo-looking hook command that pipes a download into a shell is not in-repo any more; the pipe veto is what refuses the `isInRepo` release"},
+	{dir: "control-sd019-in-repo-hook", axis: axes.PermissionHygiene, atMost: "A",
+		why: "a hook running a script from the repository is the sanctioned shape the allow exists for"},
+	{dir: "sd020-hook-unquoted-var", axis: axes.Security, atLeast: "F",
+		why: "an unquoted expansion of a variable the harness does not provide is the whole vulnerability class SD-020 exists for"},
+	{dir: "control-sd020-hook-project-dir", axis: axes.Security, atMost: "A",
+		why: "$CLAUDE_PROJECT_DIR is harness-provided and not attacker-controlled — the shape the prefix exemption was written for"},
+	{dir: "sd021-external-mcp-host", axis: axes.PermissionHygiene, atLeast: "C",
+		why: "an MCP server pointed at a host outside the machine is the disclosure SD-021 exists to make"},
+	{dir: "control-sd021-localhost-mcp", axis: axes.PermissionHygiene, atMost: "A",
+		why: "a localhost MCP server reaches nothing off the machine; asserted on permission_hygiene because that is SD-021's axis — this fixture is D on security from SD-007, which is a different rule's opinion about the same line"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -271,6 +288,12 @@ var knownGapCases = []adversarialCase{
 		why: "reHashLine and reSRIHash are tested against the whole LINE, so any trailing `# sha256:` comment releases the token beside it — the attacker writes the comment. Closed by requiring the hash marker to sit LEFT of the base64 token (the position test reNegatedGuidance already uses twice in this engine), which is an engine behaviour change and needs the benign cost measured on the corpus first. Left open here on evidence: a blob that is never decoded is not a payload, and every decode step trips reBase64Command, reBase64Decode or SD-001 independently — verified, the same package with an `eval $(… base64 --decode)` line grades F with this comment in place"},
 	{dir: "gap-sd008-payload-inside-url", axis: axes.Security, atMost: "A",
 		why: "a base64 token whose span falls inside a URL match is skipped, because path-like and query-like runs share base64's alphabet. A payload passed as a path segment therefore rides in free. Same disposition as the hash-marker gap: the decode step is what the engine catches, and narrowing the URL skip needs the benign cost measured first"},
+	{dir: "gap-sd019-pipe-to-interpreter", axis: axes.PermissionHygiene, atMost: "A",
+		why: "the veto on the in-repo release enumerates `| sh` and `| bash` — a deny-list of two spellings — so piping the same download into python3, perl, node or ruby keeps the release. Closed by inverting it into an allow-list of form (no pipe at all in an in-repo command), which is a behaviour change needing the benign cost measured, and the same standing rule that made isSoleCall an allow-list applies here"},
+	{dir: "gap-sd020-hook-claude-prefixed-var", axis: axes.Security, atMost: "A",
+		why: "the exemption tests a PREFIX, and the attacker chooses the variable name — any `CLAUDE_`-prefixed name is exempt whether the harness provides it or not, so an unquoted expansion grades A where it would otherwise be F. Closed by replacing the prefix test with the explicit set of harness-provided variables; that is a behaviour change and needs the benign cost measured on settings.json files in the corpus first"},
+	{dir: "gap-sd021-dotlocal-suffix", axis: axes.PermissionHygiene, atMost: "A",
+		why: "isLocalHost treats any `.local` suffix as on-machine, but mDNS names resolve across a LAN, so a host on the same network is exempted along with the machine itself. Closed by dropping the suffix arm or by requiring a single label; measure the benign `.local` population before touching it"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
