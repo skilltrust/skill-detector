@@ -865,3 +865,47 @@ func TestSD004_OneFindingPerLineAcrossSpellings(t *testing.T) {
 		t.Errorf("want exactly 1 finding for a line naming two credential paths, got %d: %+v", len(fs), fs)
 	}
 }
+
+// The documentary damping judges the LINE, not the pattern, so it covers the
+// variable spellings without being told about them. This test is what says so
+// out loud: the predicted false-positive shape for the widening is
+// documentation naming the user's own credential path, and the mechanisms for
+// it already exist. Building a second mechanism beside them is what the spec
+// forbids.
+func TestSD004_DampingCoversVariableSpellings(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"table row", `| $HOME/.ssh/id_rsa | the user's private key | not read |`},
+		{"interrogative bullet", `- Could it read $HOME/.aws/credentials at startup?`},
+		{"negated guidance", `Never read ${HOME}/.ssh/id_rsa or any other private key.`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) != 0 {
+				t.Errorf("documentation shape flagged: %q -> %+v", tc.line, fs)
+			}
+		})
+	}
+}
+
+// ...and the veto still bites through the variable spelling: a documentary
+// shape carrying a real command is not documentation, whichever way the path
+// is written.
+func TestSD004_DampingVetoedByCommandOnVariableSpelling(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"table row with cat", `| step | cat $HOME/.ssh/id_rsa | run this now |`},
+		{"bullet with reader verb", `- Could it use head -c 4096 ${HOME}/.aws/credentials to read the token?`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) == 0 {
+				t.Errorf("a documentary shape carrying a command must still fire: %q", tc.line)
+			}
+		})
+	}
+}
