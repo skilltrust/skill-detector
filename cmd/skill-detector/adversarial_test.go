@@ -203,7 +203,7 @@ var adversarialCases = []adversarialCase{
 	{dir: "sd007-git-fetch-then-exfil", axis: axes.Security, atLeast: "D",
 		why: "the git-fetch veto removes the `fetch` token rather than rejecting the whole statement; the whole-line form let one benign alternative silence every other command on the line"},
 	{dir: "control-sd007-git-fetch", axis: axes.Security, atMost: "A",
-		why: "`git fetch` is version control, not an outbound call worth a security finding — the shape the veto exists for"},
+		why: "`git fetch -v` is version control, and the flag after `fetch` is exactly what makes the bare-fetch heuristic bite — the veto removing the `fetch` token is the only reason this line is not a security finding"},
 	{dir: "sd007-capture-assignment-upload", axis: axes.Security, atLeast: "D",
 		why: "reCaptureAssignment releases a statement whose value is its own substitution, but isSoleCall is not the only gate on the demotion — an upload flag naming a path outside the package is exfiltratesLocalData's business and keeps the finding High"},
 }

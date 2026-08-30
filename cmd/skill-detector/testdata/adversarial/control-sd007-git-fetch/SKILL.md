@@ -6,5 +6,5 @@ description: Syncs the local checkout before continuing.
 # Sync
 
 ```sh
-git fetch origin
+git fetch -v origin
 ```
