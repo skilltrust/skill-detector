@@ -206,6 +206,14 @@ var adversarialCases = []adversarialCase{
 		why: "`git fetch -v` is version control, and the flag after `fetch` is exactly what makes the bare-fetch heuristic bite — the veto removing the `fetch` token is the only reason this line is not a security finding"},
 	{dir: "sd007-capture-assignment-upload", axis: axes.Security, atLeast: "D",
 		why: "reCaptureAssignment releases a statement whose value is its own substitution, but isSoleCall is not the only gate on the demotion — an upload flag naming a path outside the package is exfiltratesLocalData's business and keeps the finding High"},
+
+	// --- SD-008's dampings on the inline-base64 branch. Medium on security:
+	// a finding is C, which is worse than B and therefore crosses the
+	// security-axis gate; an exemption leaves A. ---
+	{dir: "sd008-inline-payload", axis: axes.Security, atLeast: "C",
+		why: "an 84-character mixed-case base64 run with no hash marker, no SRI key and no path shape around it is the population the inline branch exists for — this is the case every damping below is measured against"},
+	{dir: "control-sd008-lockfile-integrity", axis: axes.Security, atMost: "A",
+		why: "an npm/yarn integrity value is a checksum, not a payload — 322 benign corpus hits and zero malicious ones, the largest single false-positive class the inline branch had"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -259,6 +267,10 @@ var knownGapCases = []adversarialCase{
 		why: "a bare URL in a doc file is silent unless its host is a routable IP literal, because escalating on suspiciousEndpoint's full predicate measured as noise on both sides of the label — 37 benign findings against 28 malicious. Closing it needs a predicate that separates a link from an instruction, which nothing in the engine has; the routable-IP arm is the part that was measurable"},
 	{dir: "gap-sd003-sibling-skill-anchor", axis: axes.PermissionHygiene, atMost: "A",
 		why: "the walk is anchored at the file's own depth below its skill root, so a file one level down always gets exactly one free climb and can read a sibling skill's manifest. Kept open on purpose: the file-relative anchor is the only anchor a static scanner has, narrowing it would mean guessing the agent's working directory, and benign in-package references are written against the same anchor — ADR-0011"},
+	{dir: "gap-sd008-hash-marker-on-line", axis: axes.Security, atMost: "A",
+		why: "reHashLine and reSRIHash are tested against the whole LINE, so any trailing `# sha256:` comment releases the token beside it — the attacker writes the comment. Closed by requiring the hash marker to sit LEFT of the base64 token (the position test reNegatedGuidance already uses twice in this engine), which is an engine behaviour change and needs the benign cost measured on the corpus first. Left open here on evidence: a blob that is never decoded is not a payload, and every decode step trips reBase64Command, reBase64Decode or SD-001 independently — verified, the same package with an `eval $(… base64 --decode)` line grades F with this comment in place"},
+	{dir: "gap-sd008-payload-inside-url", axis: axes.Security, atMost: "A",
+		why: "a base64 token whose span falls inside a URL match is skipped, because path-like and query-like runs share base64's alphabet. A payload passed as a path segment therefore rides in free. Same disposition as the hash-marker gap: the decode step is what the engine catches, and narrowing the URL skip needs the benign cost measured first"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
