@@ -145,6 +145,13 @@ var adversarialCases = []adversarialCase{
 	{dir: "sd003-escape-split-token", axis: axes.PermissionHygiene, atLeast: "D",
 		why: "a quoted space, a glob star and a parenthesis end a shell word but are all legal inside a filename; cutting the reference there judges each half from the file's own depth and grants the climb budget twice. The markdown payload is the load-bearing one: SD-003's real reading surface is SKILL.md/CLAUDE.md/docs, where nothing word-splits and ( ) ; & are ordinary prose"},
 
+	// --- SD-003's guards that the sd003-escape-* cases do not reach. High on
+	// permission_hygiene: a finding is D. ---
+	{dir: "sd003-fragment-glob", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "a match abutting `*` is visibly a fragment of something longer, and a fragment walked from the file's own depth gets the climb budget handed out again — flagged on purpose, the recorded cost of never releasing a fragment"},
+	{dir: "sd003-embedded-dotdot-segment", axis: axes.PermissionHygiene, atLeast: "D",
+		why: "the sigil trim strips `@` only at the START of a token, so `file@..` would push as an ordinary segment where a sigil-aware reading climbs — a two-level swing, and the wrong guess is the one that under-flags"},
+
 	// --- SD-004's exemptions, each with the benign shape it exists for.
 	// SD-004 is Critical on permission_hygiene: a finding is F, an exemption
 	// is A, and neither touches the security axis. ---
@@ -250,6 +257,8 @@ var knownGapCases = []adversarialCase{
 		why: "the cap is per line and there is deliberately no file-level cap, so a file of N lines carries 4N exempt joiners. Kept open on purpose: each bit costs the author a visible run of five pictographs, so a payload of any length is a wall of emoji rather than a covert channel, and a file-level cap would make a long emoji-heavy document start firing on its later lines for reasons invisible in those lines"},
 	{dir: "gap-sd007-bare-url-in-prose", axis: axes.Security, atMost: "A",
 		why: "a bare URL in a doc file is silent unless its host is a routable IP literal, because escalating on suspiciousEndpoint's full predicate measured as noise on both sides of the label — 37 benign findings against 28 malicious. Closing it needs a predicate that separates a link from an instruction, which nothing in the engine has; the routable-IP arm is the part that was measurable"},
+	{dir: "gap-sd003-sibling-skill-anchor", axis: axes.PermissionHygiene, atMost: "A",
+		why: "the walk is anchored at the file's own depth below its skill root, so a file one level down always gets exactly one free climb and can read a sibling skill's manifest. Kept open on purpose: the file-relative anchor is the only anchor a static scanner has, narrowing it would mean guessing the agent's working directory, and benign in-package references are written against the same anchor — ADR-0011"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
