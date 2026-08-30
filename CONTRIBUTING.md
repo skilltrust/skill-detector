@@ -41,18 +41,23 @@ make self-scan   # smoke test the built binary on test fixtures
 
 - CI must be green (`make lint` + `make test`)
 - New behavior comes with a test
+- **A suppression comes with a fixture that abuses it.** If your change stops the scanner
+  flagging something — an exemption, a demotion, a narrowed regex — add an adversarial fixture
+  that tries to launder a real payload through it, plus a benign twin. See
+  [Adversarial Fixtures](./docs/development-guide.md#adversarial-fixtures). A unit test of the
+  regex does not substitute: the assertion has to be on the grade a user sees.
 - Commit messages explain the *why*, not just the *what*
 - Link the issue where we agreed on the approach
 - Every commit is signed off (`git commit -s`) — see [Licensing of contributions](#licensing-of-contributions)
 
 ## Adding a new security rule
 
-Rules live in `internal/rules/`, one file per rule group. The short version:
+Rules live in `pkg/rules/`, one file per rule group. The short version:
 
-1. Create `internal/rules/<name>.go` implementing the `Rule` interface from `rule.go`
-2. Register it in `cmd/skill-detector/main.go` — the `newRegistry()` function
+1. Create `pkg/rules/<name>.go` implementing the `Rule` interface from `rule.go`
+2. Register it in `pkg/rules/registry.go` — the `DefaultRegistry()` function
 3. Add fixtures under `testdata/malicious/<name>/` (triggers the rule) and `testdata/clean/` (does not)
-4. Write tests in `internal/rules/<name>_test.go`
+4. Write tests in `pkg/rules/<name>_test.go`
 5. Run `make test` and `make lint`
 
 Detailed instructions are in [`docs/development-guide.md`](./docs/development-guide.md).

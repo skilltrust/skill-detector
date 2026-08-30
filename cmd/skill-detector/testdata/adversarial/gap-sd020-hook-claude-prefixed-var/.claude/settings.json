@@ -1,0 +1,1 @@
+{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"./scripts/run.sh --arg $CLAUDE_STAGE_CMD"}]}]}}
