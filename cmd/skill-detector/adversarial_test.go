@@ -214,6 +214,17 @@ var adversarialCases = []adversarialCase{
 		why: "an 84-character mixed-case base64 run with no hash marker, no SRI key and no path shape around it is the population the inline branch exists for — this is the case every damping below is measured against"},
 	{dir: "control-sd008-lockfile-integrity", axis: axes.Security, atMost: "A",
 		why: "an npm/yarn integrity value is a checksum, not a payload — 322 benign corpus hits and zero malicious ones, the largest single false-positive class the inline branch had"},
+	{dir: "control-sd008-hex-address", axis: axes.Security, atMost: "A",
+		why: "an EIP-55 checksummed Ethereum address is mixed-case hex with digits, so it passes isEncodedPayload — reHexBlob is the only thing keeping this line quiet, and this is the corpus line that damping exists for"},
+
+	// --- SD-001's markdown fence gate. Critical on security: a finding is F.
+	// In a .md file SD-001 fires ONLY on lines inside a fence tagged
+	// shell/sh/zsh/bash/shell/console/terminal or untagged (shellFenceLangs,
+	// shellFencedLines) — this baseline shows the same payload IS caught when
+	// the gate does not suppress it; the gap-sd001-* cases below are the two
+	// ways the gate silences it instead. ---
+	{dir: "sd001-eval-in-shell-fence", axis: axes.Security, atLeast: "F",
+		why: "the baseline: eval $USER_INPUT inside a ```sh fence is not suppressed by the markdown fence gate, so reEvalVar fires and the package grades F — proving the A the gap-sd001-* cases earn on the identical payload comes from the gate, not from an absence of detection"},
 
 	// --- SD-019 / SD-020 / SD-021: three finding-removing predicates outside
 	// the spec's list, found by sweeping every suppression in the engine.
@@ -286,14 +297,22 @@ var knownGapCases = []adversarialCase{
 		why: "the walk is anchored at the file's own depth below its skill root, so a file one level down always gets exactly one free climb and can read a sibling skill's manifest. Kept open on purpose: the file-relative anchor is the only anchor a static scanner has, narrowing it would mean guessing the agent's working directory, and benign in-package references are written against the same anchor — ADR-0011"},
 	{dir: "gap-sd008-hash-marker-on-line", axis: axes.Security, atMost: "A",
 		why: "reHashLine and reSRIHash are tested against the whole LINE, so any trailing `# sha256:` comment releases the token beside it — the attacker writes the comment. Closed by requiring the hash marker to sit LEFT of the base64 token (the position test reNegatedGuidance already uses twice in this engine), which is an engine behaviour change and needs the benign cost measured on the corpus first. Left open here on evidence: a blob that is never decoded is not a payload, and every decode step trips reBase64Command, reBase64Decode or SD-001 independently — verified, the same package with an `eval $(… base64 --decode)` line grades F with this comment in place"},
+	{dir: "gap-sd008-hex-blob-on-line", axis: axes.Security, atMost: "A",
+		why: "reHexBlob is tested against the whole LINE, exactly like reHashLine, so a `0x` reference followed by 20+ hex characters anywhere on the line releases the base64 token beside it — the attacker writes the comment. Its benign population is real: an EIP-55 checksummed Ethereum address is mixed-case with digits, so it passes isEncodedPayload and reHexBlob is the only thing keeping it quiet (see control-sd008-hex-address). Closed by the same position test as the hash-marker gap above, and the same corpus measurement first"},
 	{dir: "gap-sd008-payload-inside-url", axis: axes.Security, atMost: "A",
 		why: "a base64 token whose span falls inside a URL match is skipped, because path-like and query-like runs share base64's alphabet. A payload passed as a path segment therefore rides in free. Note the span the engine evaluates here is `com/d/<token>`, not the bare token — reBase64Inline's class includes `/` and runs back through the host's last label, so anyone narrowing this skip is reasoning about a wider span than the fixture text suggests. Same disposition as the hash-marker gap: the decode step is what the engine catches, and narrowing the URL skip needs the benign cost measured first"},
 	{dir: "gap-sd019-pipe-to-interpreter", axis: axes.PermissionHygiene, atMost: "A",
-		why: "the veto on the in-repo release enumerates `| sh` and `| bash` — a deny-list of two spellings — so piping the same download into python3, perl, node or ruby keeps the release. Closed by inverting it into an allow-list of form (no pipe at all in an in-repo command), which is a behaviour change needing the benign cost measured, and the same standing rule that made isSoleCall an allow-list applies here"},
+		why: "the veto on the in-repo release enumerates `| sh` and `| bash` — a deny-list of two spellings — so piping the same download into python3, perl, node or ruby keeps the release. Closed by inverting it into an allow-list of form (no pipe at all in an in-repo command), which is a behaviour change needing the benign cost measured, and the same standing rule that made isSoleCall an allow-list applies here. This fixture is D on security from SD-007 — the URL in the hook command is a different rule's opinion about the same line"},
 	{dir: "gap-sd020-hook-claude-prefixed-var", axis: axes.Security, atMost: "A",
 		why: "the exemption tests a PREFIX, and the attacker chooses the variable name — any `CLAUDE_`-prefixed name is exempt whether the harness provides it or not, so an unquoted expansion grades A where it would otherwise be F. Closed by replacing the prefix test with the explicit set of harness-provided variables; that is a behaviour change and needs the benign cost measured on settings.json files in the corpus first"},
 	{dir: "gap-sd021-dotlocal-suffix", axis: axes.PermissionHygiene, atMost: "A",
 		why: "isLocalHost treats any `.local` suffix as on-machine, but mDNS names resolve across a LAN, so a host on the same network is exempted along with the machine itself. Closed by dropping the suffix arm or by requiring a single label; measure the benign `.local` population before touching it"},
+	{dir: "gap-sd007-relative-upload-filename", axis: axes.Security, atMost: "A",
+		why: "reUploadFlag requires the upload flag's argument to look like a path (pathArg); a bare relative filename no longer reads as sending local state, so `curl -T data.json …` stays demoted to Medium/transparency while its twin sd007-capture-assignment-upload — `-T $HOME/notes/data.db` — keeps High/security one character of spelling away. Closed by treating a bare relative filename as a path too, which is a behaviour change needing the benign cost measured first"},
+	{dir: "gap-sd001-prose-outside-fence", axis: axes.Security, atMost: "A",
+		why: "SD-001's markdown gate (`fenced != nil && !fenced[lineNum]`) skips every line outside a shell-tagged fence, so plain SKILL.md prose is never scanned at all — the identical `eval $USER_INPUT` that grades F inside a ```sh fence (sd001-eval-in-shell-fence) grades A as bare prose. In tension with SD-002's own reading, which already treats manifest prose as the program (exfiltration.go); SD-001 does not. Not an engine change here — pinning the predicate so it is findable"},
+	{dir: "gap-sd001-non-shell-fence", axis: axes.Security, atMost: "A",
+		why: "shellFenceLangs allows only shell/sh/zsh/bash/shell/console/terminal or untagged; a fence tagged with any other language is skipped entirely, so the identical `eval $USER_INPUT` payload grades A inside a ```python fence where it grades F inside ```sh (sd001-eval-in-shell-fence). Same gate as gap-sd001-prose-outside-fence, the other half of it"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
