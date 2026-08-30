@@ -189,6 +189,16 @@ var adversarialCases = []adversarialCase{
 		why: "a check mark takes no ZWJ — the first version of this carve-out exempted the whole U+2600-U+27BF block, which is ordinary document furniture, so the boundary is an explicit codepoint set and not a block range"},
 	{dir: "control-sd002-compound-emoji", axis: axes.Security, atMost: "A",
 		why: "person+ZWJ+profession is how the character is spelled, not a payload — 9 of 10 benign SD-002 corpus findings and 0 of 29 malicious ones"},
+
+	// --- SD-007's suppressions beyond the `declared` demotion the h1/h2/h3
+	// cases already cover. High on security, so a kept finding is D and a
+	// demotion to Medium/transparency shows up here as A. ---
+	{dir: "sd007-git-fetch-then-exfil", axis: axes.Security, atLeast: "D",
+		why: "the git-fetch veto removes the `fetch` token rather than rejecting the whole statement; the whole-line form let one benign alternative silence every other command on the line"},
+	{dir: "control-sd007-git-fetch", axis: axes.Security, atMost: "A",
+		why: "`git fetch` is version control, not an outbound call worth a security finding — the shape the veto exists for"},
+	{dir: "sd007-capture-assignment-upload", axis: axes.Security, atLeast: "D",
+		why: "reCaptureAssignment releases a statement whose value is its own substitution, but isSoleCall is not the only gate on the demotion — an upload flag naming a path outside the package is exfiltratesLocalData's business and keeps the finding High"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -238,6 +248,8 @@ var knownGapCases = []adversarialCase{
 		why: "the same word-order test as SD-004's: prohibition phrasing left of the shell-profile mention releases the line, and the attacker writes the phrasing. Closed only by reading the sentence, not its word order — see the reNegatedGuidance tradeoff in access_control.go"},
 	{dir: "gap-sd002-zwj-per-line-budget", axis: axes.Security, atMost: "A",
 		why: "the cap is per line and there is deliberately no file-level cap, so a file of N lines carries 4N exempt joiners. Kept open on purpose: each bit costs the author a visible run of five pictographs, so a payload of any length is a wall of emoji rather than a covert channel, and a file-level cap would make a long emoji-heavy document start firing on its later lines for reasons invisible in those lines"},
+	{dir: "gap-sd007-bare-url-in-prose", axis: axes.Security, atMost: "A",
+		why: "a bare URL in a doc file is silent unless its host is a routable IP literal, because escalating on suspiciousEndpoint's full predicate measured as noise on both sides of the label — 37 benign findings against 28 malicious. Closing it needs a predicate that separates a link from an instruction, which nothing in the engine has; the routable-IP arm is the part that was measurable"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
