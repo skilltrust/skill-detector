@@ -121,6 +121,50 @@ go test -v -run TestBenchRecall ./cmd/skill-detector/
 - **`testdata/edge-cases/`** — Boundary conditions
   - `empty-skill/`, `malformed-yaml/`, `hidden-dir/`, `binary-file/`
 
+### Adversarial Fixtures
+
+`cmd/skill-detector/testdata/adversarial/` is a second gate, and it is not a smaller copy of
+the first one. The benchmark corpus measures what a suppression **costs** — how many honest
+skills it stops over-flagging. Only a constructed case measures what leaving a suppression's
+hole open costs. The two are complementary and neither substitutes for the other.
+
+The reason is structural, not a matter of corpus size: skill-detector is public, an attacker
+reads the rules, and a corpus of skills written before a rule existed cannot contain an
+evasion of that rule. This is measured, not asserted — a full 906-sample corpus run came back
+byte-identical across four security fixes while review of the same branch found four
+constructible bypasses in the code those fixes touched.
+
+**The rule: every suppression, demotion or exemption ships with a fixture that tries to abuse
+it.** Not a unit test of the regex — a whole skill package, scanned end-to-end, asserting a
+**grade on a named axis**. Grade-level because what regresses is the grade a user sees: a
+rule-level assertion passes happily while the finding is demoted onto an axis nobody gates on.
+Axis-named because a finding that moves from `security` to `transparency` has, for a consumer
+gating on `--fail-on-axis security=B`, disappeared.
+
+Every attack fixture needs a benign twin — the measured shape the suppression exists for — or
+the suite ratchets towards flagging everything.
+
+Three tables in `cmd/skill-detector/adversarial_test.go`:
+
+| Table | Asserts | Add a case when |
+|---|---|---|
+| `adversarialCases` | a grade on a named axis: `atLeast` (this grade or worse) for attacks, `atMost` (this grade or better) for controls | you add or narrow a suppression, or add its benign twin |
+| `uncoveredShapes` | zero findings | an attack no rule detects at all — a recorded gap that announces itself the day it starts being detected |
+| `knownGapCases` | today's **wrong** grade | a rule detects the shape and a suppression drops or demotes it, and we have decided not to close the hole yet |
+
+Run them with:
+
+```bash
+go test ./cmd/skill-detector -run TestAdversarial
+```
+
+**A `knownGapCases` assertion documents a hole. Never relax one to make it pass.** These
+cases assert behaviour we believe is wrong; they exist so that closing the hole is loud
+instead of silent. If one fails, the engine has changed and the case must be **moved** into
+`adversarialCases` with the grade it now earns — never edited in place to accept the new
+grade, and never deleted. The same applies to `uncoveredShapes`. Each case carries a `why`
+naming the mechanism it holds and what would close it.
+
 ## Linting
 
 The project uses golangci-lint v2 with the `standard` preset plus `gosec` for security checks:
