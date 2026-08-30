@@ -144,6 +144,32 @@ var adversarialCases = []adversarialCase{
 		why: "a leading ~ is home expansion, not a directory; pushing it as an ordinary segment let the ../ walk appear to land back inside the skill"},
 	{dir: "sd003-escape-split-token", axis: axes.PermissionHygiene, atLeast: "D",
 		why: "a quoted space, a glob star and a parenthesis end a shell word but are all legal inside a filename; cutting the reference there judges each half from the file's own depth and grants the climb budget twice. The markdown payload is the load-bearing one: SD-003's real reading surface is SKILL.md/CLAUDE.md/docs, where nothing word-splits and ( ) ; & are ordinary prose"},
+
+	// --- SD-004's exemptions, each with the benign shape it exists for.
+	// SD-004 is Critical on permission_hygiene: a finding is F, an exemption
+	// is A, and neither touches the security axis. ---
+	{dir: "sd004-modulepath-appended-command", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "reCredentialsModulePath is anchored at BOTH ends, so a second statement appended after a real import clause breaks the match instead of riding along on it"},
+	{dir: "control-sd004-credentials-import", axis: axes.PermissionHygiene, atMost: "A",
+		why: "importing a symbol from a module path ending in .credentials is not access to a credentials file — 4 benign corpus skills, 0 malicious"},
+	{dir: "sd004-fielddoc-exfil-command", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "the field-doc bullet shape is available to anyone; invokesCommandOnCredentialLine is what stops a bullet that runs a command from reading as documentation"},
+	{dir: "control-sd004-credentials-fielddoc", axis: axes.PermissionHygiene, atMost: "A",
+		why: "a reference-doc entry naming a credential field describes it rather than reaching for it — 4 benign corpus hits, 0 malicious"},
+	{dir: "sd004-fielddoc-reader-verb", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "`head -c` reads a credential as surely as `cat` does; reCredentialFileReader carries the read-and-inspect verbs that reShellInvocation deliberately omits, and widening the shared regex instead is what once turned threat-model prose into Critical SD-013 findings"},
+	{dir: "sd004-pub-token-private-read", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "a second, private path on the same line must not ride along on the first path's .pub suffix — the exemption asks about EVERY ~/.ssh token, and the command on the line vetoes it besides"},
+	{dir: "sd004-pub-variable-private-key", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "$HOME/.ssh/id_rsa is a private key however it is spelled; reSSHPathToken has to RECOGNISE the variable spellings for the line to stop reading as all-public, which is a different question from whether it DETECTS them"},
+	{dir: "control-sd004-ssh-public-key", axis: axes.PermissionHygiene, atMost: "A",
+		why: "a public key is meant to be shared; this is the corpus line the exemption was built for, one .pub path and no command"},
+	{dir: "control-sd004-negated-guidance", axis: axes.PermissionHygiene, atMost: "A",
+		why: "a prohibition naming a credential path is security guidance, which is what a skill's own docs are full of"},
+	{dir: "sd004-doctable-smuggled-command", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "a Markdown table row is a shape, not a proof of intent — reShellInvocation vetoes the documentary damping when the row carries a real command"},
+	{dir: "control-sd004-threat-model-table", axis: axes.PermissionHygiene, atMost: "A",
+		why: "the threat-model table from dogfood FP-1: a row naming a credential path with no command in it"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -187,6 +213,8 @@ var uncoveredShapes = []adversarialCase{
 var knownGapCases = []adversarialCase{
 	{dir: "gap-sd004-private-key-named-pub", axis: axes.PermissionHygiene, atMost: "A",
 		why: "allSSHPathsArePublic trusts the .pub suffix, and a filename is not evidence about a file's contents; no command on the line means invokesCommandOnCredentialLine does not veto it either. Closed by dropping the suffix exemption (its measured benign population is one corpus line) or by resolving the file when the scan has the package on disk"},
+	{dir: "gap-sd004-negation-phrasing", axis: axes.PermissionHygiene, atMost: "A",
+		why: "reNegatedGuidance releases the line whenever prohibition phrasing sits left of the credential path, and an attacker chooses the phrasing. Closed only by reading the sentence rather than its word order, which is the LLM triage seam's job (pkg/triage), not a regex's — the disclosed tradeoff on reNegatedGuidance in access_control.go"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
