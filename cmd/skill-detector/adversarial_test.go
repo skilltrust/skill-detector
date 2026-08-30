@@ -170,6 +170,15 @@ var adversarialCases = []adversarialCase{
 		why: "a Markdown table row is a shape, not a proof of intent — reShellInvocation vetoes the documentary damping when the row carries a real command"},
 	{dir: "control-sd004-threat-model-table", axis: axes.PermissionHygiene, atMost: "A",
 		why: "the threat-model table from dogfood FP-1: a row naming a credential path with no command in it"},
+
+	// --- SD-013's two dampings. Critical on security, so a finding is F.
+	// The veto here is reShellInvocation ALONE, deliberately not the widened
+	// invokesCommandOnCredentialLine — the control below is the line that
+	// proved why. ---
+	{dir: "sd013-doctable-smuggled-profile-write", axis: axes.Security, atLeast: "F",
+		why: "a table row that appends a loader to ~/.zshrc is persistence wearing documentation's shape; reShellInvocation's `>>` branch is what refuses the shape"},
+	{dir: "control-sd013-interrogative-reader-verb", axis: axes.Security, atMost: "A",
+		why: "an interrogative bullet asking whether a skill reads .zshrc is a threat-model question; adding the reader verbs to SD-013's veto made three of these fire Critical, which is why SD-004's widened predicate is a separate regex"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -215,6 +224,8 @@ var knownGapCases = []adversarialCase{
 		why: "allSSHPathsArePublic trusts the .pub suffix, and a filename is not evidence about a file's contents; no command on the line means invokesCommandOnCredentialLine does not veto it either. Closed by dropping the suffix exemption (its measured benign population is one corpus line) or by resolving the file when the scan has the package on disk"},
 	{dir: "gap-sd004-negation-phrasing", axis: axes.PermissionHygiene, atMost: "A",
 		why: "reNegatedGuidance releases the line whenever prohibition phrasing sits left of the credential path, and an attacker chooses the phrasing. Closed only by reading the sentence rather than its word order, which is the LLM triage seam's job (pkg/triage), not a regex's — the disclosed tradeoff on reNegatedGuidance in access_control.go"},
+	{dir: "gap-sd013-negation-phrasing", axis: axes.Security, atMost: "A",
+		why: "the same word-order test as SD-004's: prohibition phrasing left of the shell-profile mention releases the line, and the attacker writes the phrasing. Closed only by reading the sentence, not its word order — see the reNegatedGuidance tradeoff in access_control.go"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
