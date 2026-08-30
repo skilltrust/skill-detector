@@ -52,6 +52,8 @@ make self-scan   # smoke test the built binary on test fixtures
 
 ## Adding a new security rule
 
+Rules live in `pkg/rules/`, one file per rule group. The short version:
+
 1. Create `pkg/rules/<name>.go` implementing the `Rule` interface from `rule.go`
 2. Register it in `pkg/rules/registry.go` — the `DefaultRegistry()` function
 3. Add fixtures under `testdata/malicious/<name>/` (triggers the rule) and `testdata/clean/` (does not)
