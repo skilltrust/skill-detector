@@ -179,6 +179,16 @@ var adversarialCases = []adversarialCase{
 		why: "a table row that appends a loader to ~/.zshrc is persistence wearing documentation's shape; reShellInvocation's `>>` branch is what refuses the shape"},
 	{dir: "control-sd013-interrogative-reader-verb", axis: axes.Security, atMost: "A",
 		why: "an interrogative bullet asking whether a skill reads .zshrc is a threat-model question; adding the reader verbs to SD-013's veto made three of these fire Critical, which is why SD-004's widened predicate is a separate regex"},
+
+	// --- SD-002's ZWJ-between-emoji carve-out. Critical on security. The
+	// carve-out spares the compound-emoji spelling; the cap and the explicit
+	// codepoint set are what keep it from becoming a channel. ---
+	{dir: "sd002-zwj-over-cap", axis: axes.Security, atLeast: "F",
+		why: "one bit per adjacent emoji pair is a covert channel, and an uncapped carve-out exempts every bit of it; past maxExemptZWJPerLine none of the line's joiners are exempted, not merely the excess"},
+	{dir: "sd002-zwj-non-pictograph", axis: axes.Security, atLeast: "F",
+		why: "a check mark takes no ZWJ — the first version of this carve-out exempted the whole U+2600-U+27BF block, which is ordinary document furniture, so the boundary is an explicit codepoint set and not a block range"},
+	{dir: "control-sd002-compound-emoji", axis: axes.Security, atMost: "A",
+		why: "person+ZWJ+profession is how the character is spelled, not a payload — 9 of 10 benign SD-002 corpus findings and 0 of 29 malicious ones"},
 }
 
 // uncoveredShapes are attacks NO rule in this engine detects. They are not
@@ -226,6 +236,8 @@ var knownGapCases = []adversarialCase{
 		why: "reNegatedGuidance releases the line whenever prohibition phrasing sits left of the credential path, and an attacker chooses the phrasing. Closed only by reading the sentence rather than its word order, which is the LLM triage seam's job (pkg/triage), not a regex's — the disclosed tradeoff on reNegatedGuidance in access_control.go"},
 	{dir: "gap-sd013-negation-phrasing", axis: axes.Security, atMost: "A",
 		why: "the same word-order test as SD-004's: prohibition phrasing left of the shell-profile mention releases the line, and the attacker writes the phrasing. Closed only by reading the sentence, not its word order — see the reNegatedGuidance tradeoff in access_control.go"},
+	{dir: "gap-sd002-zwj-per-line-budget", axis: axes.Security, atMost: "A",
+		why: "the cap is per line and there is deliberately no file-level cap, so a file of N lines carries 4N exempt joiners. Kept open on purpose: each bit costs the author a visible run of five pictographs, so a payload of any length is a wall of emoji rather than a covert channel, and a file-level cap would make a long emoji-heavy document start firing on its later lines for reasons invisible in those lines"},
 }
 
 func TestAdversarial_KnownGaps(t *testing.T) {
