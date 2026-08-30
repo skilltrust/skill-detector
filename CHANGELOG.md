@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.10.0
+## v0.10.0 — 2026-08-30
 
 **Grade-changing.** A package that reads `$HOME/.ssh/id_rsa`,
 `${HOME}/.aws/credentials`, `$HOME/.gnupg/...` or `$HOME/.env` used to grade
