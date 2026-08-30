@@ -178,6 +178,10 @@ var adversarialCases = []adversarialCase{
 		why: "a Markdown table row is a shape, not a proof of intent — reShellInvocation vetoes the documentary damping when the row carries a real command"},
 	{dir: "control-sd004-threat-model-table", axis: axes.PermissionHygiene, atMost: "A",
 		why: "the threat-model table from dogfood FP-1: a row naming a credential path with no command in it"},
+	{dir: "sd004-home-variable-private-key", axis: axes.PermissionHygiene, atLeast: "F",
+		why: "credentialPaths held literal `~/`-spelled byte slices, so the identical read written through the home variable was invisible; the spelling table is what makes `$HOME/.ssh/` the same path as `~/.ssh/` rather than a second entry an exemption could miss"},
+	{dir: "control-sd004-home-variable-threat-model-table", axis: axes.PermissionHygiene, atMost: "A",
+		why: "reDocumentaryContext judges the LINE, not the pattern, so a threat-model table naming a credential path stays damped whichever way the path is spelled — the widening rides on the existing mechanism instead of a second one beside it"},
 
 	// --- SD-013's two dampings. Critical on security, so a finding is F.
 	// The veto here is reShellInvocation ALONE, deliberately not the widened
