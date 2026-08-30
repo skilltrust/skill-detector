@@ -109,7 +109,11 @@ func invokesCommandOnCredentialLine(line []byte) bool {
 	return reShellInvocation.Match(line) || reCredentialFileReader.Match(line)
 }
 
-// Credential path patterns as literal byte slices for bytes.Contains matching.
+// Credential path patterns as literal byte slices. Entries rooted at `~/` are
+// matched in every spelling in homePrefixes (see credentialPathSpellings
+// below); the rest are matched literally. The exemptions in Match() key on the
+// entry as written here, never on the spelling found, so a new spelling can
+// never detach an exemption from the path it guards.
 var credentialPaths = [][]byte{
 	[]byte("~/.aws/"),
 	[]byte("~/.ssh/"),
@@ -118,6 +122,75 @@ var credentialPaths = [][]byte{
 	[]byte("/etc/shadow"),
 	[]byte("/etc/passwd"),
 	[]byte(".credentials"),
+}
+
+// homePrefixes are the spellings of the user's home directory that a shell or
+// an agent expands to the same place. credentialPaths entries beginning with
+// `~/` are matched in every one of them; the `~/` spelling stays first so the
+// historical match order — and therefore the historical finding description
+// on a line that already fired — is unchanged.
+//
+// The Windows spellings `$env:USERPROFILE\` and `%USERPROFILE%\` are
+// deliberately ABSENT (measure_sd004_home_spellings.py, programme item 8).
+// Measured on the 7944-sample MalSkillBench corpus (malware=3944,
+// benign=4000): `$HOME/` and `${HOME}/` combined appear in 1 malicious
+// sample (a genuine `cat`'d SSH-key read) and 1 benign sample (a
+// permission/token-auditing tool); the Windows spellings `$env:USERPROFILE\`
+// (mal 2/3944=0.05%, ben 3/4000=0.07%, lift 0.7) and `%USERPROFILE%\` (mal
+// 0/3944, ben 4/4000) were measured and excluded — neither clears the lift
+// >= 3 bar, and their matched lines are not credential access. Adding an
+// unmeasured spelling is a deny-list of dangerous forms, which is what
+// standing rule 4 forbids — the record that they were measured and not seen
+// is the deliverable, not the entry.
+var homePrefixes = [][]byte{
+	[]byte("~/"),
+	[]byte("$HOME/"),
+	[]byte("${HOME}/"),
+}
+
+// credentialPathSpelling is one credentialPaths entry together with every
+// spelling of it that Match() looks for. The canonical entry is what the
+// exemptions key on, so widening the spellings cannot silently detach an
+// exemption from the path it guards.
+type credentialPathSpelling struct {
+	canonical []byte
+	spellings [][]byte
+}
+
+// find returns the offset of the first spelling present on the line, in
+// homePrefixes order, and the spelling actually written there. idx < 0 when
+// the line names none of them.
+func (e credentialPathSpelling) find(line []byte) (int, []byte) {
+	for _, s := range e.spellings {
+		if i := bytes.Index(line, s); i >= 0 {
+			return i, s
+		}
+	}
+	return -1, nil
+}
+
+// credentialPathSpellings is credentialPaths expanded across homePrefixes,
+// built once rather than per line: a `~/`-rooted entry contributes one
+// spelling per prefix, everything else exactly itself.
+var credentialPathSpellings = buildCredentialPathSpellings()
+
+func buildCredentialPathSpellings() []credentialPathSpelling {
+	tilde := []byte("~/")
+	out := make([]credentialPathSpelling, 0, len(credentialPaths))
+	for _, p := range credentialPaths {
+		e := credentialPathSpelling{canonical: p}
+		if suffix, ok := bytes.CutPrefix(p, tilde); ok {
+			for _, prefix := range homePrefixes {
+				s := make([]byte, 0, len(prefix)+len(suffix))
+				s = append(append(s, prefix...), suffix...)
+				e.spellings = append(e.spellings, s)
+			}
+		} else {
+			e.spellings = [][]byte{p}
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // reCredentialsModulePath matches a Python import statement naming a module
@@ -238,25 +311,28 @@ func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []mo
 		if reDocumentaryContext.Match(line) && !invokesCommandOnCredentialLine(line) {
 			continue
 		}
-		for _, pattern := range credentialPaths {
-			if bytes.Contains(line, pattern) {
-				if string(pattern) == ".credentials" && (reCredentialsModulePath.Match(line) ||
-					(reCredentialsFieldDoc.Match(line) && !invokesCommandOnCredentialLine(line))) {
-					continue
-				}
-				if string(pattern) == "~/.ssh/" && allSSHPathsArePublic(line) &&
-					!invokesCommandOnCredentialLine(line) {
-					continue
-				}
-				if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < bytes.Index(line, pattern) {
-					continue
-				}
-				desc := fmt.Sprintf("access to credential path %s", string(pattern))
-				findings = append(findings, r.newFinding(ctx, lineNum,
-					desc,
-					"Remove credential path access or document why it's needed"))
-				break
+		for _, entry := range credentialPathSpellings {
+			idx, spelling := entry.find(line)
+			if idx < 0 {
+				continue
 			}
+			canonical := string(entry.canonical)
+			if canonical == ".credentials" && (reCredentialsModulePath.Match(line) ||
+				(reCredentialsFieldDoc.Match(line) && !invokesCommandOnCredentialLine(line))) {
+				continue
+			}
+			if canonical == "~/.ssh/" && allSSHPathsArePublic(line) &&
+				!invokesCommandOnCredentialLine(line) {
+				continue
+			}
+			if loc := reNegatedGuidance.FindIndex(line); loc != nil && loc[0] < idx {
+				continue
+			}
+			desc := fmt.Sprintf("access to credential path %s", string(spelling))
+			findings = append(findings, r.newFinding(ctx, lineNum,
+				desc,
+				"Remove credential path access or document why it's needed"))
+			break
 		}
 	}
 	return findings

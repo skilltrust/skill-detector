@@ -793,3 +793,75 @@ func TestPathTraversalOtherBranchesUnaffected(t *testing.T) {
 		t.Errorf("Description = %q, want the absolute-path finding", findings[0].Description)
 	}
 }
+
+// Programme item 8: credentialPaths held literal `~/`-spelled byte slices, so
+// a credential read written through the home-directory variable produced zero
+// findings while its `~/` twin graded permission_hygiene F. The four lines
+// below are the spec's own reproduction, confirmed against v0.9.0.
+func TestSD004_VariableSpelledCredentialPathsDetected(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"$HOME ssh", `cat $HOME/.ssh/id_rsa`},
+		{"${HOME} aws", `cat ${HOME}/.aws/credentials`},
+		{"$HOME env", `cat $HOME/.env`},
+		{"$HOME gnupg", `cat $HOME/.gnupg/secring.gpg`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := findRule(t, "SD-004")
+			fs := r.Match([]byte(tc.line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+			if len(fs) == 0 {
+				t.Errorf("no finding for %q — the variable spelling is not detected", tc.line)
+			}
+		})
+	}
+}
+
+// The finding names the spelling actually written, not the canonical entry:
+// a report that says `~/.ssh/` about a line reading `$HOME/.ssh/` sends the
+// reader looking for text that is not in the file. Lines spelled `~/` keep
+// their exact historical description, which is what makes the corpus
+// before/after delta a like-for-like comparison.
+func TestSD004_FindingNamesTheSpellingWritten(t *testing.T) {
+	r := findRule(t, "SD-004")
+	fs := r.Match([]byte("cat $HOME/.ssh/id_rsa\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(fs) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(fs))
+	}
+	if !strings.Contains(fs[0].Description, "$HOME/.ssh/") {
+		t.Errorf("description %q does not name the spelling on the line", fs[0].Description)
+	}
+	fs = r.Match([]byte("cat ~/.ssh/id_rsa\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(fs) != 1 || fs[0].Description != "access to credential path ~/.ssh/" {
+		t.Errorf("the ~/ description must be byte-identical to before, got %+v", fs)
+	}
+}
+
+// The `.pub` exemption is spelling-blind for the same reason the detection
+// is: reSSHPathToken already recognises all three spellings, so a public key
+// named through the variable is exempt exactly as its `~/` twin is. This is
+// the cost side of the widening and it must not regress.
+func TestSD004_VariableSpelledPublicKeyStillExempt(t *testing.T) {
+	r := findRule(t, "SD-004")
+	for _, line := range []string{
+		"# Add $HOME/.ssh/id_ed25519.pub to GitHub Settings -> SSH Keys",
+		"# Add ${HOME}/.ssh/id_ed25519.pub to GitHub Settings -> SSH Keys",
+	} {
+		if fs := r.Match([]byte(line+"\n"), model.FileContext{Path: "SKILL.md", Ext: ".md"}); len(fs) != 0 {
+			t.Errorf("fired on a public key spelled through the variable: %q -> %+v", line, fs)
+		}
+	}
+}
+
+// One finding per line, whichever spelling trips first — the loop has always
+// emitted at most one SD-004 finding per line and the widening must not turn
+// a line naming two credential paths into two findings.
+func TestSD004_OneFindingPerLineAcrossSpellings(t *testing.T) {
+	r := findRule(t, "SD-004")
+	fs := r.Match([]byte("cp ~/.aws/credentials $HOME/.ssh/backup\n"),
+		model.FileContext{Path: "SKILL.md", Ext: ".md"})
+	if len(fs) != 1 {
+		t.Errorf("want exactly 1 finding for a line naming two credential paths, got %d: %+v", len(fs), fs)
+	}
+}
