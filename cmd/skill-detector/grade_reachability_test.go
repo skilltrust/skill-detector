@@ -41,11 +41,15 @@ import (
 //
 // A rule's registered severity is a CEILING and the thing registry.Checksum()
 // hashes. The cap table is indexed by what a finding actually CARRIES, which
-// can differ in four places:
+// can differ in five places:
 //
 //  1. baseRule.newFindingAs (pkg/rules/rule.go) — a rule overrides severity and
-//     axis at match time. SD-007's two demotion sites are the reason grade B
-//     exists at all, and a registry-only enumeration cannot see them.
+//     axis at match time. A registry-only enumeration would UNDERSTATE what
+//     the engine emits: the registry ships SD-007 as (High, security)
+//     (pkg/rules/exfiltration.go), while its two newFindingAs sites let it
+//     also emit (Medium, transparency) — the same pair SD-024 registers
+//     directly. It is the PAIR SET a registry-only test would miss here, not
+//     the letter: transparency already reaches B via SD-024 alone.
 //  2. applyStrictMCP (main.go) — --strict-mcp upgrades SD-021 Medium->High
 //     without touching the registry, deliberately, so the checksum stays put.
 //     strictMCPPairs probes it with one finding PER REGISTERED RULE, not just
