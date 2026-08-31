@@ -7,9 +7,10 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
-	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -38,15 +39,26 @@ import (
 //
 // A rule's registered severity is a CEILING and the thing registry.Checksum()
 // hashes. The cap table is indexed by what a finding actually CARRIES, which
-// can differ in three places:
+// can differ in four places:
 //
 //  1. baseRule.newFindingAs (pkg/rules/rule.go) — a rule overrides severity and
 //     axis at match time. SD-007's two demotion sites are the reason grade B
 //     exists at all, and a registry-only enumeration cannot see them.
 //  2. applyStrictMCP (main.go) — --strict-mcp upgrades SD-021 Medium->High
 //     without touching the registry, deliberately, so the checksum stays put.
-//  3. A hand-built model.Finding literal inside a rule would bypass both
-//     constructors. None exists today; the test fails if one appears.
+//     assertStrictMCPIsSoleMutator pins it as the ONE function in
+//     cmd/skill-detector allowed to mutate a Finding's Severity/EffSeverity/
+//     Axis after construction — a second mutator elsewhere in the package
+//     would otherwise emit a pair no collector here ever executes.
+//  3. A hand-built model.Finding literal inside pkg/rules would bypass both
+//     constructors — either a bare composite literal, or, less obviously, an
+//     element inside a []model.Finding{...} slice literal with its type
+//     elided (Go permits that; the AST records a nil Type on the element, so
+//     matching only on "a *ast.SelectorExpr named Finding" misses it).
+//  4. A post-hoc field mutation on a value already built by a constructor —
+//     `f := r.newFinding(...); f.Severity = X` — is structurally identical to
+//     what newFindingAs does internally, but outside newFinding/newFindingAs
+//     it is invisible to every collector above.
 //
 // Grade() reads Finding.Severity. Finding.EffSeverity is a different field
 // (config overrides, triage) consumed by the --fail-on severity threshold, not
@@ -86,6 +98,10 @@ func TestGradeScaleReachability(t *testing.T) {
 	for p, src := range strictMCPPairs(t) {
 		pairs[p] = append(pairs[p], src)
 	}
+	// Not a pair collector: fails on its own if a second severity/axis
+	// mutator appears in cmd/skill-detector alongside applyStrictMCP. See
+	// point 2 in the package doc comment above.
+	assertStrictMCPIsSoleMutator(t)
 
 	// Run every emitted pair through the real grader rather than restating the
 	// cap table here: a cap-table edit must show up as a reachability change.
@@ -195,50 +211,150 @@ func strictMCPPairs(t *testing.T) map[emitted]string {
 	}
 }
 
-var severityByName = map[string]model.Severity{
-	"model.SeverityCritical": model.SeverityCritical,
-	"model.SeverityHigh":     model.SeverityHigh,
-	"model.SeverityMedium":   model.SeverityMedium,
-	"model.SeverityLow":      model.SeverityLow,
-	"model.SeverityInfo":     model.SeverityInfo,
+// modelImportPath and axesImportPath are the import paths whose local names
+// (possibly aliased) the AST guards below need to resolve per file — see
+// importedPkgName.
+const (
+	modelImportPath = "github.com/velzepooz/skill-detector/pkg/model"
+	axesImportPath  = "github.com/velzepooz/skill-detector/pkg/axes"
+)
+
+// findingMutableFields are the model.Finding fields the cap table is indexed
+// by. A direct assignment to any of them outside an allowed
+// constructor/mutator is a route to emit a (severity, axis) pair no
+// collector in this file executes.
+var findingMutableFields = map[string]bool{
+	"Severity":    true,
+	"EffSeverity": true,
+	"Axis":        true,
 }
 
-var axisByName = map[string]axes.Axis{
-	"axes.Security":          axes.Security,
-	"axes.PermissionHygiene": axes.PermissionHygiene,
-	"axes.Transparency":      axes.Transparency,
-	"axes.Quality":           axes.Quality,
+// importedPkgName resolves the local identifier a file uses for importPath —
+// its explicit alias if the import declares one, otherwise the path's last
+// segment (which is also what an unaliased import resolves to for every
+// package under this module, since none of them renames itself). Hardcoding
+// "model"/"axes" would let an aliased import (`m "…/pkg/model"`) slip a
+// Finding literal or a newFindingAs argument past every check below.
+func importedPkgName(file *ast.File, importPath string) string {
+	for _, imp := range file.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || p != importPath {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name
+		}
+		break
+	}
+	parts := strings.Split(importPath, "/")
+	return parts[len(parts)-1]
 }
 
-// overridePairs parses pkg/rules and returns the (severity, axis) pair of every
-// newFindingAs call site. Source parsing, not execution: a call site that no
-// corpus sample happens to reach still widens the scale, and the claim in the
-// docs is about what the code CAN emit.
+// isFindingType reports whether e is a selector naming modelAlias.Finding —
+// the type of a []model.Finding element or a bare model.Finding{...} literal.
+func isFindingType(e ast.Expr, modelAlias string) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Finding" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == modelAlias
+}
+
+// assignedFindingField reports the field name if lhs is a selector targeting
+// Finding.Severity/EffSeverity/Axis, whatever the receiver expression looks
+// like (a plain identifier, an index expression, a chained selector, ...).
+// Purely structural — it does not type-check that the receiver is actually a
+// model.Finding, matching how the review that requested this guard specified
+// it: any such selector outside the allowed function is worth failing on.
+func assignedFindingField(lhs ast.Expr) string {
+	sel, ok := lhs.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	if findingMutableFields[sel.Sel.Name] {
+		return sel.Sel.Name
+	}
+	return ""
+}
+
+// parseNonTestGoFiles parses every non-test .go file directly inside dir and
+// returns them keyed by base filename.
 //
-// It also fails on a hand-built model.Finding literal outside rule.go, which
-// would be a third way to emit a pair neither collector sees.
+// This uses os.ReadDir + parser.ParseFile rather than parser.ParseDir:
+// ParseDir is deprecated since Go 1.25 in favor of golang.org/x/tools/go/
+// packages, which considers build tags — not applicable here (neither
+// pkg/rules nor cmd/skill-detector carries build-tagged files), and adding a
+// new module dependency for a single-directory scan is out of proportion to
+// what this test needs. ReadDir+ParseFile finds the identical file set.
+func parseNonTestGoFiles(t *testing.T, fset *token.FileSet, dir string) map[string]*ast.File {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	out := map[string]*ast.File{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		out[name] = file
+	}
+	return out
+}
+
+// overridePairs parses pkg/rules and returns the (severity, axis) pair of
+// every newFindingAs call site. Source parsing, not execution: a call site
+// that no corpus sample happens to reach still widens the scale, and the
+// claim in the docs is about what the code CAN emit.
+//
+// It also fails (via t.Errorf, so a stray literal does not mask a concurrent
+// reachability drift elsewhere) on:
+//   - a hand-built model.Finding literal outside newFinding/newFindingAs,
+//   - a []model.Finding{...} element with its type elided,
+//   - a post-hoc assignment to .Severity/.EffSeverity/.Axis outside
+//     newFinding/newFindingAs,
+//
+// each a way to emit a pair neither collector sees. newFinding and
+// newFindingAs themselves are exempt — they are the routing this test wants
+// everything else to go through — but nothing else in rule.go is; only those
+// two function bodies are skipped.
 func overridePairs(t *testing.T) map[emitted][]string {
 	t.Helper()
 	dir := filepath.Join("..", "..", "pkg", "rules")
 	fset := token.NewFileSet()
-	// parser.ParseDir is deprecated since Go 1.25 in favor of
-	// golang.org/x/tools/go/packages, which considers build tags. Not
-	// applicable here: pkg/rules carries no build-tagged files, and adding
-	// a new module dependency for a single directory scan is out of
-	// proportion to what this test needs.
-	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { //nolint:staticcheck // see comment above
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
-	if err != nil {
-		t.Fatalf("parsing %s: %v", dir, err)
-	}
+	files := parseNonTestGoFiles(t, fset, dir)
 
 	out := map[emitted][]string{}
 	sites := 0
-	for _, pkg := range pkgs {
-		for path, file := range pkg.Files {
-			base := filepath.Base(path)
-			ast.Inspect(file, func(n ast.Node) bool {
+	for base, file := range files {
+		modelAlias := importedPkgName(file, modelImportPath)
+		axesAlias := importedPkgName(file, axesImportPath)
+		severityByName := map[string]model.Severity{
+			modelAlias + ".SeverityCritical": model.SeverityCritical,
+			modelAlias + ".SeverityHigh":     model.SeverityHigh,
+			modelAlias + ".SeverityMedium":   model.SeverityMedium,
+			modelAlias + ".SeverityLow":      model.SeverityLow,
+			modelAlias + ".SeverityInfo":     model.SeverityInfo,
+		}
+		axisByName := map[string]axes.Axis{
+			axesAlias + ".Security":          axes.Security,
+			axesAlias + ".PermissionHygiene": axes.PermissionHygiene,
+			axesAlias + ".Transparency":      axes.Transparency,
+			axesAlias + ".Quality":           axes.Quality,
+		}
+
+		for _, decl := range file.Decls {
+			fd, isFunc := decl.(*ast.FuncDecl)
+			exempt := isFunc && base == "rule.go" && (fd.Name.Name == "newFinding" || fd.Name.Name == "newFindingAs")
+
+			ast.Inspect(decl, func(n ast.Node) bool {
 				switch node := n.(type) {
 				case *ast.CallExpr:
 					sel, ok := node.Fun.(*ast.SelectorExpr)
@@ -265,21 +381,53 @@ func overridePairs(t *testing.T) map[emitted][]string {
 					}
 					p := emitted{sev: sev, axis: axis}
 					out[p] = append(out[p], fmt.Sprintf("newFindingAs:%s:%d", base, pos.Line))
+
 				case *ast.CompositeLit:
-					if base == "rule.go" {
+					if exempt {
 						return true
 					}
-					sel, ok := node.Type.(*ast.SelectorExpr)
-					if !ok || sel.Sel.Name != "Finding" {
+					if isFindingType(node.Type, modelAlias) {
+						pos := fset.Position(node.Pos())
+						t.Errorf("%s:%d: a model.Finding is constructed directly, bypassing newFinding/newFindingAs; "+
+							"the severity and axis it carries are invisible to this test — route it through a constructor or teach this test to read it",
+							base, pos.Line)
 						return true
 					}
-					if id, ok := sel.X.(*ast.Ident); !ok || id.Name != "model" {
+					// A []model.Finding{...} element can be written with its
+					// own type elided ({Severity: X} rather than
+					// model.Finding{Severity: X}) — the AST records a nil
+					// Type on that element, so the check above never sees
+					// it on the element's own visit. Catch it here, from the
+					// slice literal that contains it. A legitimate element
+					// (r.newFinding(...)) is a *ast.CallExpr, not a
+					// composite literal, and is left alone.
+					if arr, ok := node.Type.(*ast.ArrayType); ok && isFindingType(arr.Elt, modelAlias) {
+						for _, elt := range node.Elts {
+							lit, ok := elt.(*ast.CompositeLit)
+							if !ok || lit.Type != nil {
+								continue
+							}
+							pos := fset.Position(lit.Pos())
+							t.Errorf("%s:%d: a []model.Finding element is constructed directly with its type elided, bypassing newFinding/newFindingAs; "+
+								"the severity and axis it carries are invisible to this test — route it through a constructor or teach this test to read it",
+								base, pos.Line)
+						}
+					}
+
+				case *ast.AssignStmt:
+					if exempt {
 						return true
 					}
-					pos := fset.Position(node.Pos())
-					t.Fatalf("%s:%d: a model.Finding is constructed directly, bypassing newFinding/newFindingAs; "+
-						"the severity and axis it carries are invisible to this test — route it through a constructor or teach this test to read it",
-						base, pos.Line)
+					for _, lhs := range node.Lhs {
+						field := assignedFindingField(lhs)
+						if field == "" {
+							continue
+						}
+						pos := fset.Position(lhs.Pos())
+						t.Errorf("%s:%d: a Finding.%s field is assigned directly outside newFinding/newFindingAs; this is a fourth way to emit a "+
+							"(severity, axis) pair no collector here sees — route the mutation through newFindingAs or teach this test to read it",
+							base, pos.Line, field)
+					}
 				}
 				return true
 			})
@@ -289,6 +437,47 @@ func overridePairs(t *testing.T) map[emitted][]string {
 		t.Fatalf("no newFindingAs call sites found under %s — either the helper was renamed or the scan is looking in the wrong place; either way this test is no longer guarding anything", dir)
 	}
 	return out
+}
+
+// assertStrictMCPIsSoleMutator scans cmd/skill-detector's own non-test .go
+// files for a direct assignment to Finding.Severity/EffSeverity/Axis outside
+// applyStrictMCP. applyStrictMCP is pinned here as ONE function, not a class
+// of functions identified by a naming convention: a second --strict-*-style
+// mutator added anywhere else in this package would emit a pair
+// strictMCPPairs never executes and registeredPairs never sees, and would
+// pass this test silently without this guard.
+func assertStrictMCPIsSoleMutator(t *testing.T) {
+	t.Helper()
+	fset := token.NewFileSet()
+	files := parseNonTestGoFiles(t, fset, ".")
+	for base, file := range files {
+		for _, decl := range file.Decls {
+			fd, isFunc := decl.(*ast.FuncDecl)
+			exempt := isFunc && fd.Name.Name == "applyStrictMCP"
+
+			ast.Inspect(decl, func(n ast.Node) bool {
+				if exempt {
+					return true
+				}
+				assign, ok := n.(*ast.AssignStmt)
+				if !ok {
+					return true
+				}
+				for _, lhs := range assign.Lhs {
+					field := assignedFindingField(lhs)
+					if field == "" {
+						continue
+					}
+					pos := fset.Position(lhs.Pos())
+					t.Errorf("%s:%d: a Finding.%s field is assigned directly outside applyStrictMCP; a second severity/axis mutator in "+
+						"cmd/skill-detector would emit a pair this test never sees — teach TestGradeScaleReachability about it "+
+						"(execute it, the way strictMCPPairs does for applyStrictMCP)",
+						base, pos.Line, field)
+				}
+				return true
+			})
+		}
+	}
 }
 
 func exprString(fset *token.FileSet, e ast.Expr) string {
