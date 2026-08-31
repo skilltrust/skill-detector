@@ -15,9 +15,11 @@ import (
 	"testing"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
+	"github.com/velzepooz/skill-detector/pkg/config"
 	"github.com/velzepooz/skill-detector/pkg/grade"
 	"github.com/velzepooz/skill-detector/pkg/model"
 	"github.com/velzepooz/skill-detector/pkg/rules"
+	"github.com/velzepooz/skill-detector/pkg/scorer"
 )
 
 // Grade-scale reachability.
@@ -46,10 +48,15 @@ import (
 //     exists at all, and a registry-only enumeration cannot see them.
 //  2. applyStrictMCP (main.go) — --strict-mcp upgrades SD-021 Medium->High
 //     without touching the registry, deliberately, so the checksum stays put.
-//     assertStrictMCPIsSoleMutator pins it as the ONE function in
-//     cmd/skill-detector allowed to mutate a Finding's Severity/EffSeverity/
-//     Axis after construction — a second mutator elsewhere in the package
-//     would otherwise emit a pair no collector here ever executes.
+//     strictMCPPairs probes it with one finding PER REGISTERED RULE, not just
+//     SD-021 — applyStrictMCP switches on RuleID internally, and a second
+//     ID-gated clause added there (an SD-024 upgrade is entirely plausible;
+//     SD-024 is the other MCP rule) would be invisible to a probe that only
+//     ever builds an SD-021 finding. assertStrictMCPIsSoleMutator separately
+//     pins applyStrictMCP as the ONE function in cmd/skill-detector allowed to
+//     mutate a Finding's Severity/EffSeverity/Axis after construction — a
+//     second mutator elsewhere in the package would otherwise emit a pair no
+//     collector here ever executes.
 //  3. A hand-built model.Finding literal inside pkg/rules would bypass both
 //     constructors — either a bare composite literal, or, less obviously, an
 //     element inside a []model.Finding{...} slice literal with its type
@@ -59,10 +66,19 @@ import (
 //     `f := r.newFinding(...); f.Severity = X` — is structurally identical to
 //     what newFindingAs does internally, but outside newFinding/newFindingAs
 //     it is invisible to every collector above.
+//  5. pkg/scorer.ApplyOverrides, which runs (pkg/scanner/scanner.go) before
+//     grade.Grade on the same finding slice, writing a config severity
+//     override into EffSeverity. assertScorerOnlyTouchesEffSeverity pins,
+//     structurally, that it never writes Severity or Axis instead — one
+//     renamed field there would move a customer's config override onto the
+//     published grade with nothing failing. TestScorerOverrideDoesNotMoveGrade
+//     pins the same claim behaviourally: grade a finding before and after a
+//     config override and assert the letter does not move.
 //
 // Grade() reads Finding.Severity. Finding.EffSeverity is a different field
 // (config overrides, triage) consumed by the --fail-on severity threshold, not
-// by grading — pinned separately by TestGradeReadsSeverityNotEffSeverity.
+// by grading — pinned by TestGradeReadsSeverityNotEffSeverity and, for the
+// scorer specifically, by TestScorerOverrideDoesNotMoveGrade.
 
 // emitted is one (severity, axis) pair a finding can carry when it reaches
 // grade.Grade.
@@ -114,10 +130,14 @@ func TestGradeScaleReachability(t *testing.T) {
 	for p, src := range strictMCPPairs(t) {
 		pairs[p] = append(pairs[p], src)
 	}
-	// Not a pair collector: fails on its own if a second severity/axis
-	// mutator appears in cmd/skill-detector alongside applyStrictMCP. See
-	// point 2 in the package doc comment above.
+	// Not pair collectors: fail on their own, independent of the reach
+	// computation below. assertStrictMCPIsSoleMutator catches a second
+	// severity/axis mutator appearing in cmd/skill-detector alongside
+	// applyStrictMCP (point 2 in the package doc comment above).
+	// assertScorerOnlyTouchesEffSeverity catches pkg/scorer.ApplyOverrides
+	// writing Severity or Axis instead of EffSeverity (point 5).
 	assertStrictMCPIsSoleMutator(t)
+	assertScorerOnlyTouchesEffSeverity(t)
 
 	// Two assertions follow that guard DIFFERENT things — do not delete
 	// either as redundant with the other:
@@ -250,36 +270,50 @@ func registeredPairs(t *testing.T) map[emitted]string {
 	return out
 }
 
-// strictMCPPairs executes applyStrictMCP on a finding built from SD-021's own
-// registered metadata and records what comes out. Executed, not read: the
-// upgrade is deliberately absent from the registry so the checksum stays put,
-// which means only running it tells the truth about what it emits.
+// strictMCPPairs executes applyStrictMCP on one finding built from EVERY
+// registered rule's own metadata and records what comes out of each.
+// Executed, not read, for the same reason as before: the upgrade is
+// deliberately absent from the registry so the checksum stays put, which
+// means only running it tells the truth about what it emits.
+//
+// Probed per rule, not just SD-021: applyStrictMCP switches on RuleID
+// internally, and a second ID-gated clause added there in the future — an
+// SD-024 upgrade is entirely plausible, SD-024 being the other MCP rule —
+// would be invisible to a probe that only ever builds an SD-021 finding. The
+// "SD-021 is still registered" check stays: it is what tells you the
+// function has not become dead code, not what tells you it hasn't grown a
+// new clause — that's what probing every rule is for.
 func strictMCPPairs(t *testing.T) map[emitted]string {
 	t.Helper()
-	var sd021 rules.Rule
-	for _, r := range rules.DefaultRegistry().All() {
+	reg := rules.DefaultRegistry()
+	sawSD021 := false
+	findings := make([]model.Finding, 0, reg.Count())
+	for _, r := range reg.All() {
 		if r.ID() == "SD-021" {
-			sd021 = r
+			sawSD021 = true
 		}
+		findings = append(findings, model.Finding{
+			RuleID:      r.ID(),
+			Description: "strict-mcp probe",
+			Severity:    r.Severity(),
+			EffSeverity: r.Severity(),
+			Axis:        r.Axis(),
+		})
 	}
-	if sd021 == nil {
+	if !sawSD021 {
 		t.Fatal("SD-021 is not registered; applyStrictMCP targets it by ID and would now be dead code")
 	}
 	res := &model.ScanResult{
-		Findings: []model.Finding{{
-			RuleID:      sd021.ID(),
-			Description: "strict-mcp probe",
-			Severity:    sd021.Severity(),
-			EffSeverity: sd021.Severity(),
-			Axis:        sd021.Axis(),
-		}},
-		Axes: map[axes.Axis]model.AxisResult{},
+		Findings: findings,
+		Axes:     map[axes.Axis]model.AxisResult{},
 	}
 	applyStrictMCP(res)
-	f := res.Findings[0]
-	return map[emitted]string{
-		{sev: f.Severity, axis: f.Axis}: "applyStrictMCP:SD-021 --strict-mcp",
+
+	out := map[emitted]string{}
+	for _, f := range res.Findings {
+		out[emitted{sev: f.Severity, axis: f.Axis}] = fmt.Sprintf("applyStrictMCP:%s --strict-mcp", f.RuleID)
 	}
+	return out
 }
 
 // modelImportPath and axesImportPath are the import paths whose local names
@@ -350,14 +384,20 @@ func assignedFindingField(lhs ast.Expr) string {
 }
 
 // parseNonTestGoFiles parses every non-test .go file directly inside dir and
-// returns them keyed by base filename.
+// returns them keyed by base filename. It does not recurse: a helper placed
+// in a subdirectory of pkg/rules, pkg/scorer, or cmd/skill-detector — none of
+// which has one today — would not be seen by any of the guards built on
+// this. All three are flat packages by convention; if one of them ever grows
+// a subpackage that also touches model.Finding, teach this function to walk
+// it or add a second call site for it.
 //
 // This uses os.ReadDir + parser.ParseFile rather than parser.ParseDir:
 // ParseDir is deprecated since Go 1.25 in favor of golang.org/x/tools/go/
-// packages, which considers build tags — not applicable here (neither
-// pkg/rules nor cmd/skill-detector carries build-tagged files), and adding a
-// new module dependency for a single-directory scan is out of proportion to
-// what this test needs. ReadDir+ParseFile finds the identical file set.
+// packages, which considers build tags — not applicable here (none of the
+// three packages this is called against carries build-tagged files), and
+// adding a new module dependency for a handful of flat-directory scans is
+// out of proportion to what this test needs. ReadDir+ParseFile finds the
+// identical file set.
 func parseNonTestGoFiles(t *testing.T, fset *token.FileSet, dir string) map[string]*ast.File {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -551,6 +591,53 @@ func assertStrictMCPIsSoleMutator(t *testing.T) {
 	}
 }
 
+// scorerDisallowedFields are the model.Finding fields pkg/scorer must never
+// write directly. scorer.ApplyOverrides applies a user's config severity
+// override, and pkg/scanner/scanner.go runs it before grade.Grade on the
+// same finding slice — it is meant to touch only EffSeverity, the field
+// --fail-on reads (TestGradeReadsSeverityNotEffSeverity), never Severity or
+// Axis, the fields grading itself reads. A single renamed field in that
+// assignment would move a customer's config override from the exit code
+// onto the published grade with nothing failing.
+var scorerDisallowedFields = map[string]bool{
+	"Severity": true,
+	"Axis":     true,
+}
+
+// assertScorerOnlyTouchesEffSeverity scans pkg/scorer's own non-test .go
+// files for a direct assignment to Finding.Severity or Finding.Axis. Unlike
+// the pkg/rules and cmd/skill-detector guards above, there is no exempt
+// function here: EffSeverity writes are legitimate everywhere in this
+// package (that is the whole job of ApplyOverrides) and Severity/Axis writes
+// are illegitimate everywhere in it, so the check is field-based rather than
+// function-based.
+func assertScorerOnlyTouchesEffSeverity(t *testing.T) {
+	t.Helper()
+	dir := filepath.Join("..", "..", "pkg", "scorer")
+	fset := token.NewFileSet()
+	files := parseNonTestGoFiles(t, fset, dir)
+	for base, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for _, lhs := range assign.Lhs {
+				sel, ok := lhs.(*ast.SelectorExpr)
+				if !ok || !scorerDisallowedFields[sel.Sel.Name] {
+					continue
+				}
+				pos := fset.Position(lhs.Pos())
+				t.Errorf("%s:%d: a Finding.%s field is assigned directly in pkg/scorer; scorer.ApplyOverrides must only ever write "+
+					"EffSeverity (the field --fail-on reads) — writing %s here would silently move a config override onto the "+
+					"published grade instead of just the exit code",
+					base, pos.Line, sel.Sel.Name, sel.Sel.Name)
+			}
+			return true
+		})
+	}
+}
+
 func exprString(fset *token.FileSet, e ast.Expr) string {
 	var b bytes.Buffer
 	if err := printer.Fprint(&b, fset, e); err != nil {
@@ -574,5 +661,43 @@ func TestGradeReadsSeverityNotEffSeverity(t *testing.T) {
 	}})
 	if res.Grade != axes.GradeC {
 		t.Fatalf("grade = %s, want C: grading must key on Severity (Medium->C), not EffSeverity (Critical->F)", res.Grade)
+	}
+}
+
+// TestScorerOverrideDoesNotMoveGrade is the behavioural half of the claim
+// assertScorerOnlyTouchesEffSeverity pins structurally: a user's per-rule
+// severity override in config (scorer.ApplyOverrides) moves the --fail-on
+// exit code and NOT the published grade. Grade() reads Finding.Severity
+// (TestGradeReadsSeverityNotEffSeverity); ApplyOverrides is supposed to
+// write only Finding.EffSeverity — grading the same finding before and
+// after the override has to produce the same letter. This is the claim a
+// customer actually reads in the docs, so it is worth pinning by running the
+// real code path (config -> ApplyOverrides -> Grade), not only by scanning
+// for the field name.
+func TestScorerOverrideDoesNotMoveGrade(t *testing.T) {
+	findings := []model.Finding{{
+		RuleID:      "PROBE",
+		Description: "probe",
+		Severity:    model.SeverityMedium,
+		EffSeverity: model.SeverityMedium,
+		Axis:        axes.Security,
+	}}
+	before := grade.Grade(axes.Security, findings).Grade
+
+	cfg := &config.Config{
+		Rules: map[string]config.RuleCfg{
+			"PROBE": {Severity: "critical"},
+		},
+	}
+	overridden, _ := scorer.ApplyOverrides(findings, cfg)
+	if overridden[0].EffSeverity != model.SeverityCritical {
+		t.Fatalf("ApplyOverrides did not raise EffSeverity to Critical as configured; the test setup is broken, not the assertion below")
+	}
+
+	after := grade.Grade(axes.Security, overridden).Grade
+	if before != after {
+		t.Errorf("grade moved from %s to %s after a config severity override (Medium -> Critical, EffSeverity only): "+
+			"scorer.ApplyOverrides must only move EffSeverity/the --fail-on exit code, never Severity/the published grade",
+			before, after)
 	}
 }
