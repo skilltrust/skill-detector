@@ -41,7 +41,7 @@ import (
 //
 // A rule's registered severity is a CEILING and the thing registry.Checksum()
 // hashes. The cap table is indexed by what a finding actually CARRIES, which
-// can differ in five places:
+// can differ in six places:
 //
 //  1. baseRule.newFindingAs (pkg/rules/rule.go) — a rule overrides severity and
 //     axis at match time. A registry-only enumeration would UNDERSTATE what
@@ -78,6 +78,15 @@ import (
 //     published grade with nothing failing. TestScorerOverrideDoesNotMoveGrade
 //     pins the same claim behaviourally: grade a finding before and after a
 //     config override and assert the letter does not move.
+//  6. pkg/scanner itself, which holds grade.Grade's production call site
+//     (scanner.go) and mutates the same finding slice one step earlier via
+//     applyTriage — the exact shape of point 5, one package over. This
+//     package legitimately writes only Finding.Triage today;
+//     assertScannerOnlyTouchesTriage pins, structurally, that it never
+//     writes Severity or Axis instead — a triage-driven `findings[i].
+//     Severity = X` inserted before the axis loop would move a published
+//     grade with nothing failing, which is exactly what the final review
+//     verified by execution before this guard existed.
 //
 // Grade() reads Finding.Severity. Finding.EffSeverity is a different field
 // (config overrides, triage) consumed by the --fail-on severity threshold, not
@@ -140,8 +149,11 @@ func TestGradeScaleReachability(t *testing.T) {
 	// applyStrictMCP (point 2 in the package doc comment above).
 	// assertScorerOnlyTouchesEffSeverity catches pkg/scorer.ApplyOverrides
 	// writing Severity or Axis instead of EffSeverity (point 5).
+	// assertScannerOnlyTouchesTriage catches the same shape one package over,
+	// on grade.Grade's own production call site (point 6).
 	assertStrictMCPIsSoleMutator(t)
 	assertScorerOnlyTouchesEffSeverity(t)
+	assertScannerOnlyTouchesTriage(t)
 
 	// Two assertions follow that guard DIFFERENT things — do not delete
 	// either as redundant with the other:
@@ -389,16 +401,17 @@ func assignedFindingField(lhs ast.Expr) string {
 
 // parseNonTestGoFiles parses every non-test .go file directly inside dir and
 // returns them keyed by base filename. It does not recurse: a helper placed
-// in a subdirectory of pkg/rules, pkg/scorer, or cmd/skill-detector — none of
-// which has one today — would not be seen by any of the guards built on
-// this. All three are flat packages by convention; if one of them ever grows
-// a subpackage that also touches model.Finding, teach this function to walk
-// it or add a second call site for it.
+// in a subdirectory of pkg/rules, pkg/scorer, pkg/scanner, or
+// cmd/skill-detector — none of which has one today — would not be seen by
+// any of the guards built on this. All four are flat packages by
+// convention; if one of them ever grows a subpackage that also touches
+// model.Finding, teach this function to walk it or add a second call site
+// for it.
 //
 // This uses os.ReadDir + parser.ParseFile rather than parser.ParseDir:
 // ParseDir is deprecated since Go 1.25 in favor of golang.org/x/tools/go/
 // packages, which considers build tags — not applicable here (none of the
-// three packages this is called against carries build-tagged files), and
+// four packages this is called against carries build-tagged files), and
 // adding a new module dependency for a handful of flat-directory scans is
 // out of proportion to what this test needs. ReadDir+ParseFile finds the
 // identical file set.
@@ -595,23 +608,30 @@ func assertStrictMCPIsSoleMutator(t *testing.T) {
 	}
 }
 
-// scorerDisallowedFields are the model.Finding fields pkg/scorer must never
-// write directly. scorer.ApplyOverrides applies a user's config severity
-// override, and pkg/scanner/scanner.go runs it before grade.Grade on the
-// same finding slice — it is meant to touch only EffSeverity, the field
-// --fail-on reads (TestGradeReadsSeverityNotEffSeverity), never Severity or
-// Axis, the fields grading itself reads. A single renamed field in that
-// assignment would move a customer's config override from the exit code
-// onto the published grade with nothing failing.
-var scorerDisallowedFields = map[string]bool{
+// gradingFieldsDisallowedOutsideConstructors are the model.Finding fields
+// grade.Grade keys on. Neither pkg/scorer nor pkg/scanner constructs
+// findings — pkg/rules' newFinding/newFindingAs already own that — so
+// neither package has any legitimate reason to write Severity or Axis
+// directly; a write to either, in either package, is a route to move a
+// published grade with nothing failing. Shared by
+// assertScorerOnlyTouchesEffSeverity and assertScannerOnlyTouchesTriage.
+var gradingFieldsDisallowedOutsideConstructors = map[string]bool{
 	"Severity": true,
 	"Axis":     true,
 }
 
 // assertScorerOnlyTouchesEffSeverity scans pkg/scorer's own non-test .go
-// files for a direct assignment to Finding.Severity or Finding.Axis. Unlike
-// the pkg/rules and cmd/skill-detector guards above, there is no exempt
-// function here: EffSeverity writes are legitimate everywhere in this
+// files for a direct assignment to Finding.Severity or Finding.Axis.
+// scorer.ApplyOverrides applies a user's config severity override, and
+// pkg/scanner/scanner.go runs it before grade.Grade on the same finding
+// slice — it is meant to touch only EffSeverity, the field --fail-on reads
+// (TestGradeReadsSeverityNotEffSeverity), never Severity or Axis, the fields
+// grading itself reads. A single renamed field in that assignment would move
+// a customer's config override from the exit code onto the published grade
+// with nothing failing.
+//
+// Unlike the pkg/rules and cmd/skill-detector guards above, there is no
+// exempt function here: EffSeverity writes are legitimate everywhere in this
 // package (that is the whole job of ApplyOverrides) and Severity/Axis writes
 // are illegitimate everywhere in it, so the check is field-based rather than
 // function-based.
@@ -628,13 +648,51 @@ func assertScorerOnlyTouchesEffSeverity(t *testing.T) {
 			}
 			for _, lhs := range assign.Lhs {
 				sel, ok := lhs.(*ast.SelectorExpr)
-				if !ok || !scorerDisallowedFields[sel.Sel.Name] {
+				if !ok || !gradingFieldsDisallowedOutsideConstructors[sel.Sel.Name] {
 					continue
 				}
 				pos := fset.Position(lhs.Pos())
 				t.Errorf("%s:%d: a Finding.%s field is assigned directly in pkg/scorer; scorer.ApplyOverrides must only ever write "+
 					"EffSeverity (the field --fail-on reads) — writing %s here would silently move a config override onto the "+
 					"published grade instead of just the exit code",
+					base, pos.Line, sel.Sel.Name, sel.Sel.Name)
+			}
+			return true
+		})
+	}
+}
+
+// assertScannerOnlyTouchesTriage scans pkg/scanner's own non-test .go files
+// for a direct assignment to Finding.Severity or Finding.Axis. This package
+// holds grade.Grade's production call site (scanner.go) and mutates the same
+// finding slice one step earlier via applyTriage — the exact shape
+// assertScorerOnlyTouchesEffSeverity guards against, one package over: today
+// this package legitimately writes only Finding.Triage (applyTriage,
+// scanner.go), never Severity or Axis, so a triage-driven
+// `findings[i].Severity = X` inserted anywhere before the axis loop would
+// move a published grade with nothing failing. No exempt function, for the
+// same reason as the scorer guard: Triage writes are legitimate everywhere
+// in this package, Severity/Axis writes are legitimate nowhere in it.
+func assertScannerOnlyTouchesTriage(t *testing.T) {
+	t.Helper()
+	dir := filepath.Join("..", "..", "pkg", "scanner")
+	fset := token.NewFileSet()
+	files := parseNonTestGoFiles(t, fset, dir)
+	for base, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for _, lhs := range assign.Lhs {
+				sel, ok := lhs.(*ast.SelectorExpr)
+				if !ok || !gradingFieldsDisallowedOutsideConstructors[sel.Sel.Name] {
+					continue
+				}
+				pos := fset.Position(lhs.Pos())
+				t.Errorf("%s:%d: a Finding.%s field is assigned directly in pkg/scanner; this package must only ever write "+
+					"Finding.Triage (the field applyTriage sets) — writing %s here would silently move a finding's grade, since "+
+					"grade.Grade's production call site (scanner.go) reads the same slice right after",
 					base, pos.Line, sel.Sel.Name, sel.Sel.Name)
 			}
 			return true
@@ -695,7 +753,8 @@ func TestScorerOverrideDoesNotMoveGrade(t *testing.T) {
 	}
 	overridden, _ := scorer.ApplyOverrides(findings, cfg)
 	if overridden[0].EffSeverity != model.SeverityCritical {
-		t.Fatalf("ApplyOverrides did not raise EffSeverity to Critical as configured; the test setup is broken, not the assertion below")
+		t.Fatalf("ApplyOverrides did not raise EffSeverity to Critical as configured: either this test's setup is wrong, " +
+			"or scorer.ApplyOverrides has stopped writing EffSeverity for a severity override — look at pkg/scorer/scorer.go first")
 	}
 
 	after := grade.Grade(axes.Security, overridden).Grade
