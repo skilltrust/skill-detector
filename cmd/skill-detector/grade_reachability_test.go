@@ -82,6 +82,22 @@ var wantReachable = map[axes.Axis][]axes.Grade{
 	axes.Quality:           {axes.GradeA},
 }
 
+// wantEmittedSeverities is the published PREMISE wantReachable's letter set
+// is derived from: which severities each axis's collectors actually emit,
+// as a set, independent of what letter each one caps to. It is not
+// redundant with wantReachable — see the comment at its call site in
+// TestGradeScaleReachability for why both assertions have to stay.
+//
+// docs/architecture.md states this as prose ("no rule anywhere emits Low or
+// Info", "nothing assigns the quality axis", "transparency only ever
+// carries Medium"); update it in the same commit as this map.
+var wantEmittedSeverities = map[axes.Axis]map[model.Severity]bool{
+	axes.Security:          {model.SeverityCritical: true, model.SeverityHigh: true, model.SeverityMedium: true},
+	axes.PermissionHygiene: {model.SeverityCritical: true, model.SeverityHigh: true, model.SeverityMedium: true},
+	axes.Transparency:      {model.SeverityMedium: true},
+	axes.Quality:           {},
+}
+
 // gradeOrder is display order, used only to make failure output readable.
 var gradeOrder = map[axes.Grade]int{
 	axes.GradeA: 0, axes.GradeB: 1, axes.GradeC: 2, axes.GradeD: 3, axes.GradeF: 4,
@@ -102,6 +118,24 @@ func TestGradeScaleReachability(t *testing.T) {
 	// mutator appears in cmd/skill-detector alongside applyStrictMCP. See
 	// point 2 in the package doc comment above.
 	assertStrictMCPIsSoleMutator(t)
+
+	// Two assertions follow that guard DIFFERENT things — do not delete
+	// either as redundant with the other:
+	//
+	//   - assertEmittedSeverities (below) pins the PREMISE: which
+	//     severities each axis's collectors actually emit. A rule or
+	//     newFindingAs site emitting (Low, Quality) or (Low, Transparency),
+	//     or an Info-severity finding anywhere, changes that premise even
+	//     though the cap table sends it to a letter the axis already
+	//     reaches (Quality already reaches A, Transparency already reaches
+	//     B) — the letter-set check two paragraphs down would pass it
+	//     silently. This one does not.
+	//   - the have/want comparison over `reach` (below) pins the SCALE:
+	//     which letters the published table shows readers. A cap-table edit
+	//     that keeps the same severities but changes what they cap to would
+	//     pass assertEmittedSeverities (same pairs, same premise) and has to
+	//     be caught here instead.
+	assertEmittedSeverities(t, pairs)
 
 	// Run every emitted pair through the real grader rather than restating the
 	// cap table here: a cap-table edit must show up as a reachability change.
@@ -134,6 +168,43 @@ func TestGradeScaleReachability(t *testing.T) {
 		if !sameGrades(have, want) {
 			t.Errorf("axis %s: reachable grades %v, documented %v\n%s",
 				a, have, want, explain(reach[a]))
+		}
+	}
+}
+
+// assertEmittedSeverities pins the set of severities each axis's collectors
+// actually emit against wantEmittedSeverities. Unlike the letter-set
+// assertion in TestGradeScaleReachability, this fails on a new pair even
+// when the cap table happens to send it to an already-reachable letter, and
+// it names the new pair and its source(s) the same way the letter-set
+// failure names the axis and its sources.
+func assertEmittedSeverities(t *testing.T, pairs map[emitted][]string) {
+	t.Helper()
+	have := map[axes.Axis]map[model.Severity][]string{}
+	for _, a := range axes.Order {
+		have[a] = map[model.Severity][]string{}
+	}
+	for p, srcs := range pairs {
+		have[p.axis][p.sev] = append(have[p.axis][p.sev], srcs...)
+	}
+
+	for _, a := range axes.Order {
+		want := wantEmittedSeverities[a]
+		for sev, srcs := range have[a] {
+			if want[sev] {
+				continue
+			}
+			sorted := append([]string(nil), srcs...)
+			sort.Strings(sorted)
+			t.Errorf("axis %s: severity %s is emitted but not documented — new pair (%s, %s) from: %s",
+				a, sev, sev, a, strings.Join(sorted, ", "))
+		}
+		for sev := range want {
+			if _, ok := have[a][sev]; !ok {
+				t.Errorf("axis %s: severity %s is documented in wantEmittedSeverities but no collector emits it anymore — "+
+					"update wantEmittedSeverities (and wantReachable, if the letter set changed too) in the same commit",
+					a, sev)
+			}
 		}
 	}
 }
