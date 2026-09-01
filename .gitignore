@@ -10,11 +10,7 @@ dist/
 # committed (git add -f is reserved for fixture CLAUDE.md in this repo).
 /vendor/
 
-.codex/
 .claude/
-.opencode/
-_bmad/
-_bmad-output/
 AGENTS.md
 CLAUDE.md
 
