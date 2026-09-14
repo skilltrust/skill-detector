@@ -5,6 +5,41 @@ Be extremely concise. Sacrifice grammar for the sake of concision.
 This is the coding contract for `skill-detector`. It applies to every agent and
 every contributor working in this repo. `CLAUDE.md` is a symlink to this file.
 
+## Git branches
+
+Name branches by purpose. Allowed types: `feat`, `fix`, `hotfix`, `refactor`,
+`docs`, `chore`, and `epic`.
+
+For work tracked in Linear, Jira, or another tracker, use
+`<type>/<issue-id>-<short-name>`. Copy the issue identifier exactly:
+
+```text
+feat/PROJ-123-short-name
+fix/PROJ-123-short-name
+hotfix/PROJ-123-short-name
+refactor/PROJ-123-short-name
+docs/PROJ-123-short-name
+chore/PROJ-123-short-name
+epic/PROJ-100-short-name
+```
+
+For untracked work, use `<type>/<short-name>`:
+
+```text
+feat/short-name
+fix/short-name
+hotfix/short-name
+refactor/short-name
+docs/short-name
+chore/short-name
+epic/short-name
+```
+
+Write the short name in lowercase kebab-case. For a large task or project, create
+an `epic/` branch. The developer decides between child pull requests into that
+branch and direct work on it. Merge the completed epic branch through one final
+pull request.
+
 ## Project knowledge
 
 Docs map: [`docs/README.md`](docs/README.md). The committed doc set is:
