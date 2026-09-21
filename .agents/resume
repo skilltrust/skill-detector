@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# No services or authentication need repair when this repository's orb resumes.
+exit 0

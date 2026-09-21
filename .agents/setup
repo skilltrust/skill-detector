@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+go_version="1.26.8"
+golangci_lint_version="2.11.4"
+
+step() {
+	printf '\n[%ss] %s\n' "$SECONDS" "$1"
+}
+
+step "Checking system packages"
+missing_packages=()
+for package in ca-certificates coreutils curl gzip tar; do
+	dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "ok installed" || missing_packages+=("$package")
+done
+if ((${#missing_packages[@]})); then
+	sudo apt-get update
+	sudo apt-get install -y "${missing_packages[@]}"
+fi
+
+step "Installing Go ${go_version}"
+if [[ "$(go version 2>/dev/null || true)" != "go version go${go_version} linux/"* ]]; then
+	case "$(dpkg --print-architecture)" in
+		amd64)
+			go_arch="amd64"
+			go_sha256="d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b"
+			;;
+		arm64)
+			go_arch="arm64"
+			go_sha256="211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0"
+			;;
+		*)
+			echo "Unsupported architecture: $(dpkg --print-architecture)" >&2
+			exit 1
+			;;
+	esac
+
+	tmp_dir="$(mktemp -d)"
+	trap 'rm -rf "$tmp_dir"' EXIT
+	go_archive="go${go_version}.linux-${go_arch}.tar.gz"
+	curl --fail --location --retry 3 --output "$tmp_dir/$go_archive" "https://go.dev/dl/$go_archive"
+	printf '%s  %s\n' "$go_sha256" "$tmp_dir/$go_archive" | sha256sum --check --status
+	sudo rm -rf /usr/local/go
+	sudo tar -C /usr/local -xzf "$tmp_dir/$go_archive"
+	sudo ln -sfn /usr/local/go/bin/go /usr/local/bin/go
+	sudo ln -sfn /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+	rm -rf "$tmp_dir"
+	trap - EXIT
+fi
+
+step "Installing golangci-lint ${golangci_lint_version}"
+if [[ "$(golangci-lint version 2>/dev/null || true)" != *"version ${golangci_lint_version}"* ]]; then
+	case "$(dpkg --print-architecture)" in
+		amd64)
+			lint_arch="amd64"
+			lint_sha256="200c5b7503f67b59a6743ccf32133026c174e272b930ee79aa2aa6f37aca7ef1"
+			;;
+		arm64)
+			lint_arch="arm64"
+			lint_sha256="3bcfa2e6f3d32b2bf5cd75eaa876447507025e0303698633f722a05331988db4"
+			;;
+		*)
+			echo "Unsupported architecture: $(dpkg --print-architecture)" >&2
+			exit 1
+			;;
+	esac
+
+	tmp_dir="$(mktemp -d)"
+	trap 'rm -rf "$tmp_dir"' EXIT
+	lint_base="golangci-lint-${golangci_lint_version}"
+	lint_archive="${lint_base}-linux-${lint_arch}.tar.gz"
+	release_url="https://github.com/golangci/golangci-lint/releases/download/v${golangci_lint_version}"
+	curl --fail --location --retry 3 --output "$tmp_dir/$lint_archive" "$release_url/$lint_archive"
+	printf '%s  %s\n' "$lint_sha256" "$tmp_dir/$lint_archive" | sha256sum --check --status
+	tar -C "$tmp_dir" -xzf "$tmp_dir/$lint_archive"
+	sudo install -m 0755 "$tmp_dir/${lint_base}-linux-${lint_arch}/golangci-lint" /usr/local/bin/golangci-lint
+	rm -rf "$tmp_dir"
+	trap - EXIT
+fi
+
+step "Downloading Go modules"
+go mod download
+
+step "Orb setup complete"
+go version
+golangci-lint version
