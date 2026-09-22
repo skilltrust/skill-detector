@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.11.0] - 2026-09-22
+
 - **#36, grade-changing:** SD-002 permits one U+FE0F emoji presentation
   selector before a ZWJ between already-recognized emoji codepoints. The
   family/rainbow-flag reproducer and heart-on-fire emoji now receive security
@@ -51,8 +53,9 @@
   migration to experimental `app-server`.
 - **26 rules**, checksum **`4dde2cc34cabc880`**. JSON schema **1.5**, existing
   Go signatures, axes, grading thresholds, discovery scope and exit-code
-  definitions remain unchanged. Not released: hosted/Action pins still need
-  the eventual published engine version; no production update is implied.
+  definitions remain unchanged. Hosted/Action adoption requires separate
+  updates to their engine pins and releases; this engine release does not
+  imply a production update.
 
 - **ST-126, grade-changing:** SD-004 detects content reads/disclosures of
   `~/.npmrc` and `~/.codex/auth.json`, also spelled with `$HOME/` or `${HOME}/`.
