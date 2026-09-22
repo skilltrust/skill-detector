@@ -1,5 +1,95 @@
 # Changelog
 
+## Unreleased
+
+- **ST-126, grade-changing:** SD-004 detects content reads/disclosures of
+  `~/.npmrc` and `~/.codex/auth.json`, also spelled with `$HOME/` or `${HOME}/`.
+  Direct prose requests, file-reader/copy commands, input redirection and
+  selected Python/JavaScript read expressions supply access evidence; a bare
+  filename, login/setup instruction or metadata check does not. Exact file
+  boundaries keep `.npmrc.example` and `auth.json.schema` out of this addition.
+  Existing scope gates, documentary/negation exemptions and older path entries
+  are unchanged. This remains line-local matching, not shell interpretation,
+  cross-line data flow or proof that a credential exists. Fixtures are scanned
+  as text, never executed; no referenced home credential is opened.
+- Validation against **v0.10.0**: two synthetic malicious packages, each with
+  one prose request and one hook-script read, move from **0/4 to 4/4** SD-004
+  findings and from `permission_hygiene A` to `F`. All **11 clean packages**
+  (10 existing, one new setup/control package) remain at **0 findings**.
+  Unit coverage adds 20 access and 26 benign templates, each across two stores,
+  three home spellings and 12 instruction/hook paths. These are constructed
+  regression checks, not estimates of real-world recall or false-positive rate.
+- Review regressions: LF and CRLF requests behave identically. `grep` search
+  patterns (including `-e`/`--regexp`) are not file reads, while input files,
+  `-f`/`--file` and executable command substitutions remain detectable. Paired
+  full-scanner tests assert `permission_hygiene A` for literal patterns and `F`
+  for reads. Both tests fail under the corresponding deliberate mutations.
+  `grep FILE -e PATTERN` and `grep FILE --regexp=PATTERN` keep FILE classified
+  as input. Escaped `\$(cat …)` and `$(basename …)` in search patterns are not
+  credential reads; executable substitution bodies are checked separately.
+  Operand masking starts at command positions: a filename named `grep` in
+  `cat grep ~/.npmrc` cannot hide the read. `jq --arg`/`--argjson` names and
+  values are data, while file inputs and executable substitutions still count.
+  Literal `echo`/`printf` arguments are not reader commands. Interleaved `>`
+  and `>>` output destinations are excluded without hiding later input files;
+  adjacent numeric descriptors do not consume grep patterns or jq arguments.
+  Input redirections and executable substitutions remain access evidence.
+  `Run`/`Please run` introductions retain command operand classification.
+  Positional jq filters are distinct from input filenames, including when
+  options precede the filter; `-f`/`--from-file` keep file-backed reads visible.
+  Bulleted and numbered Markdown commands retain operand classification.
+  Ordinary multi-source `cp`/`scp`/`rsync` commands check every source and
+  exclude the final destination; extended option forms retain the existing
+  matcher. Here-string (`<<<`) operands are data, not input filenames;
+  executable substitutions inside them are still checked independently.
+  JavaScript read expressions bind to the first literal filename argument,
+  not later literals in a chained call. Unquoted shell-comment boundaries
+  end operand masking; their instruction text is checked independently.
+  Whitespace-free executable backticks stay separate from literal Markdown
+  path spans. Quoted longer filenames do not match credential-file prefixes.
+  `sed`/`awk` literal programs and variable arguments are not file inputs;
+  input files, file-backed programs and explicit read/execute constructs
+  retain access evidence. This does not interpret arbitrary program logic.
+  Read/execute fragments cannot release unrelated literals in the same
+  program. Recognized file operands are checked as whole filenames, including
+  quoted names with spaces; metadata arguments cannot manufacture readers.
+  AWK comments and strings are not executable evidence; selected AWK read and
+  execute arguments must be unescaped literals, without expression evaluation.
+  Valid JSON strings are decoded before the new-path checks, so quoted copy
+  sources and grep patterns in hooks behave like their shell equivalents.
+  Findings retain their original JSON file/line and negation-test offsets.
+  Decoded LF/CRLF command lines are checked individually. Nested substitutions
+  and Markdown command spans receive the same grep operand checks as top-level
+  commands. A single lexical partition keeps child text out of ancestor scans;
+  tests bound total region size and check both reads and non-reads at depth
+  4,000. Nested non-read benchmarks at depths 100/200/400 took approximately
+  0.9/1.9/3.5 ms (previously 26/105/429 ms); depth 4,000 took 36 ms.
+  Complete access expressions replace repeated prefix matching, avoiding
+  quadratic work on repeated filenames. On the review orb, 2,000 non-access
+  mentions (28 KB) take about 11 ms instead of 7.62 s; 50,000 (700 KB) take
+  about 266 ms. These timings are local benchmark observations, not an SLA.
+- Independent baseline comparison: 131 existing fixture packages and 20
+  [public skill roots](https://github.com/anthropics/skills/tree/34040c9c568585f6929bedeaad110ad08f079624)
+  retain identical JSON results, stderr and exit codes in default and
+  `--scan-all` modes. Only the two new malicious packages change. Structured
+  property tests and bounded fuzzing cover copy source/destination roles,
+  exact-path suffixes, JSON escaping and physical locations. Performance
+  checks exposed unnecessary parsing of token-free JSON; early path checks
+  and direct JSON-string boundary scanning remove that work without skipping
+  escaped credential paths. Reproducible comparison benchmarks are included.
+- Store evaluation (2026-09-21): [npm documents](https://docs.npmjs.com/cli/v11/configuring-npm/npmrc)
+  both registry configuration and authentication fields; [Codex documents](https://developers.openai.com/codex/auth)
+  file-backed `auth.json` as well as OS credential storage. Neither file is
+  assumed to exist or always hold a secret. [Claude Code's documented](https://code.claude.com/docs/en/authentication)
+  `~/.claude/.credentials.json` already matches the legacy `.credentials`
+  entry; this change does not redesign its exemptions. [OpenCode's documented](https://opencode.ai/docs/providers/)
+  `~/.local/share/opencode/auth.json` remains unsupported. [Gemini CLI's auth guide](https://geminicli.com/docs/get-started/authentication/)
+  describes local caching without specifying its filename; no Gemini store
+  coverage is claimed here. OS keychains, relocated stores (`CODEX_HOME`, XDG
+  overrides), absolute-home and Windows spellings are not added.
+- Registry checksum unchanged at `2414c32f04000b5d` (25 rules); schema unchanged
+  at `1.5`. No release or downstream dependency pins changed.
+
 ## v0.10.0 — 2026-08-30
 
 **Grade-changing.** A package that reads `$HOME/.ssh/id_rsa`,
