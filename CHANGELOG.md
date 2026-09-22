@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **#36, grade-changing:** SD-002 permits one U+FE0F emoji presentation
+  selector before a ZWJ between already-recognized emoji codepoints. The
+  family/rainbow-flag reproducer and heart-on-fire emoji now receive security
+  A instead of F. The four-joiner per-line cap, emoji codepoint set and
+  detection of other invisible characters are unchanged. This remains a
+  bounded heuristic, not full Unicode emoji-sequence validation.
 - **ST-126, grade-changing:** SD-004 detects content reads/disclosures of
   `~/.npmrc` and `~/.codex/auth.json`, also spelled with `$HOME/` or `${HOME}/`.
   Direct prose requests, file-reader/copy commands, input redirection and
