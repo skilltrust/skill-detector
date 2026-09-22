@@ -1,0 +1,5 @@
+approval_policy = 'on-request'
+sandbox_mode = 'workspace-write'
+
+[mcp_servers.local]
+command = './bin/local-mcp'

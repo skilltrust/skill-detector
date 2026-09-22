@@ -78,5 +78,6 @@ func DefaultRegistry() *RuleRegistry {
 	RegisterHooksRules(r)
 	RegisterMCPRules(r)
 	RegisterReverseShellRules(r)
+	RegisterCodexRules(r)
 	return r
 }

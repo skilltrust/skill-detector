@@ -84,11 +84,17 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 	}
 
 	var findings []model.Finding
+	var warnings []string
 	activeRules := make(map[string]bool)
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		configWarnings, err := rules.CodexConfigDiagnostics(file.Content, file)
+		if err != nil {
+			return nil, fmt.Errorf("scanner: %w", err)
+		}
+		warnings = append(warnings, configWarnings...)
 		matched := s.reg.RulesFor(file.Ext)
 		for _, rule := range matched {
 			if s.isRuleDisabled(rule.ID()) {
@@ -162,7 +168,6 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		}
 	}
 
-	var warnings []string
 	if agentSurface == 0 {
 		warnings = append(warnings,
 			"no agent configuration files were found in scope, so nothing was checked and no grades are reported. This is not a clean result — verify the scan path, and see --scan-all if agent config is gitignored.")

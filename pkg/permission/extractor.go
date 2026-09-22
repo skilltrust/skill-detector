@@ -59,6 +59,7 @@ var ruleCapabilities = map[string][]capability{
 	"SD-023": {{typ: TypeShellExec}},
 	"SD-024": {{typ: TypeShellExec}},
 	"SD-025": {{typ: TypeShellExec}, {typ: TypeNetwork}},
+	"SD-026": {{typ: TypeShellExec}, {typ: TypeFilesystem}},
 }
 
 // capabilityFreeRules are rules that describe a technique, a documentation gap
