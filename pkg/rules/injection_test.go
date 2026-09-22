@@ -731,20 +731,14 @@ func TestSD002_CompoundEmojiWithSeparatePayloadStillFlagged(t *testing.T) {
 	}
 }
 
-func TestSD002_HeartOnFireSequenceStillFlagged(t *testing.T) {
-	// Known, documented limitation (not chased -- see zwjExemptIndices /
-	// isEmojiRune): a ZWJ-emoji sequence with a variation selector BEFORE
-	// the joiner, e.g. "heart on fire" U+2764 U+FE0F U+200D U+1F525, has
-	// U+FE0F (not an emoji codepoint) as the ZWJ's left neighbor, so this
-	// carve-out does not recognize it and the line still flags. That is
-	// the safe direction to be wrong in: this test locks in that the
-	// carve-out stays narrower than full real-world emoji usage rather
-	// than silently widening to cover it.
+func TestSD002_HeartOnFireSequenceNotFlagged(t *testing.T) {
+	// U+FE0F selects emoji presentation of the heart before the joiner.
+	// Like the rainbow flag in issue #36, this is not an invisible payload.
 	content := []byte("\u2764\ufe0f\u200d\U0001F525\n")
 	r := findRule(t, "SD-002")
 	findings := r.Match(content, model.FileContext{Path: "SKILL.md", Ext: ".md"})
-	if len(findings) != 1 {
-		t.Fatalf("a ZWJ preceded by a variation selector must still be flagged, got %d findings", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("heart on fire must not be flagged, got %d findings", len(findings))
 	}
 }
 

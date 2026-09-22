@@ -122,8 +122,8 @@ func isEmojiRune(r rune) bool {
 const maxExemptZWJPerLine = 4
 
 // zwjExemptIndices returns the indices within runes of every ZWJ character
-// that sits strictly between two emoji codepoints (isEmojiRune on both
-// neighbors) — the standard compound-emoji spelling, not a hidden payload.
+// between two emoji codepoints, optionally with one U+FE0F emoji presentation
+// selector after the left emoji — the compound-emoji spelling, not a payload.
 // If more than maxExemptZWJPerLine qualify, none are exempted: past that
 // cap the whole line is treated as untrusted rather than as an unusually
 // long legitimate emoji sequence — see maxExemptZWJPerLine for why that
@@ -137,7 +137,11 @@ func zwjExemptIndices(runes []rune) map[int]bool {
 		if idx == 0 || idx == len(runes)-1 {
 			continue
 		}
-		if isEmojiRune(runes[idx-1]) && isEmojiRune(runes[idx+1]) {
+		left := idx - 1
+		if runes[left] == '\uFE0F' {
+			left--
+		}
+		if left >= 0 && isEmojiRune(runes[left]) && isEmojiRune(runes[idx+1]) {
 			qualifying[idx] = true
 		}
 	}
