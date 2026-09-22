@@ -52,6 +52,16 @@ state — and `pkg/rules` never touches the filesystem, reading only the
 `FileContext` it is handed. Introducing a global, or a disk read inside a rule,
 breaks the embedding rather than just this repository.
 
+Codex TOML support adds `rules.IsCodexConfig`, `CodexConfigDiagnostics` and
+`RegisterCodexRules`; existing signatures and JSON fields are unchanged.
+Consumers of `Scanner.Scan` must preserve its error path and display warnings:
+unsupported analyzed configuration returns no result, while unresolved runtime
+activation is reported through the existing `Warnings` field. Direct rule
+consumers have the diagnostic obligation described in
+[`architecture.md`](architecture.md). The hosted sparse selector already
+includes the entire `.codex/` subtree, including nested and named profiles;
+this feature needs no broader sparse scope.
+
 ## A release is not done when the tag is cut
 
 Three places downstream pin this engine's version, and **none of them notices a
@@ -62,10 +72,11 @@ new tag**:
    the change reaches anyone using it by tag.
 2. **`go.mod` in the hosted scanner** — the version of this module it compiles
    against.
-3. **The hosted scanner's CI fixture clone** — a second, separate pin, checking
+3. **The hosted scanner's fixture clones** — two pins in
+   `.github/workflows/ci.yml` and one in `.github/workflows/nightly.yml`, checking
    out this repository at a fixed version to generate test fixtures. It is easy
-   to move the first two and forget this one; the symptom is a green build
-   testing an engine nobody is running.
+   to move the first two consumers and forget these clones; the symptom is a
+   green build testing an engine nobody is running.
 
 Moving all three is part of the release, not follow-up work. Until they move,
 the tag exists and no user is running it.

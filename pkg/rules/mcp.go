@@ -52,6 +52,17 @@ func decodeMCPServers(content []byte) map[string]mcpServer {
 	return servers
 }
 
+func mcpServersFor(content []byte, path string) map[string]mcpServer {
+	if IsCodexConfig(path) {
+		a, err := analyzeCodex(content)
+		if err != nil {
+			return nil
+		}
+		return a.servers
+	}
+	return decodeMCPServers(content)
+}
+
 // packageRunners auto-fetch and execute a package from a public registry.
 //
 // G6 limitation: this matches literal command names only. `${VAR}` /
@@ -67,10 +78,10 @@ type mcpExternalDomainRule struct {
 }
 
 func (r *mcpExternalDomainRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsMCPConfig(ctx.Path) && !IsClaudeSettings(ctx.Path) {
+	if !IsMCPConfig(ctx.Path) && !IsClaudeSettings(ctx.Path) && !IsCodexConfig(ctx.Path) {
 		return nil
 	}
-	servers := decodeMCPServers(content)
+	servers := mcpServersFor(content, ctx.Path)
 	var findings []model.Finding
 	for name, srv := range servers {
 		raw := srv.URL
@@ -110,10 +121,10 @@ type mcpAutoInstallRule struct {
 }
 
 func (r *mcpAutoInstallRule) Match(content []byte, ctx model.FileContext) []model.Finding {
-	if !IsMCPConfig(ctx.Path) && !IsClaudeSettings(ctx.Path) {
+	if !IsMCPConfig(ctx.Path) && !IsClaudeSettings(ctx.Path) && !IsCodexConfig(ctx.Path) {
 		return nil
 	}
-	servers := decodeMCPServers(content)
+	servers := mcpServersFor(content, ctx.Path)
 	var findings []model.Finding
 	for name, srv := range servers {
 		head := filepath.Base(strings.TrimSpace(srv.Command))
@@ -148,7 +159,7 @@ func RegisterMCPRules(registry *RuleRegistry) {
 			name:     "MCP External Domain Reach",
 			severity: model.SeverityMedium,
 			category: "MCP",
-			types:    []string{".json"},
+			types:    []string{".json", ".toml"},
 			axis:     axes.PermissionHygiene,
 		},
 	})
@@ -158,7 +169,7 @@ func RegisterMCPRules(registry *RuleRegistry) {
 			name:     "MCP Auto-Installed Package Execution",
 			severity: model.SeverityMedium,
 			category: "MCP",
-			types:    []string{".json"},
+			types:    []string{".json", ".toml"},
 			axis:     axes.Transparency,
 		},
 	})

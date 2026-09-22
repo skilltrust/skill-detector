@@ -20,6 +20,15 @@ finding carries the axis of the rule that produced it. The strings are
 wire-stable — they appear in JSON output, badge URLs and downstream databases —
 so changing one is a major version bump. Defined in `pkg/axes`.
 
+### Declaration analysis
+
+Inspection of configuration present in scanned files, not a reconstruction of
+the configuration a harness will execute. Trust, selected profiles, omitted
+sources, overrides and external enforcement may change activation. A declared
+capability finding does not prove that an untrusted repository can activate
+it. Warnings carry that distinction; absence of findings does not certify an
+effective runtime configuration.
+
 ### Delta
 
 The difference between two scan results: per-axis grade movement, findings

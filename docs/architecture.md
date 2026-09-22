@@ -22,6 +22,8 @@ Input (directory or file path)
         follows in-tree symlinks through a scoped os.Root
       • records skill roots and stamps FileContext.SkillRoot
   → Rule application                  pkg/rules
+      • CodexConfigDiagnostics validates the supported TOML subset first;
+        errors abort the scan, limitations append ScanResult.Warnings
       • every Match() gates by file class first
       • baseRule.newFinding stamps the rule's axis onto each finding
   → Confidence scoring + diagnosis    pkg/scorer.Score
@@ -41,6 +43,11 @@ Stages run in that order — `pkg/scanner/scanner.go` is the one place the order
 is expressed — and each consumes the slice the previous one produced. The sort
 sits ahead of triage deliberately: it fixes the batch a verifier sees and the
 order findings are reported in, so neither depends on walk timing.
+
+Configuration diagnostics are independent of enabled rules. Disabling a
+finding must not convert an unparsed Codex configuration into a clean result.
+Direct `Rule.Match` consumers must also call `rules.CodexConfigDiagnostics`:
+the rule interface has no error/warning channel. The scanner handles both.
 
 ## Commands
 

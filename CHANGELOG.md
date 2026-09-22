@@ -8,6 +8,48 @@
   A instead of F. The four-joiner per-line cap, emoji codepoint set and
   detection of other invisible characters are unchanged. This remains a
   bounded heuristic, not full Unicode emoji-sequence validation.
+
+- **ST-127, grade-changing:** parse `.codex/config.toml` and named
+  `.codex/*.config.toml` profile files, including nested project copies.
+  MCP `command`/`args` and HTTP `url` reuse SD-024 and SD-021 with identical
+  severity, explanation and remediation to equivalent JSON declarations.
+  `enabled=false` servers do not emit these MCP findings. Generic content
+  rules still run independently; this does not suppress SD-007 for URLs.
+- New **SD-026 — Codex Unrestricted Sandbox**, HIGH on `permission_hygiene`,
+  flags declared `danger-full-access`; explicitly explains the absence of
+  prompts when paired with `approval_policy='never'`. `never` alone, or with
+  `read-only`/`workspace-write`, is not a sandbox bypass. Supports `on-request`,
+  the `on-failure` compatibility alias and granular approval tables (false
+  controls reject prompts, not grant permissions).
+- Codex analysis is declaration-only: warnings distinguish repository contents
+  from effective configuration. It never reads `$CODEX_HOME`, follows external
+  configuration sources, resolves CLI overrides or establishes project trust.
+  Inline profile declarations are inspected separately, without inheritance or
+  cross-profile merging; findings explicitly identify them as ignored by the
+  supported version's project-local loader. Named profiles need external
+  selection. A repository's own `trust_level` cannot authenticate user trust.
+- Parser baseline: Codex **rust-v0.155.0**
+  ([schema](https://github.com/openai/codex/blob/rust-v0.155.0/codex-rs/core/config.schema.json),
+  [source precedence and project-local denylist](https://github.com/openai/codex/blob/rust-v0.155.0/codex-rs/config/src/loader/mod.rs)).
+  This is a bounded parser, not full Codex schema validation. Supported MCP
+  ancillary fields: `cwd`, `env`, `http_headers`, `env_http_headers`,
+  `bearer_token_env_var`, `http_headers_helper`, `enabled`, `required`,
+  `enabled_tools`, `disabled_tools`, `scopes`, the three timeout fields and
+  legacy `name`. Other MCP fields, conflicting transports, unsupported
+  approval/sandbox values, invalid analyzed field types and malformed TOML
+  return a scan error (CLI exit **3**), without a graded result. Unanalyzed
+  configuration fields are explicitly outside the validation claim.
+- Inventory warnings identify AWS `credential_export`/`auth_refresh` commands
+  and MCP `http_headers_helper` without executing them or exposing their
+  arguments. AWS provider names alone do not imply a threat. Removal of
+  `codex mcp-server`/`codex-mcp-server` is compatibility information, not a CVE;
+  the vendor's September 5 notice gives no exact version cutoff. No automatic
+  migration to experimental `app-server`.
+- **26 rules**, checksum **`4dde2cc34cabc880`**. JSON schema **1.5**, existing
+  Go signatures, axes, grading thresholds, discovery scope and exit-code
+  definitions remain unchanged. Not released: hosted/Action pins still need
+  the eventual published engine version; no production update is implied.
+
 - **ST-126, grade-changing:** SD-004 detects content reads/disclosures of
   `~/.npmrc` and `~/.codex/auth.json`, also spelled with `$HOME/` or `${HOME}/`.
   Direct prose requests, file-reader/copy commands, input redirection and
