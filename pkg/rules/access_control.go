@@ -2,8 +2,11 @@ package rules
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -129,6 +132,910 @@ var credentialPaths = [][]byte{
 	[]byte("/etc/shadow"),
 	[]byte("/etc/passwd"),
 	[]byte(".credentials"),
+	[]byte("~/.npmrc"),
+	[]byte("~/.codex/auth.json"),
+}
+
+// These two file targets require content-access evidence, unlike the legacy
+// path patterns above. npmrc also holds ordinary registry configuration;
+// mentioning either filename or changing its permissions is not a read.
+// Keep this separate from the shared exemption vetoes: changing those would
+// change established SD-004/SD-013 behaviour. This is a line-local detector,
+// not shell parsing or cross-line variable/data-flow analysis.
+const proseAccessPrefix = `\b(?:read|print|dump|show|display|return|include|send|upload|copy|disclose|paste|output)\s+(?:(?:the|its|full|complete|entire|raw|file|contents?|of|from)\s+)*`
+
+const credentialContentPrefix = `(?i:` + proseAccessPrefix + "[`\"']?" +
+	`|\b(?:cat|head|tail|less|more|awk|sed|grep|xxd|strings|od|base64|jq)\s+(?:[^;|&>\r\n]*?` + "[ \t\"'`(<:=|]" + `)?` +
+	`|\b(?:cp|scp|rsync)\s+(?:-[^\s]+\s+)*["']?` +
+	`|<\s*["']?)`
+
+const credentialContentBoundary = `(?:$|[ \t"'` + "`" + `)>,;|&\]}!?]|\.(?:$|[ \t])|\\")`
+
+type credentialCommandRegion struct {
+	text              []byte
+	offsets           []int
+	literals, sources [][2]int
+	language          bool
+}
+
+type credentialCommandBody struct {
+	span     [2]int
+	language bool
+}
+
+func credentialMarkdownPath(text []byte) bool {
+	if bytes.ContainsAny(text, " \t\r\n<>;|&()") {
+		return false
+	}
+	for _, prefix := range homePrefixes {
+		if bytes.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Partition once, not once per nesting level. A parent receives a non-path
+// placeholder for each substitution; its body belongs only to the child.
+// Total text and offset storage is O(n), even for adversarial nesting.
+func credentialCommandRegions(line []byte, language bool) []credentialCommandRegion {
+	expressions := reCredentialReadExpression.FindAllSubmatchIndex(line, -1)
+	if !language && len(expressions) > 0 && reCredentialReadCodeStart.Match(line) {
+		// A printed example cannot turn an enclosing shell assignment into
+		// source code. Require an actual unquoted expression before promoting.
+		quote, candidate := byte(0), 0
+		for i := 0; i < len(line) && candidate < len(expressions); i++ {
+			for candidate < len(expressions) && expressions[candidate][0] < i {
+				candidate++
+			}
+			if candidate < len(expressions) && expressions[candidate][0] == i && quote == 0 {
+				language = true
+				break
+			}
+			c := line[i]
+			if quote == 0 && c == '#' {
+				break // Comment instructions cannot reclassify preceding shell code.
+			}
+			if c == '\\' && quote != '\'' {
+				i++
+			} else if quote != 0 && c == quote {
+				quote = 0
+			} else if quote == 0 && (c == '\'' || c == '"') {
+				quote = c
+			}
+		}
+	}
+	regions := []credentialCommandRegion{{language: language}}
+	type frame struct {
+		region, opening, parens                int
+		closing, quote                         byte
+		child, language                        bool
+		literalStart, readStart                int
+		literalRead, literalFile, readEligible bool
+	}
+	stack := []frame{{language: language, readStart: -1}}
+	expression := 0
+	proseExpressions := reCredentialProseFile.FindAllSubmatchIndex(line, -1)
+	proseExpression := 0
+	proseContext := line
+	if len(proseExpressions) > 0 {
+		// Operand words such as jq variable names and echo arguments are
+		// not prose introductions, regardless of their spelling.
+		proseContext, _, _, _ = maskCredentialCommandData(line)
+	}
+	put := func(region, pos int, c byte) {
+		regions[region].text = append(regions[region].text, c)
+		regions[region].offsets = append(regions[region].offsets, pos)
+	}
+	for i := 0; i < len(line); i++ {
+		f := &stack[len(stack)-1]
+		c := line[i]
+		for expression < len(expressions) && expressions[expression][0] < i {
+			expression++
+		}
+		if expression < len(expressions) && expressions[expression][0] == i && f.quote == 0 {
+			f.language = true
+			f.readEligible = true
+			f.readStart = expressions[expression][2]
+			if f.readStart < 0 {
+				f.readStart = expressions[expression][4]
+			}
+		}
+		for proseExpression < len(proseExpressions) && proseExpressions[proseExpression][0] < i {
+			proseExpression++
+		}
+		if proseExpression < len(proseExpressions) && proseExpressions[proseExpression][0] == i &&
+			f.quote == 0 && !f.language && proseContext[i] != ' ' {
+			f.readStart = proseExpressions[proseExpression][2]
+			tail := line[proseExpressions[proseExpression][3]:]
+			f.readEligible = len(tail) == 0 || bytes.ContainsAny(tail[:1], " \t\r\n),;|&<>}]!?") ||
+				(tail[0] == '.' && (len(tail) == 1 || tail[1] == ' ' || tail[1] == '\t'))
+		}
+		if c == '\\' && (f.quote != '\'' || f.language) {
+			put(f.region, i, c)
+			if i+1 < len(line) {
+				i++
+				put(f.region, i, line[i])
+			}
+			continue
+		}
+		if c == f.closing && f.quote == 0 && f.parens == 0 && len(stack) > 1 {
+			// A one-token Markdown code span is often a path, not a
+			// command. Keep it with its surrounding imperative prose.
+			if c == '`' && !f.child && credentialMarkdownPath(regions[f.region].text) {
+				parent := &regions[stack[len(stack)-2].region]
+				parent.text = parent.text[:len(parent.text)-1]
+				parent.offsets = parent.offsets[:len(parent.offsets)-1]
+				for pos := f.opening + 1; pos < i; pos++ {
+					put(stack[len(stack)-2].region, pos, line[pos])
+				}
+				if i+1 < len(line) && strings.ContainsRune(".!?,", rune(line[i+1])) &&
+					(i+2 == len(line) || line[i+2] == ' ' || line[i+2] == '\t') {
+					// Sentence punctuation outside a Markdown span is not
+					// part of its filename. Keep ordinary shell suffixes intact.
+					put(stack[len(stack)-2].region, i, ' ')
+				}
+				regions[f.region] = credentialCommandRegion{}
+			}
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if !f.language && !f.literalFile && f.quote != '\'' && (c == '`' || (c == '$' && i+1 < len(line) && line[i+1] == '(')) {
+			closing := byte('`')
+			opening := i
+			if c == '$' {
+				closing = ')'
+				i++
+			}
+			put(f.region, opening, 0) // Cannot synthesize part of a path.
+			f.child = true
+			regions = append(regions, credentialCommandRegion{})
+			stack = append(stack, frame{region: len(regions) - 1, opening: opening, closing: closing, readStart: -1})
+			continue
+		}
+		put(f.region, i, c)
+		if f.quote != 0 && c == f.quote {
+			if f.language || f.literalFile {
+				span := [2]int{f.literalStart, len(regions[f.region].text)}
+				regions[f.region].literals = append(regions[f.region].literals, span)
+				if f.literalRead {
+					regions[f.region].sources = append(regions[f.region].sources, span)
+				}
+			}
+			f.quote = 0
+			f.literalRead = false
+			f.literalFile = false
+		} else if f.quote == 0 && (c == '\'' || c == '"' || (f.language && c == '`')) {
+			f.quote = c
+			f.literalStart = len(regions[f.region].text) - 1
+			f.literalFile = i == f.readStart
+			f.literalRead = f.literalFile && f.readEligible
+		} else if f.quote == 0 && c == ';' {
+			f.language = regions[f.region].language
+		} else if f.quote == 0 && c == '(' {
+			f.parens++
+		} else if f.quote == 0 && c == ')' && f.parens > 0 {
+			f.parens--
+		}
+	}
+	return regions
+}
+
+// Regions contain no executable child bodies; only quote-aware word
+// boundaries are needed to classify command operands here.
+func credentialCommandTokens(line []byte) [][2]int {
+	var tokens [][2]int
+	start, quote := -1, byte(0)
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		separator := strings.ContainsRune(";|&<>`", rune(c))
+		if quote == 0 && (c == ' ' || c == '\t' || c == '\r' || c == '\n' || (separator && c != '`')) {
+			if start >= 0 {
+				tokens = append(tokens, [2]int{start, i})
+				start = -1
+			}
+			if separator {
+				end := i + 1
+				if c == '<' && bytes.HasPrefix(line[i:], []byte("<<<")) {
+					end = i + 3
+				}
+				tokens = append(tokens, [2]int{i, end})
+				i = end - 1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+		if c == '\\' && quote != '\'' {
+			i++
+		} else if c == quote {
+			quote = 0
+		} else if quote == 0 && (c == '\'' || c == '"') {
+			quote = c
+		}
+	}
+	if start >= 0 {
+		tokens = append(tokens, [2]int{start, len(line)})
+	}
+	return tokens
+}
+
+const quotedPathLiteral = `"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'`
+
+var reCredentialListMarker = regexp.MustCompile(`^(?:[-+*]|[0-9]{1,9}[.)])$`)
+var reCredentialQuotedLiteral = regexp.MustCompile(quotedPathLiteral)
+var reCredentialProseFile = regexp.MustCompile(`(?i)` + proseAccessPrefix + `(` + quotedPathLiteral + `)`)
+var reCredentialReadExpression = regexp.MustCompile(
+	`\b(?:readFileSync|readFile)\s*\(\s*(` + quotedPathLiteral + `)\s*[,)]|` +
+		`\b(?:open|Path)\s*\(\s*(` + quotedPathLiteral + `)\s*\)\s*\.(?:read|read_text|read_bytes)\s*\(`,
+)
+var reCredentialReadCodeStart = regexp.MustCompile(`^\s*(?:[a-zA-Z_$][\w.$]*\s*[=(]|(?:const|let|var|return|await)\b)`)
+var reCredentialAwkRead = regexp.MustCompile(`^getline\b\s*(?:[a-zA-Z_]\w*\s*)?<\s*("[^"\\\n]*")\s*(?:[;})\]]|$)`)
+var reCredentialAwkExecute = regexp.MustCompile(`^system\s*\(\s*"([^"\\\n]*)"\s*\)`)
+var reCredentialAwkAssignment = regexp.MustCompile(`^[a-zA-Z_]\w*=`)
+
+// Locate a selected sed operation at a command boundary, never inside an
+// address, substitution or text argument. r/R/e consume the rest of the line.
+func credentialSedOperation(program []byte) (byte, int) {
+	i := 0
+	skipDelimited := func(delimiter byte) bool {
+		for i < len(program) {
+			c := program[i]
+			i++
+			if c == '\\' && i < len(program) {
+				i++
+			} else if c == delimiter {
+				return true
+			}
+		}
+		return false
+	}
+	for i < len(program) {
+		if strings.ContainsRune(" \t;{},!$0123456789", rune(program[i])) {
+			i++
+			continue
+		}
+		command := program[i]
+		i++
+		if command == '/' {
+			if !skipDelimited('/') {
+				break
+			}
+			continue
+		}
+		switch command {
+		case 'r', 'R', 'e':
+			if i < len(program) && (program[i] == ' ' || program[i] == '\t') {
+				for i < len(program) && (program[i] == ' ' || program[i] == '\t') {
+					i++
+				}
+				return command, i
+			}
+			return 0, 0
+		case 's', 'y':
+			if i == len(program) {
+				return 0, 0
+			}
+			delimiter := program[i]
+			i++
+			for range 2 { // Pattern, then replacement.
+				if !skipDelimited(delimiter) {
+					return 0, 0
+				}
+			}
+		case '#', 'a', 'i', 'c', 'w', 'W':
+			return 0, 0 // Remaining text is a comment, data or output filename.
+		}
+		for i < len(program) && program[i] != ';' {
+			if program[i] == '#' || (command == 's' && program[i] == 'w') {
+				return 0, 0 // Substitution output filenames also extend to line end.
+			}
+			i++
+		}
+	}
+	return 0, 0
+}
+
+// Return masked text, quoted file operands, raw filenames and literal execute
+// bodies separately. The caller partitions execute bodies before scanning.
+func maskCredentialCommandData(line []byte) ([]byte, [][2]int, [][2]int, []credentialCommandBody) {
+	out := bytes.Clone(line)
+	readExpression := reCredentialReadExpression.Match(line)
+	mask := func(start, end int) {
+		for i := start; i < end; i++ {
+			out[i] = ' '
+		}
+	}
+	active, pattern, options := false, false, true
+	commandStart, jq, literalArgs := true, false, false
+	proseCommand := false
+	fileReader := ""
+	xxdInput, xxdOptionValue := false, false
+	var redirect byte
+	jqDataWords, jqFileWords := 0, 0
+	jqNeedsFilter := false
+	var fileSources, rawSources [][2]int
+	var executions []credentialCommandBody
+	languageCommand, languageNext := "", false
+	scriptCommand, scriptNeedsProgram, scriptNext := "", false, byte(0)
+	maskProgram := func(start, end int) {
+		mask(start, end)
+		if end-start >= 2 && (line[start] == '\'' || line[start] == '"') && line[end-1] == line[start] {
+			start++
+			end--
+		}
+		if scriptCommand == "sed" {
+			command, offset := credentialSedOperation(line[start:end])
+			if command == 'e' {
+				executions = append(executions, credentialCommandBody{span: [2]int{start + offset, end}})
+			} else if command != 0 {
+				rawSources = append(rawSources, [2]int{start + offset, end})
+			}
+			return
+		}
+		// Only code tokens supply AWK operations. Selected literal arguments
+		// contain no escapes; undecoded AWK bytes must not become shell code.
+		for i := start; i < end; {
+			if line[i] == '#' {
+				return
+			}
+			if line[i] == '"' {
+				i++
+				for i < end {
+					c := line[i]
+					i++
+					if c == '\\' && i < end {
+						i++
+					} else if c == '"' {
+						break
+					}
+				}
+				continue
+			}
+			var loc []int
+			if i == start || !strings.ContainsRune("_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", rune(line[i-1])) {
+				switch line[i] {
+				case 'g':
+					loc = reCredentialAwkRead.FindSubmatchIndex(line[i:end])
+				case 's':
+					loc = reCredentialAwkExecute.FindSubmatchIndex(line[i:end])
+				}
+			}
+			if loc == nil {
+				i++
+				continue
+			}
+			if line[i] == 'g' {
+				fileSources = append(fileSources, [2]int{i + loc[2], i + loc[3]})
+			} else {
+				executions = append(executions, credentialCommandBody{span: [2]int{i + loc[2], i + loc[3]}})
+			}
+			i += loc[1]
+		}
+	}
+	copyCommand := false
+	var copyOperands, grepOperands [][2]int
+	finish := func() {
+		if active {
+			for i, loc := range grepOperands {
+				if pattern || i > 0 {
+					fileSources = append(fileSources, loc)
+				}
+				mask(loc[0], loc[1])
+			}
+		}
+		if copyCommand && len(copyOperands) >= 2 {
+			fileSources = append(fileSources, copyOperands[:len(copyOperands)-1]...)
+			for _, loc := range copyOperands {
+				mask(loc[0], loc[1])
+			}
+		}
+	}
+	var next byte
+	tokens := credentialCommandTokens(line)
+	for i, loc := range tokens {
+		word := string(line[loc[0]:loc[1]])
+		if i == 0 && loc[1] < len(line) && (line[loc[1]] == ' ' || line[loc[1]] == '\t') && reCredentialListMarker.MatchString(word) {
+			proseCommand = true
+			continue
+		}
+		if proseCommand && i == len(tokens)-1 && len(word) > 1 && strings.ContainsRune(".!?", rune(word[len(word)-1])) {
+			loc[1]-- // Sentence punctuation outside the final filename token.
+			word = word[:len(word)-1]
+		}
+		if strings.HasPrefix(word, "#") {
+			// Shell comments remain instruction text, but do not inherit the
+			// preceding command's argument roles or access evidence.
+			finish()
+			active, jq, literalArgs = false, false, false
+			fileReader = ""
+			scriptCommand = ""
+			languageCommand, languageNext = "", false
+			copyCommand, copyOperands = false, nil
+			proseCommand = false
+			commandStart, redirect = true, 0
+			out[loc[0]] = ';'
+			loc[0]++
+			word = word[1:]
+			if word == "" {
+				continue
+			}
+		}
+		// An unquoted number touching a redirection is a descriptor, not an
+		// operand (unlike the separate argument in "grep 2 > output.txt").
+		if redirect == 0 && strings.Trim(word, "0123456789") == "" && i+1 < len(tokens) &&
+			tokens[i+1][0] == loc[1] && strings.ContainsRune("<>", rune(line[loc[1]])) {
+			mask(loc[0], loc[1])
+			continue
+		}
+		if word == "<<<" {
+			redirect = 'h' // Here-string data, not a filename.
+			mask(loc[0], loc[1])
+			continue
+		}
+		if word == ">" && loc[0] > 0 && line[loc[0]-1] == '=' && readExpression &&
+			!active && !jq && !literalArgs && fileReader == "" && scriptCommand == "" && languageCommand == "" && !copyCommand {
+			continue // Callback arrow in a read expression, not a shell destination.
+		}
+		if len(word) == 1 && strings.ContainsAny(word, ";|&<>`") {
+			if strings.ContainsAny(word, "<>") {
+				redirect = word[0]
+				if redirect == '>' {
+					mask(loc[0], loc[1])
+				}
+			} else {
+				finish()
+				active, jq, literalArgs = false, false, false
+				fileReader = ""
+				scriptCommand = ""
+				languageCommand, languageNext = "", false
+				copyCommand, copyOperands = false, nil
+				proseCommand = false
+				commandStart, redirect = true, 0
+			}
+			continue
+		}
+		if redirect != 0 {
+			// Output destinations neither read a credential nor terminate the
+			// command's input operands. Input redirections remain evidence.
+			if redirect == '<' {
+				fileSources = append(fileSources, loc)
+			}
+			mask(loc[0], loc[1])
+			redirect = 0
+			continue
+		}
+		if commandStart || (!active && !jq && !literalArgs && fileReader == "" && scriptCommand == "" && languageCommand == "" && !copyCommand) {
+			// Explicit imperative introductions do not own the following
+			// command's operands. Never recognize these inside an operand list.
+			if strings.EqualFold(word, "run") || strings.EqualFold(word, "please") {
+				proseCommand = true
+				continue
+			}
+			proseCommand = proseCommand || !commandStart
+			commandStart = false
+			if strings.EqualFold(word, "grep") {
+				active, pattern, options, next = true, false, true, 0
+				grepOperands = nil
+			} else if strings.EqualFold(word, "jq") {
+				jq, options, jqDataWords, jqFileWords = true, true, 0, 0
+				jqNeedsFilter = true
+			} else if strings.EqualFold(word, "echo") || strings.EqualFold(word, "printf") {
+				literalArgs = true
+			} else if strings.EqualFold(word, "cp") || strings.EqualFold(word, "scp") || strings.EqualFold(word, "rsync") {
+				copyCommand, options, copyOperands = true, true, nil
+			} else if strings.EqualFold(word, "sed") || strings.EqualFold(word, "awk") {
+				scriptCommand, scriptNeedsProgram, scriptNext, options = strings.ToLower(word), true, 0, true
+				mask(loc[0], loc[1]) // The program's selected operations supply evidence.
+			}
+			switch strings.ToLower(word) {
+			case "cat", "head", "tail", "less", "more", "xxd", "strings", "od", "base64":
+				fileReader = strings.ToLower(word)
+				xxdInput, xxdOptionValue = false, false
+			case "stat", "ls", "test", "chmod", "touch", "basename", "dirname":
+				literalArgs = true
+			case "node", "nodejs", "python", "python3":
+				languageCommand = strings.ToLower(word)
+			}
+			continue
+		}
+		if languageCommand != "" {
+			if languageNext {
+				start, end := loc[0], loc[1]
+				if end-start >= 2 && (line[start] == '\'' || line[start] == '"') && line[end-1] == line[start] {
+					start++
+					end--
+				}
+				executions = append(executions, credentialCommandBody{span: [2]int{start, end}, language: true})
+				languageNext = false
+			} else if strings.HasPrefix(languageCommand, "node") {
+				languageNext = word == "-e" || word == "--eval" || word == "-p" || word == "--print"
+			} else {
+				languageNext = word == "-c"
+			}
+			mask(loc[0], loc[1])
+			continue
+		}
+		if fileReader != "" {
+			if fileReader != "xxd" {
+				fileSources = append(fileSources, loc)
+			} else if xxdOptionValue {
+				xxdOptionValue = false
+			} else if strings.HasPrefix(word, "-") && word != "-" {
+				switch word {
+				case "-c", "-cols", "-g", "-groupsize", "-l", "-len", "-s", "-seek", "-o", "-offset", "-n", "-name", "-R":
+					xxdOptionValue = true
+				}
+			} else if !xxdInput {
+				fileSources = append(fileSources, loc)
+				xxdInput = true
+			}
+			mask(loc[0], loc[1])
+			continue
+		}
+		if scriptCommand != "" {
+			if scriptNext != 0 {
+				switch scriptNext {
+				case 'e':
+					maskProgram(loc[0], loc[1])
+				case 'v':
+					mask(loc[0], loc[1])
+				case 'f':
+					fileSources = append(fileSources, loc)
+					mask(loc[0], loc[1])
+				}
+				scriptNext = 0
+			} else if options && word == "--" {
+				options = false
+			} else if options && strings.HasPrefix(word, "-") && word != "-" {
+				kind, attached := byte(0), -1
+				if strings.HasPrefix(word, "--") {
+					name, _, hasValue := strings.Cut(word, "=")
+					switch name {
+					case "--expression", "--source":
+						kind = 'e'
+					case "--file":
+						kind = 'f'
+					case "--assign", "--field-separator":
+						kind = 'v'
+					}
+					if hasValue {
+						attached = loc[0] + len(name) + 1
+					}
+				} else {
+					for j := 1; j < len(word); j++ {
+						if !strings.ContainsRune("efvF", rune(word[j])) {
+							continue
+						}
+						kind = word[j]
+						if kind == 'F' {
+							kind = 'v'
+						}
+						if j+1 < len(word) {
+							attached = loc[0] + j + 1
+						}
+						break
+					}
+				}
+				if kind != 0 {
+					if kind == 'e' || kind == 'f' {
+						scriptNeedsProgram = false
+					}
+					if attached < 0 {
+						scriptNext = kind
+					} else {
+						switch kind {
+						case 'e':
+							maskProgram(attached, loc[1])
+						case 'f':
+							fileSources = append(fileSources, [2]int{attached, loc[1]})
+							mask(attached, loc[1])
+						case 'v':
+							mask(attached, loc[1])
+						}
+					}
+				}
+			} else if scriptNeedsProgram {
+				maskProgram(loc[0], loc[1])
+				scriptNeedsProgram = false
+			} else {
+				if scriptCommand != "awk" || !reCredentialAwkAssignment.MatchString(word) {
+					fileSources = append(fileSources, loc)
+				}
+				mask(loc[0], loc[1])
+			}
+			continue
+		}
+		if copyCommand {
+			if options && word == "--" {
+				options = false
+			} else if options && strings.HasPrefix(word, "-") && word != "-" {
+				// Only argument-free flags have ordinary source/destination
+				// semantics. Leave other forms to the existing copy matcher.
+				if strings.Trim(word[1:], "rRpav") != "" {
+					copyCommand, copyOperands = false, nil
+				}
+			} else {
+				copyOperands = append(copyOperands, loc)
+			}
+			continue
+		}
+		if literalArgs {
+			// Printed words are data, even when they name a reader. Executable
+			// substitutions were partitioned into independent child regions.
+			mask(loc[0], loc[1])
+			continue
+		}
+		if jq {
+			if jqDataWords > 0 {
+				mask(loc[0], loc[1])
+				jqDataWords--
+			} else if jqFileWords > 0 {
+				if jqFileWords == 1 {
+					fileSources = append(fileSources, loc)
+				}
+				mask(loc[0], loc[1])
+				jqFileWords-- // File-option operands cannot introduce data options.
+			} else if options && word == "--" {
+				options = false
+			} else if options && strings.HasPrefix(word, "-") && word != "-" {
+				switch word {
+				case "--arg", "--argjson":
+					jqDataWords = 2 // Variable name and literal value, not file inputs.
+				case "--indent":
+					jqDataWords = 1
+				case "--rawfile", "--slurpfile", "--argfile":
+					jqFileWords = 2
+				case "-f", "--from-file":
+					jqFileWords, jqNeedsFilter = 1, false
+				case "-L":
+					jqDataWords = 1 // Module search directory, not a file read.
+				default:
+					// Short flags can be combined, e.g. -cf filter.jq. An
+					// attached -L directory is not a group of option letters.
+					if strings.HasPrefix(word, "-L") {
+						mask(loc[0], loc[1])
+					} else if !strings.HasPrefix(word, "--") && strings.ContainsRune(word, 'f') {
+						jqFileWords, jqNeedsFilter = 1, false
+					}
+				}
+			} else if jqNeedsFilter {
+				// The first positional argument is code, not an input filename.
+				// Shell substitutions inside it remain independent regions.
+				mask(loc[0], loc[1])
+				jqNeedsFilter = false
+			} else {
+				fileSources = append(fileSources, loc)
+				mask(loc[0], loc[1])
+			}
+			continue
+		}
+		if !active {
+			continue
+		}
+		if next != 0 {
+			if next == 'f' {
+				fileSources = append(fileSources, loc)
+			}
+			mask(loc[0], loc[1])
+			next = 0
+			continue
+		}
+		if options && word == "--" {
+			options = false
+			continue
+		}
+		if options && strings.HasPrefix(word, "--") {
+			name, _, attached := strings.Cut(word, "=")
+			kind := byte('v')
+			switch name {
+			case "--regexp":
+				kind, pattern = 'e', true
+			case "--file":
+				kind, pattern = 'f', true
+			case "--after-context", "--before-context", "--context", "--max-count", "--directories", "--devices", "--label", "--include", "--exclude", "--exclude-dir", "--binary-files":
+			default:
+				mask(loc[0], loc[1])
+				continue
+			}
+			if attached && (kind == 'e' || kind == 'f') {
+				if kind == 'f' {
+					fileSources = append(fileSources, [2]int{loc[0] + len(name) + 1, loc[1]})
+				}
+			}
+			mask(loc[0], loc[1])
+			if !attached {
+				next = kind
+			}
+			continue
+		}
+		if options && strings.HasPrefix(word, "-") && word != "-" {
+			end := loc[1]
+			for i := 1; i < len(word); i++ {
+				kind := word[i]
+				if !strings.ContainsRune("efABCDdm", rune(kind)) {
+					continue
+				}
+				if kind == 'e' || kind == 'f' {
+					pattern = true
+				}
+				if i+1 == len(word) {
+					next = kind
+				} else if kind == 'e' || kind == 'f' {
+					end = loc[0] + i + 1
+					if kind == 'f' {
+						fileSources = append(fileSources, [2]int{end, loc[1]})
+					}
+					mask(end, loc[1])
+				}
+				break
+			}
+			mask(loc[0], end)
+			continue
+		}
+		grepOperands = append(grepOperands, loc)
+	}
+	finish()
+	return out, fileSources, rawSources, executions
+}
+
+// Decode JSON strings independently so a command's quoting is shell quoting,
+// not JSON quoting, and unrelated fields cannot supply its access verb. Map
+// the matched offset back for the existing line-local negation position test.
+func (e credentialPathSpelling) findJSONContentAccess(line []byte) (int, []byte) {
+	// Without escapes, decoding cannot introduce a missing path spelling.
+	// Escaped strings still need decoding before this check is conclusive.
+	if !bytes.ContainsRune(line, '\\') {
+		if idx, _ := e.find(line); idx < 0 {
+			return -1, nil
+		}
+	}
+	for cursor := 0; cursor < len(line); {
+		start := bytes.IndexByte(line[cursor:], '"')
+		if start < 0 {
+			break
+		}
+		start += cursor
+		end := start + 1
+		for end < len(line) && line[end] != '"' {
+			if line[end] == '\\' {
+				end++ // An escaped quote cannot terminate this string.
+			}
+			end++
+		}
+		if end >= len(line) {
+			break
+		}
+		cursor = end + 1
+		raw := line[start:cursor]
+		var decoded string
+		if json.Unmarshal(raw, &decoded) != nil {
+			continue
+		}
+		idx, spelling := -1, []byte(nil)
+		for offset, remaining := 0, decoded; ; {
+			logical, rest, more := strings.Cut(remaining, "\n")
+			if pos, found := e.findContentAccess([]byte(logical)); pos >= 0 {
+				idx, spelling = offset+pos, found
+				break
+			}
+			if !more {
+				break
+			}
+			offset += len(logical) + 1
+			remaining = rest
+		}
+		if idx < 0 {
+			continue
+		}
+		if neg := reNegatedGuidance.FindStringIndex(decoded); neg != nil && neg[0] < idx {
+			continue
+		}
+		r, d := 1, 0
+		for d < idx {
+			_, size := utf8.DecodeRuneInString(decoded[d:])
+			if raw[r] == '\\' {
+				if raw[r+1] == 'u' {
+					r += 6
+					if size == 4 { // A surrogate pair encodes a non-BMP rune.
+						r += 6
+					}
+				} else {
+					r += 2
+				}
+			} else {
+				_, rawSize := utf8.DecodeRune(raw[r:])
+				r += rawSize
+			}
+			d += size
+		}
+		return start + r, spelling
+	}
+	return -1, nil
+}
+
+// Exact file tokens only: .npmrc.example and auth.json.schema are not these
+// credential stores. Examine every occurrence so an earlier metadata mention
+// cannot hide a later read. Reuse homePrefixes without adding new spellings.
+func (e credentialPathSpelling) findContentAccess(line []byte) (int, []byte) {
+	if idx, _ := e.find(line); idx < 0 {
+		return -1, nil
+	}
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	best, bestSpelling := -1, []byte(nil)
+	// Partition substitution nesting once per shell body. Selected program
+	// execute bodies are queued separately with original source offsets.
+	regions := credentialCommandRegions(line, false)
+	for i := 0; i < len(regions); i++ {
+		region := regions[i]
+		masked := bytes.Clone(region.text)
+		var sources, rawSources [][2]int
+		var executions []credentialCommandBody
+		if !region.language {
+			masked, sources, rawSources, executions = maskCredentialCommandData(region.text)
+		}
+		for _, body := range executions {
+			for _, child := range credentialCommandRegions(region.text[body.span[0]:body.span[1]], body.language) {
+				for j, offset := range child.offsets {
+					child.offsets[j] = region.offsets[body.span[0]+offset]
+				}
+				regions = append(regions, child)
+			}
+		}
+		// Language literals cannot supply shell children, fallback commands,
+		// or nested apparent calls. Only selected filename arguments are reads.
+		for _, loc := range region.sources {
+			if masked[loc[0]] != ' ' {
+				sources = append(sources, loc)
+			}
+		}
+		for _, loc := range region.literals {
+			for j := loc[0]; j < loc[1]; j++ {
+				masked[j] = ' '
+			}
+		}
+		for _, loc := range reCredentialQuotedLiteral.FindAllIndex(region.text, -1) {
+			literal := region.text[loc[0]+1 : loc[1]-1]
+			for _, spelling := range e.spellings {
+				if !bytes.HasPrefix(literal, spelling) {
+					continue
+				}
+				longer := len(literal) != len(spelling)
+				if loc[1] < len(region.text) {
+					tail := region.text[loc[1]:]
+					sentenceEnd := tail[0] == '.' && (len(tail) == 1 || tail[1] == ' ' || tail[1] == '\t')
+					longer = longer || (!bytes.ContainsAny(tail[:1], " \t\r\n),;|&<>]}!?") && !sentenceEnd)
+				}
+				if longer {
+					for i := loc[0]; i < loc[1]; i++ {
+						masked[i] = ' '
+					}
+				}
+			}
+		}
+		for i, source := range sources {
+			start, end := source[0], source[1]
+			if end-start >= 2 && (region.text[start] == '\'' || region.text[start] == '"') && region.text[end-1] == region.text[start] {
+				sources[i] = [2]int{start + 1, end - 1}
+			}
+		}
+		for _, source := range append(sources, rawSources...) {
+			start, end := source[0], source[1]
+			for _, spelling := range e.spellings {
+				if bytes.Equal(region.text[start:end], spelling) && (best < 0 || region.offsets[start] < best) {
+					best, bestSpelling = region.offsets[start], spelling
+				}
+			}
+		}
+		for _, pattern := range e.contentPatterns {
+			if loc := pattern.FindSubmatchIndex(masked); loc != nil && (best < 0 || region.offsets[loc[2]] < best) {
+				best = region.offsets[loc[2]]
+				bestSpelling = region.text[loc[2]:loc[3]]
+			}
+		}
+	}
+	return best, bestSpelling
 }
 
 // homePrefixes are the spellings of the user's home directory that a shell or
@@ -154,8 +1061,9 @@ var homePrefixes = [][]byte{
 // exemptions key on, so widening the spellings cannot silently detach an
 // exemption from the path it guards.
 type credentialPathSpelling struct {
-	canonical []byte
-	spellings [][]byte
+	canonical       []byte
+	spellings       [][]byte
+	contentPatterns []*regexp.Regexp
 }
 
 // find returns the offset of the LEFTMOST spelling present on the line
@@ -195,6 +1103,16 @@ func buildCredentialPathSpellings() []credentialPathSpelling {
 			}
 		} else {
 			e.spellings = [][]byte{p}
+		}
+		if string(p) == "~/.npmrc" || string(p) == "~/.codex/auth.json" {
+			var alternatives []string
+			for _, spelling := range e.spellings {
+				alternatives = append(alternatives, regexp.QuoteMeta(string(spelling)))
+			}
+			path := "(" + strings.Join(alternatives, "|") + ")"
+			e.contentPatterns = []*regexp.Regexp{
+				regexp.MustCompile(credentialContentPrefix + path + credentialContentBoundary),
+			}
 		}
 		out = append(out, e)
 	}
@@ -304,6 +1222,7 @@ func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []mo
 		return nil
 	}
 	var findings []model.Finding
+	isJSON := ctx.Ext == ".json" && json.Valid(content)
 	lines := bytes.Split(content, []byte("\n"))
 	for i, line := range lines {
 		lineNum := i + 1
@@ -312,10 +1231,17 @@ func (r *credentialAccessRule) Match(content []byte, ctx model.FileContext) []mo
 		}
 		for _, entry := range credentialPathSpellings {
 			idx, spelling := entry.find(line)
+			canonical := string(entry.canonical)
+			if len(entry.contentPatterns) > 0 {
+				if isJSON {
+					idx, spelling = entry.findJSONContentAccess(line)
+				} else if idx >= 0 {
+					idx, spelling = entry.findContentAccess(line)
+				}
+			}
 			if idx < 0 {
 				continue
 			}
-			canonical := string(entry.canonical)
 			if canonical == ".credentials" && (reCredentialsModulePath.Match(line) ||
 				(reCredentialsFieldDoc.Match(line) && !invokesCommandOnCredentialLine(line))) {
 				continue
