@@ -39,6 +39,10 @@
   approval/sandbox values, invalid analyzed field types and malformed TOML
   return a scan error (CLI exit **3**), without a graded result. Unanalyzed
   configuration fields are explicitly outside the validation claim.
+- Review regression: `startup_timeout_sec` and `tool_timeout_sec` reject
+  finite values that overflow Codex's Rust `Duration`, including `1e100` and
+  the 2^64-seconds boundary. The immediately preceding float remains valid;
+  overflow returns exit **3** without graded JSON, rather than exit 0/all A.
 - Inventory warnings identify AWS `credential_export`/`auth_refresh` commands
   and MCP `http_headers_helper` without executing them or exposing their
   arguments. AWS provider names alone do not imply a threat. Removal of

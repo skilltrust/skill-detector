@@ -53,11 +53,19 @@ func TestCodexBinaryContract(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, ".codex"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte("[broken"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	out, code = runBinaryCVE(t, bin, "scan", "--format=json", dir)
-	if code != 3 || out != "" {
-		t.Fatalf("invalid config exit=%d stdout=%q; want 3 and no graded JSON", code, out)
+	for name, content := range map[string]string{
+		"malformed":        "[broken",
+		"startup-overflow": "[mcp_servers.local]\ncommand='./local-mcp'\nstartup_timeout_sec=1e100",
+		"tool-overflow":    "[mcp_servers.local]\ncommand='./local-mcp'\ntool_timeout_sec=1e100",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out, code := runBinaryCVE(t, bin, "scan", "--format=json", dir)
+			if code != 3 || out != "" {
+				t.Fatalf("invalid config exit=%d stdout=%q; want 3 and no graded JSON", code, out)
+			}
+		})
 	}
 }

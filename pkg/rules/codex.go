@@ -222,7 +222,9 @@ func codexMCPServer(raw map[string]any) (mcpServer, bool, error) {
 					return srv, false, invalid
 				}
 			case float64:
-				if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) || key == "startup_timeout_ms" {
+				// Codex uses Rust Duration::try_from_secs_f64, whose seconds
+				// must fit u64. The first unrepresentable float64 is 2^64.
+				if n < 0 || n >= 0x1p64 || math.IsNaN(n) || math.IsInf(n, 0) || key == "startup_timeout_ms" {
 					return srv, false, invalid
 				}
 			default:

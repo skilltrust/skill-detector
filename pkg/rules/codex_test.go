@@ -85,6 +85,34 @@ func TestSD026_GatesNonAgentFile(t *testing.T) {
 	}
 }
 
+func TestCodexTimeoutDurationRange(t *testing.T) {
+	for _, field := range []string{"startup_timeout_sec", "tool_timeout_sec"} {
+		for _, tc := range []struct {
+			value   string
+			invalid bool
+		}{
+			{"0", false},
+			{"0.25", false},
+			{"9223372036854775807", false},    // largest TOML integer
+			{"18446744073709549568.0", false}, // float64 immediately below 2^64
+			{"18446744073709551616.0", true},  // 2^64 seconds cannot fit Rust Duration
+			{"18446744073709555712.0", true},  // float64 immediately above 2^64
+			{"1e100", true},
+			{"-1.0", true},
+			{"nan", true},
+			{"inf", true},
+		} {
+			t.Run(field+"/"+tc.value, func(t *testing.T) {
+				content := "[mcp_servers.local]\ncommand='./local-mcp'\n" + field + "=" + tc.value
+				_, err := CodexConfigDiagnostics([]byte(content), model.FileContext{Path: ".codex/config.toml"})
+				if (err != nil) != tc.invalid {
+					t.Fatalf("error=%v, want invalid=%v", err, tc.invalid)
+				}
+			})
+		}
+	}
+}
+
 func TestCodexInvalidIsNotPermissive(t *testing.T) {
 	for _, content := range []string{
 		"[broken", "approval_policy='secret-sentinel'", "sandbox_mode='external-sandbox'",
