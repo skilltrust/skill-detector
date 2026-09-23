@@ -495,7 +495,7 @@ func isDomainTool(tool string) bool {
 	return tool == "Bash" || tool == "PowerShell" || tool == "Monitor"
 }
 
-var commandURL = regexp.MustCompile(`(?i:https?)://[^\s"'<>]+`)
+var commandURL = regexp.MustCompile(`(?i:https?)://[^\s"'<>;|&()]+`)
 
 type domainTarget struct {
 	host string
@@ -583,22 +583,29 @@ func classifyDomainDeclaration(command string, domains []string) string {
 }
 
 func unsupportedURLBoundary(command string, start, end int) bool {
-	if start > 0 && command[start-1] != '\'' && command[start-1] != '"' && !isShellWordBoundaryAt(command, start-1) {
-		return true
+	quoted := start > 0 && (command[start-1] == '\'' || command[start-1] == '"')
+	if quoted {
+		quote := command[start-1]
+		if end >= len(command) || command[end] != quote {
+			return true
+		}
+		opening := start - 1
+		if opening > 0 && !isShellWordBoundaryAt(command, opening-1) {
+			return true
+		}
+		after := end + 1
+		if after < len(command) && !isShellWordBoundaryAt(command, after) {
+			return true
+		}
+	} else {
+		if start > 0 && !isShellWordBoundaryAt(command, start-1) {
+			return true
+		}
+		if end < len(command) && !isShellWordBoundaryAt(command, end) {
+			return true
+		}
 	}
-	if end >= len(command) || (command[end] != '\'' && command[end] != '"') {
-		return false
-	}
-	quote := command[end]
-	if start == 0 || command[start-1] != quote {
-		return true
-	}
-	opening := start - 1
-	if opening > 0 && !isShellWordBoundaryAt(command, opening-1) {
-		return true
-	}
-	after := end + 1
-	return after < len(command) && !isShellWordBoundaryAt(command, after)
+	return strings.ContainsAny(command[start:end], "$`\\")
 }
 
 func isShellWordBoundaryAt(command string, index int) bool {
@@ -609,12 +616,16 @@ func isShellWordBoundaryAt(command string, index int) bool {
 	if char == '\n' && index > 0 && command[index-1] == '\r' {
 		index--
 	}
-	backslashes := 0
-	for index > 0 && command[index-1] == '\\' {
-		backslashes++
+	escapes := 0
+	escape := byte(0)
+	if index > 0 && (command[index-1] == '\\' || command[index-1] == '`') {
+		escape = command[index-1]
+	}
+	for index > 0 && command[index-1] == escape {
+		escapes++
 		index--
 	}
-	return backslashes%2 == 0
+	return escapes%2 == 0
 }
 
 func strictDomainSuffixes(host string) []string {
@@ -631,7 +642,7 @@ func strictDomainSuffixes(host string) []string {
 
 func parseDomainTarget(raw string) (domainTarget, bool) {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Hostname() == "" {
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
 		return domainTarget{}, false
 	}
 	host := normalizeDomainHost(parsed.Hostname())
