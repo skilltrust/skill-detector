@@ -303,9 +303,13 @@ func claudePermissionDiagnostics(settings claudeDiagnosticSettings, ctx model.Fi
 	if len(settings.Sandbox.ExcludedCommands) > 0 {
 		kind := "narrow"
 		for _, pattern := range settings.Sandbox.ExcludedCommands {
-			if broadExcludedCommand(pattern) {
+			switch excludedCommandBreadth(pattern) {
+			case "broad":
 				kind = "broad or wildcard"
-				break
+			case "unassessed":
+				if kind == "narrow" {
+					kind = "unassessed"
+				}
 			}
 		}
 		versionContext := anchorVersionDescription(version, claudeSandboxAnchor)
@@ -369,14 +373,36 @@ func markdownBodyWithoutParsedFrontmatter(content string) string {
 	return content
 }
 
-func broadExcludedCommand(pattern string) bool {
+func excludedCommandBreadth(pattern string) string {
 	pattern = strings.ToLower(strings.TrimSpace(pattern))
 	if strings.HasSuffix(pattern, ":*") {
 		pattern = strings.TrimSuffix(pattern, ":*") + " *"
 	}
-	return pattern == "*" || strings.HasPrefix(pattern, "*") || strings.HasPrefix(pattern, "bash ") ||
-		strings.HasPrefix(pattern, "bash*") || strings.HasPrefix(pattern, "sh ") || strings.HasPrefix(pattern, "sh*") ||
-		strings.HasPrefix(pattern, "powershell ") || strings.HasPrefix(pattern, "powershell*")
+	if pattern == "*" || strings.HasPrefix(pattern, "*") {
+		return "broad"
+	}
+	fields := strings.Fields(pattern)
+	if len(fields) == 0 {
+		return "unassessed"
+	}
+	command := strings.ToLower(filepath.Base(filepath.ToSlash(fields[0])))
+	if command == "env" && len(fields) > 1 {
+		command = strings.ToLower(filepath.Base(filepath.ToSlash(fields[1])))
+		fields = fields[1:]
+	}
+	shell := strings.TrimSuffix(command, "*")
+	shells := map[string]bool{
+		"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true,
+		"powershell": true, "powershell.exe": true, "pwsh": true, "pwsh.exe": true,
+		"cmd": true, "cmd.exe": true,
+	}
+	if shells[shell] && (strings.Contains(command, "*") || strings.Contains(strings.Join(fields[1:], " "), "*")) {
+		return "broad"
+	}
+	if !strings.Contains(pattern, "*") || (len(fields) > 2 && !strings.Contains(fields[1], "*")) {
+		return "narrow"
+	}
+	return "unassessed"
 }
 
 // excludedCommandCovers models only the documented simple compound boundary:
@@ -586,7 +612,7 @@ func classifyDomainDeclaration(command string, domains []string) string {
 }
 
 func usesBoundedLiteralCommandGrammar(command string) bool {
-	if strings.ContainsAny(command, "$`\\#") {
+	if strings.ContainsAny(command, "$`\\#<>(){};|&\r\n") {
 		return false
 	}
 	for index := 0; index < len(command); index++ {

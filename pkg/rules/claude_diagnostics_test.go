@@ -80,6 +80,8 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"url-in-interpolated-quoted-word", `{"name":"Bash","input":{"command":"curl \"$PREFIX https://api.example.com/a \"","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"url-in-unterminated-interpolated-word", `{"name":"Bash","input":{"command":"curl \"$PREFIX https://api.example.com/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"url-in-comment", `{"name":"Bash","input":{"command":"curl \"$URL\" # https://api.example.com/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"url-in-heredoc", `{"name":"Bash","input":{"command":"cat <<EOF\nhttps://api.example.com/a\nEOF","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"url-in-process-substitution", `{"name":"Bash","input":{"command":"cat <(printf https://api.example.com/a)","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"standalone-quoted-literal", `{"name":"Bash","input":{"command":"curl \"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "narrowly names"},
 		{"dynamic-grant", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["$HOST:443"]}}`, "cannot be compared"},
 		{"unsupported-wildcard-position", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.*.example.com:443"]}}`, "cannot be compared"},
@@ -135,13 +137,17 @@ func TestSandboxExcludedCommandsRequireEveryComponent(t *testing.T) {
 	for _, tc := range []struct {
 		content, want string
 	}{
-		{`{"sandbox":{"excludedCommands":["docker *"]}}`, "narrow exclusion"},
+		{`{"sandbox":{"excludedCommands":["docker build *"]}}`, "narrow exclusion"},
 		{`{"sandbox":{"excludedCommands":["*"]}}`, "broad or wildcard exclusion"},
 		{`{"sandbox":{"excludedCommands":["bash:*"]}}`, "broad or wildcard exclusion"},
 		{`{"sandbox":{"excludedCommands":["bash *"]}}`, "broad or wildcard exclusion"},
 		{`{"sandbox":{"excludedCommands":["bash*"]}}`, "broad or wildcard exclusion"},
 		{`{"sandbox":{"excludedCommands":["sh:*"]}}`, "broad or wildcard exclusion"},
 		{`{"sandbox":{"excludedCommands":["PowerShell:*"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["zsh *"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["pwsh *"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["/bin/bash *"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["custom *"]}}`, "unassessed exclusion"},
 	} {
 		ctx := model.FileContext{
 			Path: ".claude/settings.json",
