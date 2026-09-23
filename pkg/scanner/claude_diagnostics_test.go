@@ -62,6 +62,9 @@ func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
 		{"null-settings", `null`},
 		{"null-array-element", `{"permissions":{"deny":[null]}}`},
 		{"null-scalar", `{"allowManagedPermissionRulesOnly":null}`},
+		{"duplicate-analyzed-object", `{"permissions":{"deny":[null]},"permissions":{}}`},
+		{"case-colliding-analyzed-field", `{"sandbox":{"excludedCommands":["*"],"EXCLUDEDCOMMANDS":[]}}`},
+		{"case-folded-null", `{"PERMISSIONS":{"DENY":[null]}}`},
 	} {
 		t.Run(invalid.name, func(t *testing.T) {
 			root := t.TempDir()

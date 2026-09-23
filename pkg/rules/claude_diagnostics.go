@@ -1,8 +1,10 @@
 package rules
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -58,33 +60,36 @@ func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]st
 
 func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, bool) {
 	var settings claudeDiagnosticSettings
+	if !hasUniqueCaseFoldedJSONMembers(content) {
+		return settings, false
+	}
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(content, &root); err != nil || root == nil {
 		return settings, false
 	}
-	if raw, ok := root["allowManagedPermissionRulesOnly"]; ok && !validJSONBool(raw) {
+	if raw, ok := jsonField(root, "allowManagedPermissionRulesOnly"); ok && !validJSONBool(raw) {
 		return settings, false
 	}
-	if raw, ok := root["permissions"]; ok {
+	if raw, ok := jsonField(root, "permissions"); ok {
 		permissions, valid := jsonObject(raw)
 		if !valid {
 			return settings, false
 		}
 		for _, key := range []string{"allow", "ask", "deny"} {
-			if field, present := permissions[key]; present && !validJSONStringArray(field) {
+			if field, present := jsonField(permissions, key); present && !validJSONStringArray(field) {
 				return settings, false
 			}
 		}
-		if field, present := permissions["defaultMode"]; present && !validJSONString(field) {
+		if field, present := jsonField(permissions, "defaultMode"); present && !validJSONString(field) {
 			return settings, false
 		}
 	}
-	if raw, ok := root["sandbox"]; ok {
+	if raw, ok := jsonField(root, "sandbox"); ok {
 		sandbox, valid := jsonObject(raw)
 		if !valid {
 			return settings, false
 		}
-		if field, present := sandbox["excludedCommands"]; present && !validJSONStringArray(field) {
+		if field, present := jsonField(sandbox, "excludedCommands"); present && !validJSONStringArray(field) {
 			return settings, false
 		}
 	}
@@ -92,6 +97,65 @@ func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, b
 		return settings, false
 	}
 	return settings, true
+}
+
+func hasUniqueCaseFoldedJSONMembers(content []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	if !consumeUniqueJSONValue(decoder) {
+		return false
+	}
+	_, err := decoder.Token()
+	return err == io.EOF
+}
+
+func consumeUniqueJSONValue(decoder *json.Decoder) bool {
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	delimiter, compound := token.(json.Delim)
+	if !compound {
+		return true
+	}
+	switch delimiter {
+	case '{':
+		var seen []string
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			key, ok := keyToken.(string)
+			if err != nil || !ok {
+				return false
+			}
+			for _, existing := range seen {
+				if strings.EqualFold(existing, key) {
+					return false
+				}
+			}
+			seen = append(seen, key)
+			if !consumeUniqueJSONValue(decoder) {
+				return false
+			}
+		}
+	case '[':
+		for decoder.More() {
+			if !consumeUniqueJSONValue(decoder) {
+				return false
+			}
+		}
+	default:
+		return false
+	}
+	closing, err := decoder.Token()
+	return err == nil && closing == json.Delim(map[json.Delim]rune{'{': '}', '[': ']'}[delimiter])
+}
+
+func jsonField(object map[string]json.RawMessage, name string) (json.RawMessage, bool) {
+	for key, value := range object {
+		if strings.EqualFold(key, name) {
+			return value, true
+		}
+	}
+	return nil, false
 }
 
 func jsonObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
@@ -389,9 +453,8 @@ func isDomainTool(tool string) bool {
 var commandURL = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
 type domainTarget struct {
-	host         string
-	port         string
-	explicitPort bool
+	host string
+	port string
 }
 
 type domainPattern struct {
@@ -426,7 +489,7 @@ func classifyDomainDeclaration(command string, domains []string) string {
 		for _, pattern := range patterns {
 			if domainPatternMatches(pattern, target) {
 				matched = true
-				if pattern.wildcard || (pattern.port == "" && target.explicitPort) {
+				if pattern.wildcard || pattern.port == "" {
 					broad = true
 				}
 			}
@@ -457,7 +520,6 @@ func parseDomainTarget(raw string) (domainTarget, bool) {
 	}
 	host := normalizeDomainHost(parsed.Hostname())
 	port := parsed.Port()
-	explicitPort := port != ""
 	if !validDomainPort(port) {
 		return domainTarget{}, false
 	}
@@ -469,7 +531,7 @@ func parseDomainTarget(raw string) (domainTarget, bool) {
 			port = "443"
 		}
 	}
-	return domainTarget{host: host, port: port, explicitPort: explicitPort}, host != ""
+	return domainTarget{host: host, port: port}, host != ""
 }
 
 func parseDomainPattern(raw string) (domainPattern, bool) {
@@ -541,7 +603,7 @@ func validDomainPort(port string) bool {
 }
 
 func domainPatternMatches(pattern domainPattern, target domainTarget) bool {
-	hostMatches := pattern.host == target.host ||
+	hostMatches := (!pattern.wildcard && pattern.host == target.host) ||
 		(pattern.wildcard && strings.HasSuffix(target.host, "."+pattern.host))
 	return hostMatches && (pattern.port == "" || pattern.port == target.port)
 }

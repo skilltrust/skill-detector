@@ -43,17 +43,23 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 	for _, tc := range []struct {
 		name, input, want string
 	}{
-		{"narrow", `{"name":"Bash","input":{"command":"curl https://api.example.com/v1","allowed_domains":["api.example.com"]}}`, "narrowly names"},
+		{"narrow", `{"name":"Bash","input":{"command":"curl https://api.example.com/v1","allowed_domains":["api.example.com:443"]}}`, "narrowly names"},
 		{"broader", `{"name":"PowerShell","input":{"command":"curl https://api.example.com/v1","allowed_domains":["*.example.com"]}}`, "broader than"},
 		{"different", `{"name":"Monitor","input":{"command":"curl https://api.example.com/v1","allowed_domains":["other.example"]}}`, "does not cover"},
 		{"missing-command", `{"name":"Bash","input":{"allowed_domains":["api.example.com"]}}`, "no literal command destination"},
-		{"duplicate-destination", `{"name":"Bash","input":{"command":"curl https://api.example.com/a https://api.example.com/b","allowed_domains":["api.example.com"]}}`, "narrowly names"},
-		{"unmatched-extra", `{"name":"Bash","input":{"command":"curl https://api.example.com/a https://api.example.com/b","allowed_domains":["api.example.com","unrelated.example"]}}`, "broader than"},
+		{"duplicate-destination", `{"name":"Bash","input":{"command":"curl https://api.example.com/a https://api.example.com/b","allowed_domains":["api.example.com:443"]}}`, "narrowly names"},
+		{"unmatched-extra", `{"name":"Bash","input":{"command":"curl https://api.example.com/a https://api.example.com/b","allowed_domains":["api.example.com:443","unrelated.example"]}}`, "broader than"},
 		{"matching-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com:8443"]}}`, "narrowly names"},
 		{"mismatching-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com:443"]}}`, "does not cover"},
 		{"extra-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com:8443","api.example.com:443"]}}`, "broader than"},
-		{"unrestricted-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com"]}}`, "broader than"},
+		{"unrestricted-explicit-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com"]}}`, "broader than"},
+		{"unrestricted-implicit-https-port", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com"]}}`, "broader than"},
+		{"unrestricted-implicit-http-port", `{"name":"Bash","input":{"command":"curl http://api.example.com/a","allowed_domains":["api.example.com"]}}`, "broader than"},
+		{"narrow-implicit-http-port", `{"name":"Bash","input":{"command":"curl http://api.example.com/a","allowed_domains":["api.example.com:80"]}}`, "narrowly names"},
 		{"ipv6-port", `{"name":"Bash","input":{"command":"curl https://[2001:db8::1]:8443/a","allowed_domains":["[2001:db8::1]:8443"]}}`, "narrowly names"},
+		{"wildcard-apex", `{"name":"Bash","input":{"command":"curl https://example.com/a","allowed_domains":["*.example.com:443"]}}`, "does not cover"},
+		{"wildcard-direct-subdomain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["*.example.com:443"]}}`, "broader than"},
+		{"wildcard-nested-subdomain", `{"name":"Bash","input":{"command":"curl https://v1.api.example.com:8443/a","allowed_domains":["*.example.com:8443"]}}`, "broader than"},
 		{"unsupported-domain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com:"]}}`, "cannot be compared"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -206,6 +212,9 @@ func TestClaudeSettingsValidationFailsClosed(t *testing.T) {
 		`{"permissions":null}`,
 		`{"permissions":{"deny":[null]}}`,
 		`{"allowManagedPermissionRulesOnly":null}`,
+		`{"permissions":{"deny":[null]},"permissions":{}}`,
+		`{"sandbox":{"excludedCommands":["*"],"EXCLUDEDCOMMANDS":[]}}`,
+		`{"PERMISSIONS":{"DENY":[null]}}`,
 	} {
 		warnings, err := ClaudeConfigurationDiagnostics([]byte(content), ctx)
 		if err == nil || warnings != nil {
