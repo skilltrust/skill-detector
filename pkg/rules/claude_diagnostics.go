@@ -386,9 +386,12 @@ func excludedCommandBreadth(pattern string) string {
 		return "unassessed"
 	}
 	command := strings.ToLower(filepath.Base(filepath.ToSlash(fields[0])))
-	if command == "env" && len(fields) > 1 {
-		command = strings.ToLower(filepath.Base(filepath.ToSlash(fields[1])))
-		fields = fields[1:]
+	if command == "env" {
+		var resolved bool
+		command, fields, resolved = unwrapEnvCommand(fields)
+		if !resolved {
+			return "unassessed"
+		}
 	}
 	shell := strings.TrimSuffix(command, "*")
 	shells := map[string]bool{
@@ -403,6 +406,38 @@ func excludedCommandBreadth(pattern string) string {
 		return "narrow"
 	}
 	return "unassessed"
+}
+
+func unwrapEnvCommand(fields []string) (string, []string, bool) {
+	index := 1
+	for index < len(fields) {
+		field := fields[index]
+		switch {
+		case field == "--":
+			index++
+			goto resolved
+		case field == "-i" || field == "--ignore-environment" || field == "-0" || field == "--null":
+			index++
+		case field == "-u" || field == "--unset":
+			if index+1 >= len(fields) {
+				return "", nil, false
+			}
+			index += 2
+		case strings.HasPrefix(field, "--unset=") || (!strings.HasPrefix(field, "-") && strings.Contains(field, "=")):
+			index++
+		case strings.HasPrefix(field, "-"):
+			return "", nil, false
+		default:
+			goto resolved
+		}
+	}
+
+resolved:
+	if index >= len(fields) {
+		return "", nil, false
+	}
+	command := strings.ToLower(filepath.Base(filepath.ToSlash(fields[index])))
+	return command, fields[index:], true
 }
 
 // excludedCommandCovers models only the documented simple compound boundary:
@@ -618,6 +653,9 @@ func usesBoundedLiteralCommandGrammar(command string) bool {
 	for index := 0; index < len(command); index++ {
 		quote := command[index]
 		if quote != '\'' && quote != '"' {
+			if strings.ContainsRune("*?[]", rune(quote)) {
+				return false
+			}
 			continue
 		}
 		if index > 0 && !isShellWordBoundaryAt(command, index-1) {
