@@ -31,6 +31,7 @@ func TestInlineShellDistinguishesExecutableSyntax(t *testing.T) {
 		"Describe the syntax `!`command`` without running it.",
 		"Escaped syntax: \\!`printf ready`",
 		"Assignment syntax: KEY=!`printf ready`",
+		"---\nmetadata:\n  example: |\n    !`printf ready`\n---\nStatic instructions.\n",
 	} {
 		if got := claudeDiagnostics(t, []byte(prose), ctx); len(got) != 0 {
 			t.Fatalf("ordinary prose %q produced diagnostics: %v", prose, got)
@@ -48,6 +49,12 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"missing-command", `{"name":"Bash","input":{"allowed_domains":["api.example.com"]}}`, "no literal command destination"},
 		{"duplicate-destination", `{"name":"Bash","input":{"command":"curl https://api.example.com/a https://api.example.com/b","allowed_domains":["api.example.com"]}}`, "narrowly names"},
 		{"unmatched-extra", `{"name":"Bash","input":{"command":"curl https://api.example.com/a https://api.example.com/b","allowed_domains":["api.example.com","unrelated.example"]}}`, "broader than"},
+		{"matching-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com:8443"]}}`, "narrowly names"},
+		{"mismatching-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com:443"]}}`, "does not cover"},
+		{"extra-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com:8443","api.example.com:443"]}}`, "broader than"},
+		{"unrestricted-port", `{"name":"Bash","input":{"command":"curl https://api.example.com:8443/a","allowed_domains":["api.example.com"]}}`, "broader than"},
+		{"ipv6-port", `{"name":"Bash","input":{"command":"curl https://[2001:db8::1]:8443/a","allowed_domains":["[2001:db8::1]:8443"]}}`, "narrowly names"},
+		{"unsupported-domain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com:"]}}`, "cannot be compared"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := model.FileContext{Path: ".claude/tool-calls.json"}
@@ -100,6 +107,11 @@ func TestSandboxExcludedCommandsRequireEveryComponent(t *testing.T) {
 	}{
 		{`{"sandbox":{"excludedCommands":["docker *"]}}`, "narrow exclusion"},
 		{`{"sandbox":{"excludedCommands":["*"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["bash:*"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["bash *"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["bash*"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["sh:*"]}}`, "broad or wildcard exclusion"},
+		{`{"sandbox":{"excludedCommands":["PowerShell:*"]}}`, "broad or wildcard exclusion"},
 	} {
 		ctx := model.FileContext{
 			Path: ".claude/settings.json",
@@ -190,6 +202,10 @@ func TestClaudeSettingsValidationFailsClosed(t *testing.T) {
 	for _, content := range []string{
 		`{"permissions":`,
 		`{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"excludedCommands":true}}`,
+		`null`,
+		`{"permissions":null}`,
+		`{"permissions":{"deny":[null]}}`,
+		`{"allowManagedPermissionRulesOnly":null}`,
 	} {
 		warnings, err := ClaudeConfigurationDiagnostics([]byte(content), ctx)
 		if err == nil || warnings != nil {

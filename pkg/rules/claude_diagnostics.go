@@ -3,6 +3,7 @@ package rules
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/velzepooz/skill-detector/pkg/model"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -37,20 +39,94 @@ type claudeDiagnosticSettings struct {
 func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]string, error) {
 	var warnings []string
 	if IsClaudeSettings(ctx.Path) {
-		var settings claudeDiagnosticSettings
-		if err := json.Unmarshal(content, &settings); err != nil {
+		settings, valid := decodeClaudeDiagnosticSettings(content)
+		if !valid {
 			return nil, fmt.Errorf("malformed Claude settings JSON or unsupported analyzed field type; configuration was not assessed")
 		}
 		warnings = append(warnings, claudePermissionDiagnostics(settings, ctx)...)
 	}
 	if isClaudeSkillOrCommand(ctx.Path) {
-		if count := inlineShellDeclarationCount(string(content)); count > 0 {
+		body := markdownBodyWithoutParsedFrontmatter(string(content))
+		if count := inlineShellDeclarationCount(body); count > 0 {
 			version := anchorVersionDescription(ctx.Analysis.Version, claudeAutoModeAnchor)
 			warnings = append(warnings, fmt.Sprintf("%s: %d executable inline shell declaration(s) use !`command` or a ```! block; %s. At the 2.1.271 anchor, auto-mode skill/command injections use default-mode permissions and an undecided command falls back to a reviewed tool call. This is parsed as a declaration only; execution, approval and session activation were not tested.", ctx.Path, count, version))
 		}
 	}
 	warnings = append(warnings, allowedDomainDiagnostics(content, ctx)...)
 	return warnings, nil
+}
+
+func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, bool) {
+	var settings claudeDiagnosticSettings
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(content, &root); err != nil || root == nil {
+		return settings, false
+	}
+	if raw, ok := root["allowManagedPermissionRulesOnly"]; ok && !validJSONBool(raw) {
+		return settings, false
+	}
+	if raw, ok := root["permissions"]; ok {
+		permissions, valid := jsonObject(raw)
+		if !valid {
+			return settings, false
+		}
+		for _, key := range []string{"allow", "ask", "deny"} {
+			if field, present := permissions[key]; present && !validJSONStringArray(field) {
+				return settings, false
+			}
+		}
+		if field, present := permissions["defaultMode"]; present && !validJSONString(field) {
+			return settings, false
+		}
+	}
+	if raw, ok := root["sandbox"]; ok {
+		sandbox, valid := jsonObject(raw)
+		if !valid {
+			return settings, false
+		}
+		if field, present := sandbox["excludedCommands"]; present && !validJSONStringArray(field) {
+			return settings, false
+		}
+	}
+	if err := json.Unmarshal(content, &settings); err != nil {
+		return settings, false
+	}
+	return settings, true
+}
+
+func jsonObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	var value map[string]json.RawMessage
+	err := json.Unmarshal(raw, &value)
+	return value, err == nil && value != nil
+}
+
+func validJSONBool(raw json.RawMessage) bool {
+	if strings.TrimSpace(string(raw)) == "null" {
+		return false
+	}
+	var value bool
+	return json.Unmarshal(raw, &value) == nil
+}
+
+func validJSONString(raw json.RawMessage) bool {
+	if strings.TrimSpace(string(raw)) == "null" {
+		return false
+	}
+	var value string
+	return json.Unmarshal(raw, &value) == nil
+}
+
+func validJSONStringArray(raw json.RawMessage) bool {
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil || values == nil {
+		return false
+	}
+	for _, value := range values {
+		if !validJSONString(value) {
+			return false
+		}
+	}
+	return true
 }
 
 func claudePermissionDiagnostics(settings claudeDiagnosticSettings, ctx model.FileContext) []string {
@@ -169,10 +245,34 @@ func inlineShellDeclarationCount(content string) int {
 	return count
 }
 
+func markdownBodyWithoutParsedFrontmatter(content string) string {
+	lines := strings.SplitAfter(content, "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], "\r\n") != "---" {
+		return content
+	}
+	frontmatterEnd := len(lines[0])
+	for _, line := range lines[1:] {
+		if strings.TrimRight(line, "\r\n") == "---" {
+			frontmatter := content[len(lines[0]):frontmatterEnd]
+			var value any
+			if yaml.Unmarshal([]byte(frontmatter), &value) == nil {
+				return content[frontmatterEnd+len(line):]
+			}
+			return content
+		}
+		frontmatterEnd += len(line)
+	}
+	return content
+}
+
 func broadExcludedCommand(pattern string) bool {
-	pattern = strings.TrimSpace(strings.TrimSuffix(pattern, ":*"))
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	if strings.HasSuffix(pattern, ":*") {
+		pattern = strings.TrimSuffix(pattern, ":*") + " *"
+	}
 	return pattern == "*" || strings.HasPrefix(pattern, "*") || strings.HasPrefix(pattern, "bash ") ||
-		strings.HasPrefix(pattern, "sh ") || strings.HasPrefix(pattern, "powershell ")
+		strings.HasPrefix(pattern, "bash*") || strings.HasPrefix(pattern, "sh ") || strings.HasPrefix(pattern, "sh*") ||
+		strings.HasPrefix(pattern, "powershell ") || strings.HasPrefix(pattern, "powershell*")
 }
 
 // excludedCommandCovers models only the documented simple compound boundary:
@@ -288,34 +388,59 @@ func isDomainTool(tool string) bool {
 
 var commandURL = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
+type domainTarget struct {
+	host         string
+	port         string
+	explicitPort bool
+}
+
+type domainPattern struct {
+	host     string
+	port     string
+	wildcard bool
+}
+
 func classifyDomainDeclaration(command string, domains []string) string {
-	hosts := make(map[string]bool)
+	targets := make(map[domainTarget]bool)
 	for _, raw := range commandURL.FindAllString(command, -1) {
-		if parsed, err := url.Parse(raw); err == nil && parsed.Hostname() != "" {
-			hosts[strings.ToLower(parsed.Hostname())] = true
+		target, valid := parseDomainTarget(raw)
+		if !valid {
+			return "cannot be compared because a destination uses an unsupported host/port form"
 		}
+		targets[target] = true
 	}
-	if len(hosts) == 0 {
+	if len(targets) == 0 {
 		return "has no literal command destination available for comparison"
 	}
+	patterns := make([]domainPattern, 0, len(domains))
+	for _, raw := range domains {
+		pattern, valid := parseDomainPattern(raw)
+		if !valid {
+			return "cannot be compared because an allowed domain uses an unsupported host/port form"
+		}
+		patterns = append(patterns, pattern)
+	}
 	broad := false
-	for host := range hosts {
+	for target := range targets {
 		matched := false
-		for _, domain := range domains {
-			domain = strings.ToLower(strings.TrimSpace(strings.Split(domain, ":")[0]))
-			if domain == host {
+		for _, pattern := range patterns {
+			if domainPatternMatches(pattern, target) {
 				matched = true
-			} else if strings.HasPrefix(domain, "*.") && strings.HasSuffix(host, domain[1:]) {
-				matched, broad = true, true
+				if pattern.wildcard || (pattern.port == "" && target.explicitPort) {
+					broad = true
+				}
 			}
 		}
 		if !matched {
 			return "does not cover every literal command destination"
 		}
 	}
-	for _, domain := range domains {
-		domain = strings.ToLower(strings.TrimSpace(strings.Split(domain, ":")[0]))
-		if strings.HasPrefix(domain, "*.") || !hosts[domain] {
+	for _, pattern := range patterns {
+		matched := false
+		for target := range targets {
+			matched = matched || domainPatternMatches(pattern, target)
+		}
+		if !matched {
 			broad = true
 		}
 	}
@@ -323,6 +448,102 @@ func classifyDomainDeclaration(command string, domains []string) string {
 		return "is broader than its literal command destination(s)"
 	}
 	return "narrowly names its literal command destination(s)"
+}
+
+func parseDomainTarget(raw string) (domainTarget, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return domainTarget{}, false
+	}
+	host := normalizeDomainHost(parsed.Hostname())
+	port := parsed.Port()
+	explicitPort := port != ""
+	if !validDomainPort(port) {
+		return domainTarget{}, false
+	}
+	if port == "" {
+		switch strings.ToLower(parsed.Scheme) {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	return domainTarget{host: host, port: port, explicitPort: explicitPort}, host != ""
+}
+
+func parseDomainPattern(raw string) (domainPattern, bool) {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" || strings.Contains(raw, "://") || strings.ContainsAny(raw, "/?# ") {
+		return domainPattern{}, false
+	}
+	pattern := domainPattern{}
+	if strings.HasPrefix(raw, "*.") {
+		pattern.wildcard = true
+		raw = raw[2:]
+	}
+	host, port, valid := splitDomainHostPort(raw)
+	if !valid || (pattern.wildcard && net.ParseIP(host) != nil) {
+		return domainPattern{}, false
+	}
+	pattern.host = normalizeDomainHost(host)
+	pattern.port = port
+	return pattern, pattern.host != ""
+}
+
+func splitDomainHostPort(raw string) (host, port string, valid bool) {
+	if strings.HasPrefix(raw, "[") {
+		end := strings.IndexByte(raw, ']')
+		if end < 0 {
+			return "", "", false
+		}
+		host = raw[1:end]
+		rest := raw[end+1:]
+		if rest != "" {
+			if !strings.HasPrefix(rest, ":") || len(rest) == 1 {
+				return "", "", false
+			}
+			port = rest[1:]
+		}
+		if net.ParseIP(host) == nil {
+			return "", "", false
+		}
+	} else if strings.Count(raw, ":") > 1 {
+		if net.ParseIP(raw) == nil {
+			return "", "", false
+		}
+		host = raw
+	} else if before, after, found := strings.Cut(raw, ":"); found {
+		if after == "" {
+			return "", "", false
+		}
+		host, port = before, after
+	} else {
+		host = raw
+	}
+	return host, port, host != "" && validDomainPort(port)
+}
+
+func normalizeDomainHost(host string) string {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return host
+}
+
+func validDomainPort(port string) bool {
+	if port == "" {
+		return true
+	}
+	n, err := strconv.Atoi(port)
+	return err == nil && n > 0 && n <= 65535 && strconv.Itoa(n) == port
+}
+
+func domainPatternMatches(pattern domainPattern, target domainTarget) bool {
+	hostMatches := pattern.host == target.host ||
+		(pattern.wildcard && strings.HasSuffix(target.host, "."+pattern.host))
+	return hostMatches && (pattern.port == "" || pattern.port == target.port)
 }
 
 func contextIs(value model.ContextValue, want string) bool {

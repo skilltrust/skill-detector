@@ -55,30 +55,39 @@ func TestClaudeDiagnosticsSurviveScoringAndKeepProtectiveDeny(t *testing.T) {
 }
 
 func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, ".claude", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	content := `{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"excludedCommands":true}}`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, tc := range []struct {
-		name string
-		reg  *rules.RuleRegistry
+	for _, invalid := range []struct {
+		name, content string
 	}{
-		{"default-registry", rules.DefaultRegistry()},
-		{"empty-registry", rules.NewRegistry()},
+		{"invalid-type", `{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"excludedCommands":true}}`},
+		{"null-settings", `null`},
+		{"null-array-element", `{"permissions":{"deny":[null]}}`},
+		{"null-scalar", `{"allowManagedPermissionRulesOnly":null}`},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := New(tc.reg, Options{}).Scan(context.Background(), contextInput(root))
-			if err == nil || result != nil {
-				t.Fatalf("result=%+v error=%v; want error and no graded result", result, err)
+		t.Run(invalid.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, ".claude", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
 			}
-			if !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
-				t.Fatalf("unsanitized or unclear error: %v", err)
+			if err := os.WriteFile(path, []byte(invalid.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, registry := range []struct {
+				name string
+				reg  *rules.RuleRegistry
+			}{
+				{"default-registry", rules.DefaultRegistry()},
+				{"empty-registry", rules.NewRegistry()},
+			} {
+				t.Run(registry.name, func(t *testing.T) {
+					result, err := New(registry.reg, Options{}).Scan(context.Background(), contextInput(root))
+					if err == nil || result != nil {
+						t.Fatalf("result=%+v error=%v; want error and no graded result", result, err)
+					}
+					if !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
+						t.Fatalf("unsanitized or unclear error: %v", err)
+					}
+				})
 			}
 		})
 	}
