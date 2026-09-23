@@ -225,14 +225,20 @@ func claudePermissionDiagnostics(settings claudeDiagnosticSettings, ctx model.Fi
 	version := ctx.Analysis.Version
 	prefix := ctx.Path + ": "
 	versionCompared, comparableStableVersion := compareStableVersion(version, 2, 1, 257)
+	knownProjectOrigin := contextKnownIs(origin, "project") || contextKnownIs(origin, "project-local")
+	projectOrigin := knownProjectOrigin || contextCandidateIs(origin, "project") || contextCandidateIs(origin, "project-local")
 
 	if settings.Permissions.DefaultMode == "bypassPermissions" {
 		switch {
-		case (contextIs(origin, "project") || contextIs(origin, "project-local")) && comparableStableVersion && versionCompared >= 0:
+		case knownProjectOrigin && comparableStableVersion && versionCompared >= 0:
 			warnings = append(warnings, prefix+"declares permissions.defaultMode=bypassPermissions, but Claude Code "+version.Value+" does not activate auto or bypassPermissions from project/local settings; this is not an effective bypass declaration for the supplied context. Session flags and higher-precedence sources remain unavailable.")
-		case (contextIs(origin, "project") || contextIs(origin, "project-local")) && comparableStableVersion:
+		case projectOrigin && comparableStableVersion && versionCompared >= 0:
+			warnings = append(warnings, prefix+"declares permissions.defaultMode=bypassPermissions in a candidate project/local source. If loaded from that source under Claude Code "+version.Value+", it would not activate auto or bypassPermissions; effective source, session flags and higher-precedence sources remain unresolved.")
+		case knownProjectOrigin && comparableStableVersion:
 			warnings = append(warnings, prefix+"declares permissions.defaultMode=bypassPermissions from project/local settings. At the supplied pre-2.1.257 version this source could select the mode only when its activation conditions, including workspace trust, were met; session overrides remain unavailable.")
-		case contextIs(origin, "project") || contextIs(origin, "project-local"):
+		case projectOrigin && comparableStableVersion:
+			warnings = append(warnings, prefix+"declares permissions.defaultMode=bypassPermissions in a candidate project/local source. If loaded from that source at the supplied pre-2.1.257 version, it could select the mode only when activation conditions, including workspace trust, were met; effective source and session overrides remain unresolved.")
+		case projectOrigin:
 			warnings = append(warnings, prefix+"declares permissions.defaultMode=bypassPermissions from a project/local candidate source. It took effect from these sources before Claude Code 2.1.257 and does not in current versions; the effective version, trust and session override are unknown, so activation is unresolved.")
 		default:
 			warnings = append(warnings, prefix+"declares permissions.defaultMode=bypassPermissions. The supplied source is not established as an active user/managed source, and session overrides are unavailable, so this is a declaration rather than proof that prompts are bypassed.")
@@ -243,7 +249,14 @@ func claudePermissionDiagnostics(settings claudeDiagnosticSettings, ctx model.Fi
 	}
 	if settings.AllowManagedPermissionRulesOnly {
 		if origin.State == model.ContextKnown && origin.Value == "managed" {
-			warnings = append(warnings, prefix+"managed allowManagedPermissionRulesOnly=true declares that user, project, local, --settings and --allowedTools permission rules are ignored; command-line/session deny and ask rules can still tighten policy. Runtime managed-policy activation remains a supplied-context condition, not a repository inference.")
+			switch {
+			case comparableStableVersion && versionCompared >= 0:
+				warnings = append(warnings, prefix+"managed allowManagedPermissionRulesOnly=true declares that user, project, local, --settings and --allowedTools permission rules are ignored. Current documentation says command-line/session deny and ask rules can still tighten policy at the supplied version. Runtime managed-policy activation remains a supplied-context condition, not a repository inference.")
+			case comparableStableVersion:
+				warnings = append(warnings, prefix+"managed allowManagedPermissionRulesOnly=true declares that lower-tier permission rules are ignored. At the supplied pre-2.1.257 version, command-line/session deny and ask rules were dropped at the first settings reload, so they must not be treated as durable tightening. Runtime managed-policy activation remains a supplied-context condition.")
+			default:
+				warnings = append(warnings, prefix+"managed allowManagedPermissionRulesOnly=true declares that lower-tier permission rules are ignored. Current documentation says command-line/session deny and ask rules can tighten policy, but before 2.1.257 those rules were dropped at the first settings reload; applicability to the supplied unknown or prerelease version is unresolved. Runtime managed-policy activation remains a supplied-context condition.")
+			}
 		} else {
 			warnings = append(warnings, prefix+"allowManagedPermissionRulesOnly=true appears outside established managed provenance. Only a managed source can activate this lock, so the file does not prove lower-tier permission rules are ignored.")
 		}
@@ -501,34 +514,54 @@ func classifyDomainDeclaration(command string, domains []string) string {
 	if len(targets) == 0 {
 		return "has no literal command destination available for comparison"
 	}
-	patterns := make([]domainPattern, 0, len(domains))
+	patterns := make(map[domainPattern]bool, len(domains))
+	exactPorts := make(map[domainTarget]bool)
+	exactAnyPort := make(map[string]bool)
+	wildcardPorts := make(map[domainTarget]bool)
+	wildcardAnyPort := make(map[string]bool)
 	for _, raw := range domains {
 		pattern, valid := parseDomainPattern(raw)
 		if !valid {
 			return "cannot be compared because an allowed domain uses an unsupported host/port form"
 		}
-		patterns = append(patterns, pattern)
+		patterns[pattern] = false
+		switch {
+		case pattern.wildcard && pattern.port == "":
+			wildcardAnyPort[pattern.host] = true
+		case pattern.wildcard:
+			wildcardPorts[domainTarget{host: pattern.host, port: pattern.port}] = true
+		case pattern.port == "":
+			exactAnyPort[pattern.host] = true
+		default:
+			exactPorts[domainTarget{host: pattern.host, port: pattern.port}] = true
+		}
 	}
 	broad := false
 	for target := range targets {
 		matched := false
-		for _, pattern := range patterns {
-			if domainPatternMatches(pattern, target) {
-				matched = true
-				if pattern.wildcard || pattern.port == "" {
-					broad = true
-				}
+		if exactPorts[target] {
+			matched = true
+			patterns[domainPattern{host: target.host, port: target.port}] = true
+		}
+		if exactAnyPort[target.host] {
+			matched, broad = true, true
+			patterns[domainPattern{host: target.host}] = true
+		}
+		for _, suffix := range strictDomainSuffixes(target.host) {
+			if wildcardPorts[domainTarget{host: suffix, port: target.port}] {
+				matched, broad = true, true
+				patterns[domainPattern{host: suffix, port: target.port, wildcard: true}] = true
+			}
+			if wildcardAnyPort[suffix] {
+				matched, broad = true, true
+				patterns[domainPattern{host: suffix, wildcard: true}] = true
 			}
 		}
 		if !matched {
 			return "does not cover every literal command destination"
 		}
 	}
-	for _, pattern := range patterns {
-		matched := false
-		for target := range targets {
-			matched = matched || domainPatternMatches(pattern, target)
-		}
+	for _, matched := range patterns {
 		if !matched {
 			broad = true
 		}
@@ -537,6 +570,18 @@ func classifyDomainDeclaration(command string, domains []string) string {
 		return "is broader than its literal command destination(s)"
 	}
 	return "narrowly names its literal command destination(s)"
+}
+
+func strictDomainSuffixes(host string) []string {
+	var suffixes []string
+	for {
+		dot := strings.IndexByte(host, '.')
+		if dot < 0 {
+			return suffixes
+		}
+		host = host[dot+1:]
+		suffixes = append(suffixes, host)
+	}
 }
 
 func parseDomainTarget(raw string) (domainTarget, bool) {
@@ -628,18 +673,16 @@ func validDomainPort(port string) bool {
 	return err == nil && n > 0 && n <= 65535 && strconv.Itoa(n) == port
 }
 
-func domainPatternMatches(pattern domainPattern, target domainTarget) bool {
-	hostMatches := (!pattern.wildcard && pattern.host == target.host) ||
-		(pattern.wildcard && strings.HasSuffix(target.host, "."+pattern.host))
-	return hostMatches && (pattern.port == "" || pattern.port == target.port)
-}
-
 func contextIs(value model.ContextValue, want string) bool {
 	return (value.State == model.ContextKnown || value.State == model.ContextCandidate) && value.Value == want
 }
 
 func contextKnownIs(value model.ContextValue, want string) bool {
 	return value.State == model.ContextKnown && value.Value == want
+}
+
+func contextCandidateIs(value model.ContextValue, want string) bool {
+	return value.State == model.ContextCandidate && value.Value == want
 }
 
 func anchorVersionDescription(value model.ContextValue, anchor string) string {

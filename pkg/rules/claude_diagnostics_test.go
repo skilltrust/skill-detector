@@ -161,6 +161,15 @@ func TestPermissionPrecedenceNeedsVersionSource(t *testing.T) {
 			mustNotContain: []string{"Claude Code 2.1.268 is supplied", "installed Claude Code version is unknown"},
 		},
 		{
+			name: "known-current-candidate-project",
+			analysis: model.AnalysisContext{
+				Version:           model.ContextValue{State: model.ContextKnown, Value: "2.1.277"},
+				DeclarationOrigin: model.ContextValue{State: model.ContextCandidate, Value: "project"},
+			},
+			mustContain:    []string{"If loaded from that source", "effective source", "remain unresolved"},
+			mustNotContain: []string{"not an effective bypass declaration for the supplied context"},
+		},
+		{
 			name: "prerelease-project",
 			analysis: model.AnalysisContext{
 				Version:           model.ContextValue{State: model.ContextKnown, Value: "2.1.257-beta.1"},
@@ -176,6 +185,22 @@ func TestPermissionPrecedenceNeedsVersionSource(t *testing.T) {
 				DeclarationOrigin: model.ContextValue{State: model.ContextKnown, Value: "managed"},
 			},
 			mustContain: []string{"declaration rather than proof", "managed allowManagedPermissionRulesOnly", "deny and ask rules can still tighten"},
+		},
+		{
+			name: "known-old-managed",
+			analysis: model.AnalysisContext{
+				Version:           model.ContextValue{State: model.ContextKnown, Value: "2.1.200"},
+				DeclarationOrigin: model.ContextValue{State: model.ContextKnown, Value: "managed"},
+			},
+			mustContain:    []string{"dropped at the first settings reload", "must not be treated as durable tightening"},
+			mustNotContain: []string{"can still tighten policy at the supplied version"},
+		},
+		{
+			name: "unknown-managed",
+			analysis: model.AnalysisContext{
+				DeclarationOrigin: model.ContextValue{State: model.ContextKnown, Value: "managed"},
+			},
+			mustContain: []string{"Current documentation", "before 2.1.257", "applicability to the supplied unknown or prerelease version is unresolved"},
 		},
 		{
 			name: "unknown-project-candidate",

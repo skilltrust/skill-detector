@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,6 +112,37 @@ func TestClaudeSettingsCaseSensitiveDataKeysCanBeGraded(t *testing.T) {
 		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
 		if err != nil || result == nil || len(result.Axes) == 0 {
 			t.Fatalf("result=%+v error=%v; want graded result", result, err)
+		}
+	}
+}
+
+func TestAllowedDomainsLargeInputSurvivesRegistries(t *testing.T) {
+	var content strings.Builder
+	content.WriteString(`{"name":"Bash","input":{"command":"curl`)
+	for i := range 20_000 {
+		content.WriteString(` https://host` + strconv.Itoa(i) + `.example.test/resource`)
+	}
+	content.WriteString(`","allowed_domains":[`)
+	for i := range 20_000 {
+		if i > 0 {
+			content.WriteByte(',')
+		}
+		content.WriteString(`"host` + strconv.Itoa(i) + `.example.test:443"`)
+	}
+	content.WriteString(`]}}`)
+
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "tool-calls.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+		if err != nil || result == nil || !strings.Contains(strings.Join(result.Warnings, "\n"), "narrowly names") {
+			t.Fatalf("result=%+v error=%v; want narrow domain diagnostic", result, err)
 		}
 	}
 }
