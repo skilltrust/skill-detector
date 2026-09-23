@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -223,5 +224,20 @@ func TestClaudeSettingsValidationFailsClosed(t *testing.T) {
 		if !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
 			t.Fatalf("unsanitized or unclear error: %v", err)
 		}
+	}
+}
+
+func TestClaudeSettingsAllowCaseSensitiveDataKeysAndLargeObjects(t *testing.T) {
+	var content strings.Builder
+	content.WriteString(`{"env":{"HTTP_PROXY":"http://proxy.example:8080","http_proxy":"http://proxy.example:8080"`)
+	for i := range 20_000 {
+		content.WriteString(`,"KEY_` + strconv.Itoa(i) + `":"value"`)
+	}
+	content.WriteString(`}}`)
+
+	ctx := model.FileContext{Path: ".claude/settings.json"}
+	warnings, err := ClaudeConfigurationDiagnostics([]byte(content.String()), ctx)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("large case-sensitive data map: warnings=%v error=%v", warnings, err)
 	}
 }

@@ -96,6 +96,25 @@ func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
 	}
 }
 
+func TestClaudeSettingsCaseSensitiveDataKeysCanBeGraded(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"env":{"HTTP_PROXY":"http://proxy.example:8080","http_proxy":"http://proxy.example:8080"}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+		if err != nil || result == nil || len(result.Axes) == 0 {
+			t.Fatalf("result=%+v error=%v; want graded result", result, err)
+		}
+	}
+}
+
 func TestClaudeDiagnosticsSurviveEmptyRegistry(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".claude", "skills", "audit", "SKILL.md")

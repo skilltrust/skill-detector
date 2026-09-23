@@ -60,7 +60,7 @@ func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]st
 
 func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, bool) {
 	var settings claudeDiagnosticSettings
-	if !hasUniqueCaseFoldedJSONMembers(content) {
+	if !hasUnambiguousAnalyzedJSONMembers(content) {
 		return settings, false
 	}
 	var root map[string]json.RawMessage
@@ -99,16 +99,16 @@ func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, b
 	return settings, true
 }
 
-func hasUniqueCaseFoldedJSONMembers(content []byte) bool {
+func hasUnambiguousAnalyzedJSONMembers(content []byte) bool {
 	decoder := json.NewDecoder(bytes.NewReader(content))
-	if !consumeUniqueJSONValue(decoder) {
+	if !consumeJSONValue(decoder, "root") {
 		return false
 	}
 	_, err := decoder.Token()
 	return err == io.EOF
 }
 
-func consumeUniqueJSONValue(decoder *json.Decoder) bool {
+func consumeJSONValue(decoder *json.Decoder, scope string) bool {
 	token, err := decoder.Token()
 	if err != nil {
 		return false
@@ -119,26 +119,27 @@ func consumeUniqueJSONValue(decoder *json.Decoder) bool {
 	}
 	switch delimiter {
 	case '{':
-		var seen []string
+		seen := make(map[string]bool)
 		for decoder.More() {
 			keyToken, err := decoder.Token()
 			key, ok := keyToken.(string)
 			if err != nil || !ok {
 				return false
 			}
-			for _, existing := range seen {
-				if strings.EqualFold(existing, key) {
-					return false
-				}
+			canonical, childScope := analyzedJSONMember(scope, key)
+			if canonical != "" && seen[canonical] {
+				return false
 			}
-			seen = append(seen, key)
-			if !consumeUniqueJSONValue(decoder) {
+			if canonical != "" {
+				seen[canonical] = true
+			}
+			if !consumeJSONValue(decoder, childScope) {
 				return false
 			}
 		}
 	case '[':
 		for decoder.More() {
-			if !consumeUniqueJSONValue(decoder) {
+			if !consumeJSONValue(decoder, "") {
 				return false
 			}
 		}
@@ -146,7 +147,32 @@ func consumeUniqueJSONValue(decoder *json.Decoder) bool {
 		return false
 	}
 	closing, err := decoder.Token()
-	return err == nil && closing == json.Delim(map[json.Delim]rune{'{': '}', '[': ']'}[delimiter])
+	want := json.Delim('}')
+	if delimiter == '[' {
+		want = ']'
+	}
+	return err == nil && closing == want
+}
+
+func analyzedJSONMember(scope, key string) (canonical, childScope string) {
+	var names []string
+	switch scope {
+	case "root":
+		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox"}
+	case "permissions":
+		names = []string{"allow", "ask", "deny", "defaultMode"}
+	case "sandbox":
+		names = []string{"excludedCommands"}
+	}
+	for _, name := range names {
+		if strings.EqualFold(key, name) {
+			if scope == "root" && (name == "permissions" || name == "sandbox") {
+				childScope = name
+			}
+			return name, childScope
+		}
+	}
+	return "", ""
 }
 
 func jsonField(object map[string]json.RawMessage, name string) (json.RawMessage, bool) {
