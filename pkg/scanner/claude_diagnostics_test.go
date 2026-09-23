@@ -316,6 +316,47 @@ func TestClaudeDiagnosticsSurviveEmptyRegistry(t *testing.T) {
 	}
 }
 
+func TestInlineFrontmatterBoundsSurviveRegistries(t *testing.T) {
+	var repeated strings.Builder
+	repeated.WriteString("---\n")
+	for range 10_000 {
+		repeated.WriteString("x: 0\n")
+	}
+	repeated.WriteString("---\nStatic instructions.\n")
+
+	var large strings.Builder
+	large.WriteString("---\n")
+	for i := range 10_000 {
+		large.WriteString("key_" + strconv.Itoa(i) + ": 0\n")
+	}
+	large.WriteString("---\nStatic instructions.\n")
+
+	for _, tc := range []struct {
+		name, content  string
+		wantUnassessed bool
+	}{
+		{"repeated-key", repeated.String(), false},
+		{"large-flat-map", large.String(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+				result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+				if err != nil || result == nil {
+					t.Fatalf("result=%+v error=%v", result, err)
+				}
+				unassessed := strings.Contains(strings.Join(result.Warnings, "\n"), "frontmatter exceeded bounded analysis limits")
+				if unassessed != tc.wantUnassessed {
+					t.Fatalf("warnings=%v; unassessed=%v, want %v", result.Warnings, unassessed, tc.wantUnassessed)
+				}
+			}
+		})
+	}
+}
+
 func TestClaudePermissionContextFixtures(t *testing.T) {
 	s := New(rules.DefaultRegistry(), Options{})
 

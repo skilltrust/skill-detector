@@ -20,6 +20,9 @@ const (
 	claudePermissionAnchor = "2.1.268"
 	claudeAutoModeAnchor   = "2.1.271"
 	claudeSandboxAnchor    = "2.1.277"
+	maxFrontmatterBytes    = 64 << 10
+	maxFrontmatterNodes    = 10_000
+	maxFrontmatterDepth    = 100
 )
 
 type claudeDiagnosticSettings struct {
@@ -48,8 +51,10 @@ func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]st
 		warnings = append(warnings, claudePermissionDiagnostics(settings, ctx)...)
 	}
 	if isClaudeSkillOrCommand(ctx.Path) {
-		body := markdownBodyWithoutParsedFrontmatter(string(content))
-		if count := inlineShellDeclarationCount(body); count > 0 {
+		body, assessed := markdownBodyWithoutParsedFrontmatter(string(content))
+		if !assessed {
+			warnings = append(warnings, fmt.Sprintf("%s: executable inline shell declarations were not assessed because YAML frontmatter exceeded bounded analysis limits", ctx.Path))
+		} else if count := inlineShellDeclarationCount(body); count > 0 {
 			version := anchorVersionDescription(ctx.Analysis.Version, claudeAutoModeAnchor)
 			warnings = append(warnings, fmt.Sprintf("%s: %d executable inline shell declaration(s) use !`command` or a ```! block; %s. At the 2.1.271 anchor, auto-mode skill/command injections use default-mode permissions and an undecided command falls back to a reviewed tool call. This is parsed as a declaration only; execution, approval and session activation were not tested.", ctx.Path, count, version))
 		}
@@ -353,24 +358,60 @@ func inlineShellDeclarationCount(content string) int {
 	return count
 }
 
-func markdownBodyWithoutParsedFrontmatter(content string) string {
+func markdownBodyWithoutParsedFrontmatter(content string) (string, bool) {
 	lines := strings.SplitAfter(content, "\n")
 	if len(lines) == 0 || strings.TrimRight(lines[0], "\r\n") != "---" {
-		return content
+		return content, true
 	}
 	frontmatterEnd := len(lines[0])
 	for _, line := range lines[1:] {
 		if strings.TrimRight(line, "\r\n") == "---" {
 			frontmatter := content[len(lines[0]):frontmatterEnd]
-			var value any
-			if yaml.Unmarshal([]byte(frontmatter), &value) == nil {
-				return content[frontmatterEnd+len(line):]
+			if len(frontmatter) > maxFrontmatterBytes {
+				return "", false
 			}
-			return content
+			var document yaml.Node
+			if yaml.Unmarshal([]byte(frontmatter), &document) == nil {
+				valid, complete := validateFrontmatterNode(&document, 0, new(int))
+				if !complete {
+					return "", false
+				}
+				if valid {
+					return content[frontmatterEnd+len(line):], true
+				}
+			}
+			return content, true
 		}
 		frontmatterEnd += len(line)
 	}
-	return content
+	return content, true
+}
+
+func validateFrontmatterNode(node *yaml.Node, depth int, count *int) (valid, complete bool) {
+	*count++
+	if *count > maxFrontmatterNodes || depth > maxFrontmatterDepth {
+		return false, false
+	}
+	if node.Kind == yaml.MappingNode {
+		if len(node.Content)%2 != 0 {
+			return false, true
+		}
+		keys := make(map[string]bool, len(node.Content)/2)
+		for index := 0; index < len(node.Content); index += 2 {
+			key := node.Content[index]
+			if key.Kind != yaml.ScalarNode || keys[key.Value] {
+				return false, true
+			}
+			keys[key.Value] = true
+		}
+	}
+	for _, child := range node.Content {
+		valid, complete := validateFrontmatterNode(child, depth+1, count)
+		if !valid || !complete {
+			return valid, complete
+		}
+	}
+	return true, true
 }
 
 func excludedCommandBreadth(pattern string) string {

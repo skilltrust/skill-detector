@@ -40,6 +40,30 @@ func TestInlineShellDistinguishesExecutableSyntax(t *testing.T) {
 	}
 }
 
+func TestInlineShellFrontmatterAnalysisIsBounded(t *testing.T) {
+	ctx := model.FileContext{Path: "SKILL.md"}
+	var repeated strings.Builder
+	repeated.WriteString("---\n")
+	for range 10_000 {
+		repeated.WriteString("x: 0\n")
+	}
+	repeated.WriteString("---\nStatic instructions.\n")
+	if got := claudeDiagnostics(t, []byte(repeated.String()), ctx); len(got) != 0 {
+		t.Fatalf("duplicate frontmatter diagnostics = %v", got)
+	}
+
+	var large strings.Builder
+	large.WriteString("---\n")
+	for i := range 10_000 {
+		large.WriteString("key_" + strconv.Itoa(i) + ": 0\n")
+	}
+	large.WriteString("---\nStatic instructions.\n")
+	got := strings.Join(claudeDiagnostics(t, []byte(large.String()), ctx), "\n")
+	if !strings.Contains(got, "frontmatter exceeded bounded analysis limits") {
+		t.Fatalf("large frontmatter diagnostic = %q", got)
+	}
+}
+
 func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 	for _, tc := range []struct {
 		name, input, want string
