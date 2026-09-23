@@ -518,15 +518,18 @@ func allowedDomainDiagnostics(content []byte, ctx model.FileContext) []string {
 		return nil
 	}
 	var diagnostics []string
-	walkAllowedDomains(value, func(tool, command string, domains []string) {
-		class := classifyDomainDeclaration(command, domains)
+	walkAllowedDomains(value, func(tool, command string, domains []string, valid bool) {
+		class := "cannot be compared because allowed_domains uses unsupported value types"
+		if valid {
+			class = classifyDomainDeclaration(command, domains)
+		}
 		context := anchorVersionDescription(ctx.Analysis.Version, claudeAutoModeAnchor) + "; auto mode, sandbox activation and session review remain unknown"
 		diagnostics = append(diagnostics, fmt.Sprintf("%s: %s allowed_domains declaration %s; %s. Per-command domains are reviewed and opened for that command alone at the 2.1.271 anchor. This inventories a declaration and does not prove network confinement.", ctx.Path, tool, class, context))
 	})
 	return diagnostics
 }
 
-func walkAllowedDomains(value any, emit func(string, string, []string)) {
+func walkAllowedDomains(value any, emit func(string, string, []string, bool)) {
 	switch value := value.(type) {
 	case []any:
 		for _, child := range value {
@@ -540,21 +543,22 @@ func walkAllowedDomains(value any, emit func(string, string, []string)) {
 			}
 		}
 		input, hasInput := value["input"].(map[string]any)
-		if raw, ok := input["allowed_domains"].([]any); ok && hasInput && tool != "" {
+		raw, hasDomains := input["allowed_domains"]
+		if hasInput && hasDomains && tool != "" {
 			var domains []string
-			valid := true
-			for _, item := range raw {
-				domain, ok := item.(string)
-				if !ok {
-					valid = false
-					break
-				}
-				domains = append(domains, domain)
-			}
+			items, valid := raw.([]any)
 			if valid {
-				command, _ := input["command"].(string)
-				emit(tool, command, domains)
+				for _, item := range items {
+					domain, ok := item.(string)
+					if !ok {
+						valid = false
+						break
+					}
+					domains = append(domains, domain)
+				}
 			}
+			command, _ := input["command"].(string)
+			emit(tool, command, domains, valid)
 		}
 		for _, child := range value {
 			walkAllowedDomains(child, emit)
@@ -566,7 +570,10 @@ func isDomainTool(tool string) bool {
 	return tool == "Bash" || tool == "PowerShell" || tool == "Monitor"
 }
 
-var commandURL = regexp.MustCompile(`(?i:https?)://[^\s"'<>;|&()]+`)
+var (
+	commandURL    = regexp.MustCompile(`(?i:https?)://[^\s"'<>;|&()]+`)
+	commandScheme = regexp.MustCompile(`(?i:[a-z][a-z0-9+.-]*)://`)
+)
 
 type domainTarget struct {
 	host string
@@ -582,6 +589,11 @@ type domainPattern struct {
 func classifyDomainDeclaration(command string, domains []string) string {
 	if !usesBoundedLiteralCommandGrammar(command) {
 		return "cannot be compared because the command uses unsupported quoting, comments or interpolation"
+	}
+	for _, scheme := range commandScheme.FindAllString(command, -1) {
+		if !strings.EqualFold(scheme, "http://") && !strings.EqualFold(scheme, "https://") {
+			return "cannot be compared because the command contains an unsupported URL scheme"
+		}
 	}
 	targets := make(map[domainTarget]bool)
 	for _, bounds := range commandURL.FindAllStringIndex(command, -1) {

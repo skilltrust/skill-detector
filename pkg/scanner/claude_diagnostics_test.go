@@ -247,6 +247,9 @@ func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource *.example.test","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["$HOST:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.*.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":"*"}}`,
+		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":[null]}}`,
+		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource ftp://other.example.test/file","allowed_domains":["api.example.test:443"]}}`,
 	} {
 		root := t.TempDir()
 		path := filepath.Join(root, ".claude", "tool-calls.json")

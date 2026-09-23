@@ -87,6 +87,9 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"dynamic-grant", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["$HOST:443"]}}`, "cannot be compared"},
 		{"unsupported-wildcard-position", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.*.example.com:443"]}}`, "cannot be compared"},
 		{"unsupported-domain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com:"]}}`, "cannot be compared"},
+		{"malformed-domain-string", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":"*"}}`, "cannot be compared"},
+		{"malformed-domain-element", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":[null]}}`, "cannot be compared"},
+		{"mixed-protocols", `{"name":"Bash","input":{"command":"curl https://api.example.com/a ftp://other.example/file","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"ignored-large-number", `{"extensionData":{"large":1e1000},"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["other.example:443"]}}`, "does not cover"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
