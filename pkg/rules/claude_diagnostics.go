@@ -439,7 +439,12 @@ func allowedDomainDiagnostics(content []byte, ctx model.FileContext) []string {
 		return nil
 	}
 	var value any
-	if json.Unmarshal(content, &value) != nil {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.UseNumber()
+	if decoder.Decode(&value) != nil {
+		return nil
+	}
+	if _, err := decoder.Token(); err != io.EOF {
 		return nil
 	}
 	var diagnostics []string
@@ -583,6 +588,10 @@ func unsupportedURLBoundary(command string, start, end int) bool {
 	}
 	quote := command[end]
 	if start == 0 || command[start-1] != quote {
+		return true
+	}
+	opening := start - 1
+	if opening > 0 && !isShellWordBoundary(command[opening-1]) {
 		return true
 	}
 	after := end + 1

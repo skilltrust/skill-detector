@@ -68,10 +68,12 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"dynamic-destination", `{"name":"Bash","input":{"command":"curl https://$HOST/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"quote-adjacent-dynamic-destination", `{"name":"Bash","input":{"command":"curl https://api.example.com\"$SUFFIX\"/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"quoted-then-dynamic-destination", `{"name":"Bash","input":{"command":"curl \"https://api.example.com\"$SUFFIX/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"dynamic-prefix-before-quoted-destination", `{"name":"Bash","input":{"command":"curl \"$PREFIX\"\"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"standalone-quoted-literal", `{"name":"Bash","input":{"command":"curl \"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "narrowly names"},
 		{"dynamic-grant", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["$HOST:443"]}}`, "cannot be compared"},
 		{"unsupported-wildcard-position", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.*.example.com:443"]}}`, "cannot be compared"},
 		{"unsupported-domain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com:"]}}`, "cannot be compared"},
+		{"ignored-large-number", `{"extensionData":{"large":1e1000},"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["other.example:443"]}}`, "does not cover"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := model.FileContext{Path: ".claude/tool-calls.json"}

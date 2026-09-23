@@ -136,6 +136,24 @@ func TestClaudeSettingsIgnoredLargeNumberCanBeGraded(t *testing.T) {
 	}
 }
 
+func TestAllowedDomainsSurviveIgnoredLargeNumber(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "tool-calls.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"extensionData":{"large":1e1000},"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["other.example.test:443"]}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+		if err != nil || result == nil || !strings.Contains(strings.Join(result.Warnings, "\n"), "does not cover") {
+			t.Fatalf("result=%+v error=%v; want mismatched-domain diagnostic", result, err)
+		}
+	}
+}
+
 func TestAllowedDomainsLargeInputSurvivesRegistries(t *testing.T) {
 	var content strings.Builder
 	content.WriteString(`{"name":"Bash","input":{"command":"curl`)
@@ -191,6 +209,7 @@ func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
 		`{"name":"Bash","input":{"command":"curl https://$HOST/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test\"$SUFFIX\"/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl \"https://api.example.test\"$SUFFIX/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl \"$PREFIX\"\"https://api.example.test/resource\"","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["$HOST:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.*.example.test:443"]}}`,
 	} {
