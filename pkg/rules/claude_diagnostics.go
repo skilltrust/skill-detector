@@ -375,6 +375,9 @@ func markdownBodyWithoutParsedFrontmatter(content string) string {
 
 func excludedCommandBreadth(pattern string) string {
 	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	if strings.ContainsAny(pattern, "'\"\\") {
+		return "unassessed"
+	}
 	if strings.HasSuffix(pattern, ":*") {
 		pattern = strings.TrimSuffix(pattern, ":*") + " *"
 	}
@@ -515,7 +518,7 @@ func allowedDomainDiagnostics(content []byte, ctx model.FileContext) []string {
 		return nil
 	}
 	var diagnostics []string
-	walkAllowedDomains(value, "", func(tool, command string, domains []string) {
+	walkAllowedDomains(value, func(tool, command string, domains []string) {
 		class := classifyDomainDeclaration(command, domains)
 		context := anchorVersionDescription(ctx.Analysis.Version, claudeAutoModeAnchor) + "; auto mode, sandbox activation and session review remain unknown"
 		diagnostics = append(diagnostics, fmt.Sprintf("%s: %s allowed_domains declaration %s; %s. Per-command domains are reviewed and opened for that command alone at the 2.1.271 anchor. This inventories a declaration and does not prove network confinement.", ctx.Path, tool, class, context))
@@ -523,20 +526,21 @@ func allowedDomainDiagnostics(content []byte, ctx model.FileContext) []string {
 	return diagnostics
 }
 
-func walkAllowedDomains(value any, inheritedTool string, emit func(string, string, []string)) {
+func walkAllowedDomains(value any, emit func(string, string, []string)) {
 	switch value := value.(type) {
 	case []any:
 		for _, child := range value {
-			walkAllowedDomains(child, inheritedTool, emit)
+			walkAllowedDomains(child, emit)
 		}
 	case map[string]any:
-		tool := inheritedTool
+		tool := ""
 		for _, key := range []string{"tool", "name", "type"} {
 			if candidate, ok := value[key].(string); ok && isDomainTool(candidate) {
 				tool = candidate
 			}
 		}
-		if raw, ok := value["allowed_domains"].([]any); ok && isDomainTool(tool) {
+		input, hasInput := value["input"].(map[string]any)
+		if raw, ok := input["allowed_domains"].([]any); ok && hasInput && tool != "" {
 			var domains []string
 			valid := true
 			for _, item := range raw {
@@ -548,12 +552,12 @@ func walkAllowedDomains(value any, inheritedTool string, emit func(string, strin
 				domains = append(domains, domain)
 			}
 			if valid {
-				command, _ := value["command"].(string)
+				command, _ := input["command"].(string)
 				emit(tool, command, domains)
 			}
 		}
 		for _, child := range value {
-			walkAllowedDomains(child, tool, emit)
+			walkAllowedDomains(child, emit)
 		}
 	}
 }

@@ -100,8 +100,14 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		})
 	}
 	ctx := model.FileContext{Path: ".claude/tool-calls.json"}
-	if got := claudeDiagnostics(t, []byte(`{"name":"WebFetch","input":{"allowed_domains":["example.com"]}}`), ctx); len(got) != 0 {
-		t.Fatalf("unsupported tool produced diagnostic: %v", got)
+	for _, input := range []string{
+		`{"name":"WebFetch","input":{"allowed_domains":["example.com"]}}`,
+		`{"name":"Bash","metadata":{"command":"curl https://api.example.com","allowed_domains":["api.example.com:443"]}}`,
+		`{"name":"Bash","input":{"name":"WebFetch","input":{"command":"curl https://api.example.com","allowed_domains":["api.example.com:443"]}}}`,
+	} {
+		if got := claudeDiagnostics(t, []byte(input), ctx); len(got) != 0 {
+			t.Fatalf("inactive declaration produced diagnostic: %v", got)
+		}
 	}
 }
 
@@ -156,6 +162,7 @@ func TestSandboxExcludedCommandsRequireEveryComponent(t *testing.T) {
 		{`{"sandbox":{"excludedCommands":["custom exec *"]}}`, "unassessed exclusion"},
 		{`{"sandbox":{"excludedCommands":["env FOO=* docker build *"]}}`, "unassessed exclusion"},
 		{`{"sandbox":{"excludedCommands":["/tmp/*/docker build *"]}}`, "unassessed exclusion"},
+		{`{"sandbox":{"excludedCommands":["env FOO='x docker build y' bash *"]}}`, "unassessed exclusion"},
 	} {
 		ctx := model.FileContext{
 			Path: ".claude/settings.json",

@@ -154,6 +154,28 @@ func TestAllowedDomainsSurviveIgnoredLargeNumber(t *testing.T) {
 	}
 }
 
+func TestAllowedDomainsIgnoreInactiveMetadata(t *testing.T) {
+	for _, content := range []string{
+		`{"name":"Bash","metadata":{"command":"curl https://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"name":"WebFetch","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.example.test:443"]}}}`,
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, ".claude", "tool-calls.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+			result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+			if err != nil || result == nil || strings.Contains(strings.Join(result.Warnings, "\n"), "allowed_domains declaration") {
+				t.Fatalf("result=%+v error=%v; want no inactive domain diagnostic", result, err)
+			}
+		}
+	}
+}
+
 func TestAllowedDomainsLargeInputSurvivesRegistries(t *testing.T) {
 	var content strings.Builder
 	content.WriteString(`{"name":"Bash","input":{"command":"curl`)
@@ -253,6 +275,7 @@ func TestSandboxExclusionBreadthSurvivesRegistries(t *testing.T) {
 		{"docker build *", "narrow exclusion"},
 		{"env FOO=* docker build *", "unassessed exclusion"},
 		{"/tmp/*/docker build *", "unassessed exclusion"},
+		{"env FOO='x docker build y' bash *", "unassessed exclusion"},
 	} {
 		root := t.TempDir()
 		path := filepath.Join(root, ".claude", "settings.json")
