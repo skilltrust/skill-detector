@@ -56,6 +56,7 @@ func TestClaudeDiagnosticsSurviveScoringAndKeepProtectiveDeny(t *testing.T) {
 }
 
 func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
+	deep := `{"x":` + strings.Repeat(`[`, 12_000) + `0` + strings.Repeat(`]`, 12_000) + `}`
 	for _, invalid := range []struct {
 		name, content string
 	}{
@@ -66,6 +67,7 @@ func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
 		{"duplicate-analyzed-object", `{"permissions":{"deny":[null]},"permissions":{}}`},
 		{"case-colliding-analyzed-field", `{"sandbox":{"excludedCommands":["*"],"EXCLUDEDCOMMANDS":[]}}`},
 		{"case-folded-null", `{"PERMISSIONS":{"DENY":[null]}}`},
+		{"excessive-nesting", deep},
 	} {
 		t.Run(invalid.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -162,6 +164,29 @@ func TestAllowedDomainsLongHostnameIsUnresolved(t *testing.T) {
 		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
 		if err != nil || result == nil || !strings.Contains(strings.Join(result.Warnings, "\n"), "cannot be compared") {
 			t.Fatalf("result=%+v error=%v; want unresolved domain diagnostic", result, err)
+		}
+	}
+}
+
+func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
+	for _, content := range []string{
+		`{"name":"Bash","input":{"command":"curl https://$HOST/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["$HOST:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.*.example.test:443"]}}`,
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, ".claude", "tool-calls.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+			result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+			if err != nil || result == nil || !strings.Contains(strings.Join(result.Warnings, "\n"), "cannot be compared") {
+				t.Fatalf("result=%+v error=%v; want unresolved domain diagnostic", result, err)
+			}
 		}
 	}
 }

@@ -60,11 +60,11 @@ func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]st
 
 func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, bool) {
 	var settings claudeDiagnosticSettings
-	if !hasUnambiguousAnalyzedJSONMembers(content) {
-		return settings, false
-	}
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(content, &root); err != nil || root == nil {
+		return settings, false
+	}
+	if !hasUnambiguousAnalyzedJSONMembers(content) {
 		return settings, false
 	}
 	if raw, ok := jsonField(root, "allowManagedPermissionRulesOnly"); ok && !validJSONBool(raw) {
@@ -673,8 +673,13 @@ func validDomainHost(host string) bool {
 		return false
 	}
 	for _, label := range strings.Split(host, ".") {
-		if label == "" || len(label) > 63 {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 			return false
+		}
+		for _, char := range label {
+			if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+				return false
+			}
 		}
 	}
 	return true
