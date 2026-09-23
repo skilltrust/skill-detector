@@ -12,6 +12,16 @@ classes the scanner inspects: a skill manifest, a per-harness instruction file
 settings file, or an MCP configuration. `rules.IsAgentFile` is the union
 predicate over those classes; `README.md` lists the exact filenames.
 
+### Analysis context
+
+Internal facts that can change whether a declaration applies: harness,
+version, provider, declaration origin, trust, session and named activation
+conditions. Every value distinguishes known, candidate, absent, empty,
+malformed, unsupported, unavailable and unknown. Repository placement can
+produce a candidate but cannot authenticate managed provenance, trust or
+runtime activation. The context travels to rules on `model.FileContext`; it is
+not serialized in `ScanResult` and has no CLI or caller input contract.
+
 ### Axis
 
 One of the four dimensions a scan grades: `security`, `permission_hygiene`,

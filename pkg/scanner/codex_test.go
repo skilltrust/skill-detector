@@ -65,6 +65,25 @@ func TestCodexValidationCannotReturnCleanResult(t *testing.T) {
 	}
 }
 
+func TestCodexDiagnosticsSurviveDisabledRulesAndScoring(t *testing.T) {
+	dir := t.TempDir()
+	writeCodexTestFile(t, dir, ".codex/config.toml", "sandbox_mode='danger-full-access'")
+
+	// No semantic rule is registered. The scanner still runs configuration
+	// diagnostics before its empty finding set crosses scorer and grading.
+	r := runScan(t, scanner.New(rules.NewRegistry(), scanner.Options{}), dir)
+	if len(r.Findings) != 0 || r.RuleCount != 0 {
+		t.Fatalf("unexpected rule output: %+v", r)
+	}
+	joined := strings.Join(r.Warnings, "\n")
+	if !strings.Contains(joined, "declaration-only analysis") || !strings.Contains(joined, "user trust") {
+		t.Fatalf("configuration diagnostics lost: %v", r.Warnings)
+	}
+	if r.NoAgentSurface || r.Axes[axes.PermissionHygiene].Grade != axes.GradeA {
+		t.Fatalf("diagnostics must not fabricate a finding or hide inspected scope: %+v", r)
+	}
+}
+
 func TestCodexGitignoreAndSourceBoundaries(t *testing.T) {
 	dir := t.TempDir()
 	writeCodexTestFile(t, dir, "AGENTS.md", "Use project tests.")

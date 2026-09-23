@@ -45,6 +45,29 @@ func TestConfidenceString(t *testing.T) {
 	}
 }
 
+func TestContextStatesRemainDistinct(t *testing.T) {
+	states := []ContextState{
+		ContextUnknown,
+		ContextKnown,
+		ContextCandidate,
+		ContextAbsent,
+		ContextEmpty,
+		ContextMalformed,
+		ContextUnsupported,
+		ContextUnavailable,
+	}
+	seen := make(map[ContextState]bool, len(states))
+	for _, state := range states {
+		if seen[state] {
+			t.Fatalf("duplicate context state %q", state)
+		}
+		seen[state] = true
+	}
+	if ContextState("") != ContextUnknown {
+		t.Fatal("zero ContextState must remain unknown")
+	}
+}
+
 func TestSeverityMarshalJSON(t *testing.T) {
 	tests := []struct {
 		sev  Severity

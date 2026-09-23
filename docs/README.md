@@ -11,6 +11,7 @@ project knowledge has exactly one home; nothing here is documented twice.
 | [`glossary.md`](glossary.md) | Domain terms and invariants: skill root, axis, grade, path gate, schema version. |
 | [`cross-repo.md`](cross-repo.md) | The published API surface, its consumers, and what a release has to move downstream. |
 | [`development-guide.md`](development-guide.md) | Build, test, lint and release instructions for contributors. |
+| [`st-129-evidence-matrix.md`](st-129-evidence-matrix.md) | Version/source evidence, semantic ownership and internal analysis-context contract for CFG-01 through CFG-08. |
 | [`../README.md`](../README.md) | User-facing: what the tool does, installation, flags, scope. |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | Released behaviour, per version. Authoritative. |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | How to propose a change. |

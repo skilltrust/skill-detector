@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **ST-135, no grading change:** add a source-backed CFG-01–CFG-08 evidence
+  matrix with one semantic owner per row and explicit future versus completed
+  test evidence. Release anchors, prereleases, current mutable documentation
+  and unknown historical ranges remain distinct.
+- Add internal `AnalysisContext` metadata to `FileContext`, distinguishing
+  known, candidate, absent, empty, malformed, unsupported, unavailable and
+  unknown harness/version/provider/source/trust/session facts. Repository paths
+  can stamp bounded candidates but repository content cannot self-certify
+  managed provenance, trust or activation. `Scanner.Scan` exposes no context
+  input and production runtime facts remain unknown.
+- Add `rules.ConfigurationDiagnostics` as the shared pre-rule diagnostic path.
+  Unsupported analyzed Codex input still returns no graded result; warnings
+  survive disabled rules and scoring. No JSON fields, CLI/API inputs, rule
+  metadata, scope, grades or exit codes change; schema remains **1.5**.
+
 ## [0.11.0] - 2026-09-22
 
 - **#36, grade-changing:** SD-002 permits one U+FE0F emoji presentation
