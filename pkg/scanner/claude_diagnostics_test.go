@@ -147,6 +147,25 @@ func TestAllowedDomainsLargeInputSurvivesRegistries(t *testing.T) {
 	}
 }
 
+func TestAllowedDomainsLongHostnameIsUnresolved(t *testing.T) {
+	host := strings.Repeat("a.", 200) + "example.test"
+	content := `{"name":"Bash","input":{"command":"curl https://` + host + `/resource","allowed_domains":["` + host + `:443"]}}`
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "tool-calls.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+		if err != nil || result == nil || !strings.Contains(strings.Join(result.Warnings, "\n"), "cannot be compared") {
+			t.Fatalf("result=%+v error=%v; want unresolved domain diagnostic", result, err)
+		}
+	}
+}
+
 func TestClaudeDiagnosticsSurviveEmptyRegistry(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".claude", "skills", "audit", "SKILL.md")

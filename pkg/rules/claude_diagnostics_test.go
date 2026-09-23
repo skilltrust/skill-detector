@@ -58,9 +58,13 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"unrestricted-implicit-http-port", `{"name":"Bash","input":{"command":"curl http://api.example.com/a","allowed_domains":["api.example.com"]}}`, "broader than"},
 		{"narrow-implicit-http-port", `{"name":"Bash","input":{"command":"curl http://api.example.com/a","allowed_domains":["api.example.com:80"]}}`, "narrowly names"},
 		{"ipv6-port", `{"name":"Bash","input":{"command":"curl https://[2001:db8::1]:8443/a","allowed_domains":["[2001:db8::1]:8443"]}}`, "narrowly names"},
+		{"ambiguous-unbracketed-ipv6", `{"name":"Bash","input":{"command":"curl https://[::1:443]:8443/a","allowed_domains":["::1:443"]}}`, "cannot be compared"},
+		{"bracketed-ipv6-port", `{"name":"Bash","input":{"command":"curl https://[::1]:443/a","allowed_domains":["[::1]:443"]}}`, "narrowly names"},
+		{"bracketed-ipv6-no-port", `{"name":"Bash","input":{"command":"curl https://[::1:443]/a","allowed_domains":["[::1:443]"]}}`, "broader than"},
 		{"wildcard-apex", `{"name":"Bash","input":{"command":"curl https://example.com/a","allowed_domains":["*.example.com:443"]}}`, "does not cover"},
 		{"wildcard-direct-subdomain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["*.example.com:443"]}}`, "broader than"},
 		{"wildcard-nested-subdomain", `{"name":"Bash","input":{"command":"curl https://v1.api.example.com:8443/a","allowed_domains":["*.example.com:8443"]}}`, "broader than"},
+		{"mixed-case-scheme", `{"name":"Bash","input":{"command":"curl https://api.example.com/a HTTPS://other.example.com/a","allowed_domains":["api.example.com:443"]}}`, "does not cover"},
 		{"unsupported-domain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com:"]}}`, "cannot be compared"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

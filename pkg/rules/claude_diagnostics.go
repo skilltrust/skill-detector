@@ -489,7 +489,7 @@ func isDomainTool(tool string) bool {
 	return tool == "Bash" || tool == "PowerShell" || tool == "Monitor"
 }
 
-var commandURL = regexp.MustCompile(`https?://[^\s"'<>]+`)
+var commandURL = regexp.MustCompile(`(?i:https?)://[^\s"'<>]+`)
 
 type domainTarget struct {
 	host string
@@ -590,6 +590,9 @@ func parseDomainTarget(raw string) (domainTarget, bool) {
 		return domainTarget{}, false
 	}
 	host := normalizeDomainHost(parsed.Hostname())
+	if !validDomainHost(host) {
+		return domainTarget{}, false
+	}
 	port := parsed.Port()
 	if !validDomainPort(port) {
 		return domainTarget{}, false
@@ -621,7 +624,7 @@ func parseDomainPattern(raw string) (domainPattern, bool) {
 	}
 	pattern.host = normalizeDomainHost(host)
 	pattern.port = port
-	return pattern, pattern.host != ""
+	return pattern, validDomainHost(pattern.host)
 }
 
 func splitDomainHostPort(raw string) (host, port string, valid bool) {
@@ -642,10 +645,7 @@ func splitDomainHostPort(raw string) (host, port string, valid bool) {
 			return "", "", false
 		}
 	} else if strings.Count(raw, ":") > 1 {
-		if net.ParseIP(raw) == nil {
-			return "", "", false
-		}
-		host = raw
+		return "", "", false
 	} else if before, after, found := strings.Cut(raw, ":"); found {
 		if after == "" {
 			return "", "", false
@@ -663,6 +663,21 @@ func normalizeDomainHost(host string) string {
 		return ip.String()
 	}
 	return host
+}
+
+func validDomainHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+	}
+	return true
 }
 
 func validDomainPort(port string) bool {
