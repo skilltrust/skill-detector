@@ -217,6 +217,9 @@ func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
 		`{"name":"Bash","input":{"command":"curl \"https://$PREFIX@api.example.test/resource\"","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"PowerShell","input":{"command":"Invoke-WebRequest ${PREFIX}` + "`" + `\nhttps://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl \"https://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl \"$PREFIX https://api.example.test/resource \"","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl \"$PREFIX https://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl \"$URL\" # https://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["$HOST:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.*.example.test:443"]}}`,
 	} {

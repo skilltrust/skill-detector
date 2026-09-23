@@ -509,6 +509,9 @@ type domainPattern struct {
 }
 
 func classifyDomainDeclaration(command string, domains []string) string {
+	if !usesBoundedLiteralCommandGrammar(command) {
+		return "cannot be compared because the command uses unsupported quoting, comments or interpolation"
+	}
 	targets := make(map[domainTarget]bool)
 	for _, bounds := range commandURL.FindAllStringIndex(command, -1) {
 		if unsupportedURLBoundary(command, bounds[0], bounds[1]) {
@@ -580,6 +583,35 @@ func classifyDomainDeclaration(command string, domains []string) string {
 		return "is broader than its literal command destination(s)"
 	}
 	return "narrowly names its literal command destination(s)"
+}
+
+func usesBoundedLiteralCommandGrammar(command string) bool {
+	if strings.ContainsAny(command, "$`\\#") {
+		return false
+	}
+	for index := 0; index < len(command); index++ {
+		quote := command[index]
+		if quote != '\'' && quote != '"' {
+			continue
+		}
+		if index > 0 && !isShellWordBoundaryAt(command, index-1) {
+			return false
+		}
+		end := strings.IndexByte(command[index+1:], quote)
+		if end < 0 {
+			return false
+		}
+		end += index + 1
+		if end+1 < len(command) && !isShellWordBoundaryAt(command, end+1) {
+			return false
+		}
+		quoted := command[index+1 : end]
+		if match := commandURL.FindStringIndex(quoted); match != nil && (match[0] != 0 || match[1] != len(quoted)) {
+			return false
+		}
+		index = end
+	}
+	return true
 }
 
 func unsupportedURLBoundary(command string, start, end int) bool {
