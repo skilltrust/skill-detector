@@ -54,7 +54,7 @@ func (s *Scanner) Scan(ctx context.Context, in Input) (*model.ScanResult, error)
 		ctx, cancel = context.WithTimeout(ctx, s.opts.Timeout)
 		defer cancel()
 	}
-	return s.run(ctx, in.Path())
+	return s.run(ctx, in.Path(), model.AnalysisContext{})
 }
 
 // isRuleDisabled reports whether ruleID is explicitly disabled in config.
@@ -72,8 +72,9 @@ func (s *Scanner) isRuleDisabled(ruleID string) bool {
 }
 
 // run executes the full scan pipeline against root and returns a ScanResult.
-// It is the unexported core invoked by Scan after ctx/timeout setup.
-func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, error) {
+// Analysis context is an internal seam until a real caller can supply runtime
+// evidence; Scan deliberately passes its unknown zero value.
+func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisContext) (*model.ScanResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -81,6 +82,9 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 	files, discoverStats, err := DiscoverWithOptions(root, DiscoverOptions{ScanAll: s.opts.ScanAll})
 	if err != nil {
 		return nil, fmt.Errorf("scanner: %w", err)
+	}
+	for i := range files {
+		files[i].Analysis = fileAnalysisContext(analysis, files[i].Path)
 	}
 
 	var findings []model.Finding
@@ -90,7 +94,7 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		configWarnings, err := rules.CodexConfigDiagnostics(file.Content, file)
+		configWarnings, err := rules.ConfigurationDiagnostics(file.Content, file)
 		if err != nil {
 			return nil, fmt.Errorf("scanner: %w", err)
 		}
@@ -190,6 +194,34 @@ func (s *Scanner) run(ctx context.Context, root string) (*model.ScanResult, erro
 		Warnings:        warnings,
 		NoAgentSurface:  agentSurface == 0,
 	}, nil
+}
+
+func fileAnalysisContext(base model.AnalysisContext, path string) model.AnalysisContext {
+	ctx := base
+	candidate := func(value string) model.ContextValue {
+		return model.ContextValue{State: model.ContextCandidate, Value: value, Evidence: path}
+	}
+	if ctx.DeclarationOrigin.State == model.ContextUnknown {
+		switch {
+		case rules.IsCodexConfig(path), rules.IsMCPConfig(path):
+			ctx.DeclarationOrigin = candidate("project")
+		case rules.IsClaudeSettings(path):
+			if strings.HasSuffix(path, "/settings.local.json") || path == ".claude/settings.local.json" {
+				ctx.DeclarationOrigin = candidate("project-local")
+			} else {
+				ctx.DeclarationOrigin = candidate("project")
+			}
+		}
+	}
+	if ctx.Harness.State == model.ContextUnknown {
+		switch {
+		case rules.IsCodexConfig(path):
+			ctx.Harness = candidate("codex")
+		case rules.IsClaudeSettings(path):
+			ctx.Harness = candidate("claude-code")
+		}
+	}
+	return ctx
 }
 
 // applyTriage runs the configured verifier over findings grouped by file and

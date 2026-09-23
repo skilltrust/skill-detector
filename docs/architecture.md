@@ -22,8 +22,8 @@ Input (directory or file path)
         follows in-tree symlinks through a scoped os.Root
       • records skill roots and stamps FileContext.SkillRoot
   → Rule application                  pkg/rules
-      • CodexConfigDiagnostics validates the supported TOML subset first;
-        errors abort the scan, limitations append ScanResult.Warnings
+      • ConfigurationDiagnostics runs independent bounded analyzers first;
+        Codex errors abort the scan, limitations append ScanResult.Warnings
       • every Match() gates by file class first
       • baseRule.newFinding stamps the rule's axis onto each finding
   → Confidence scoring + diagnosis    pkg/scorer.Score
@@ -45,9 +45,11 @@ sits ahead of triage deliberately: it fixes the batch a verifier sees and the
 order findings are reported in, so neither depends on walk timing.
 
 Configuration diagnostics are independent of enabled rules. Disabling a
-finding must not convert an unparsed Codex configuration into a clean result.
-Direct `Rule.Match` consumers must also call `rules.CodexConfigDiagnostics`:
-the rule interface has no error/warning channel. The scanner handles both.
+finding must not convert an unparsed configuration into a clean result.
+Direct `Rule.Match` consumers must also call
+`rules.ConfigurationDiagnostics`: the rule interface has no error/warning
+channel. `CodexConfigDiagnostics` remains the bounded Codex analyzer behind
+that shared entry point. The scanner handles both.
 
 ## Commands
 
@@ -116,8 +118,12 @@ Domain types shared by every other package. `Finding` carries `RuleID`,
 `Severity`, `EffSeverity`, `Confidence`, `Axis`, `FilePath` and `Line`.
 `ScanResult` carries `Findings`, `Permissions`, `ConfigOverrides`, `Axes`,
 `Warnings`, `FileCount`, `RuleCount`, `Version`, `Checksum`, `SchemaVersion`
-and `NoAgentSurface`. `FileContext` is the per-file metadata handed to rules and to
-triage; it carries `SkillRoot`, and it is not part of the JSON wire format.
+and `NoAgentSurface`. `FileContext` is the per-file metadata handed to rules and
+triage; it carries `SkillRoot` and an `AnalysisContext`, and it is not part of
+the JSON wire format. Analysis context distinguishes known, candidate, absent,
+empty, malformed, unsupported, unavailable and unknown harness/version/source/
+trust/session facts. It is internal pipeline metadata: `Scanner.Scan` supplies
+unknown runtime facts and there is no JSON, CLI or caller input contract.
 
 `Severity` is an ordered enum — `Critical`, `High`, `Medium`, `Low`, `Info` —
 where `Critical` is numerically smallest, so "worst" is a `<` comparison.
@@ -146,7 +152,8 @@ plus allowlist entries.
   `os.Root`, and candidates are consumed in walk order.
 - `gitignore.go` is a best-effort wrapper over the root `.gitignore` only. A
   missing or malformed file is a no-op.
-- `scanner.go` orchestrates, in this order: discover, run the enabled rules,
+- `scanner.go` orchestrates, in this order: discover, stamp internal analysis
+  context, run configuration diagnostics, run the enabled rules,
   score, apply config overrides, apply allowlists, sort, triage, aggregate
   axes, build warnings. `Options` carries `Config`, `Version`, `Timeout`,
   `ScanAll`, `Verifier` and `TriageTimeout`.

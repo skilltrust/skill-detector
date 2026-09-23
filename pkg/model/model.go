@@ -206,6 +206,46 @@ type DrivingFinding struct {
 	Count  int    `json:"count"`
 }
 
+// ContextState describes what the scanner knows about one runtime fact. The
+// zero value is unknown so callers that do not supply analysis context cannot
+// accidentally turn missing evidence into a known value.
+type ContextState string
+
+const (
+	ContextUnknown     ContextState = ""
+	ContextKnown       ContextState = "known"
+	ContextCandidate   ContextState = "candidate"
+	ContextAbsent      ContextState = "absent"
+	ContextEmpty       ContextState = "empty"
+	ContextMalformed   ContextState = "malformed"
+	ContextUnsupported ContextState = "unsupported"
+	ContextUnavailable ContextState = "unavailable"
+)
+
+// ContextValue is one supplied or observed analysis fact. Evidence names the
+// supplied input or repository location supporting the value; it is never
+// populated from process environment or host state.
+type ContextValue struct {
+	State    ContextState
+	Value    string
+	Evidence string
+}
+
+// AnalysisContext carries facts that can change whether a declaration is
+// applicable. It is internal scan metadata: it is intentionally unreachable
+// from ScanResult and therefore does not change the JSON wire format.
+// Conditions is keyed by a stable condition name so rule groups can add only
+// the activation facts they actually understand.
+type AnalysisContext struct {
+	Harness           ContextValue
+	Version           ContextValue
+	Provider          ContextValue
+	DeclarationOrigin ContextValue
+	Trust             ContextValue
+	Session           ContextValue
+	Conditions        map[string]ContextValue
+}
+
 // FileContext — metadata about a discovered file.
 type FileContext struct {
 	Path    string
@@ -226,4 +266,8 @@ type FileContext struct {
 	// not reachable from ScanResult, so adding this field does not move
 	// model.SchemaVersion.
 	SkillRoot string
+	// Analysis contains supplied cross-file facts plus candidate facts derived
+	// from this file's placement. Rules must not replace unknown fields with
+	// process environment, host files, or claims made by repository content.
+	Analysis AnalysisContext
 }

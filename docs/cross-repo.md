@@ -57,10 +57,18 @@ Codex TOML support adds `rules.IsCodexConfig`, `CodexConfigDiagnostics` and
 Consumers of `Scanner.Scan` must preserve its error path and display warnings:
 unsupported analyzed configuration returns no result, while unresolved runtime
 activation is reported through the existing `Warnings` field. Direct rule
-consumers have the diagnostic obligation described in
+consumers should call the shared `rules.ConfigurationDiagnostics` entry point;
+`CodexConfigDiagnostics` remains available for compatibility. They have the
+diagnostic obligation described in
 [`architecture.md`](architecture.md). The hosted sparse selector already
 includes the entire `.codex/` subtree, including nested and named profiles;
 this feature needs no broader sparse scope.
+
+ST-135 adds internal context types and `FileContext.Analysis`, plus the shared
+diagnostics entry point. These are additive Go API changes. Existing keyed
+`FileContext` literals and `Scanner.Scan` callers compile unchanged. There is no
+new scanner option, method argument, CLI flag or JSON field; the hosted scanner
+therefore has nothing to supply or persist, and runtime facts remain unknown.
 
 ## A release is not done when the tag is cut
 

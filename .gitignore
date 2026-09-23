@@ -31,6 +31,7 @@ docs/*
 !docs/product-context.md
 !docs/cross-repo.md
 !docs/development-guide.md
+!docs/st-129-evidence-matrix.md
 
 # Local scratch
 .agent-scratch/
