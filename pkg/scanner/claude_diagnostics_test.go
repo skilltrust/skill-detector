@@ -243,6 +243,33 @@ func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
 	}
 }
 
+func TestSandboxExclusionBreadthSurvivesRegistries(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, want string
+	}{
+		{"env -- FOO=bar /bin/bash *", "broad or wildcard exclusion"},
+		{"env env /bin/bash *", "unassessed exclusion"},
+		{"custom exec *", "unassessed exclusion"},
+		{"docker build *", "narrow exclusion"},
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := `{"sandbox":{"excludedCommands":["` + tc.pattern + `"]}}`
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+			result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+			if err != nil || result == nil || !strings.Contains(strings.Join(result.Warnings, "\n"), tc.want) {
+				t.Fatalf("pattern=%q result=%+v error=%v; want %q", tc.pattern, result, err, tc.want)
+			}
+		}
+	}
+}
+
 func TestClaudeDiagnosticsSurviveEmptyRegistry(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".claude", "skills", "audit", "SKILL.md")

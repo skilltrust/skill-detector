@@ -402,7 +402,7 @@ func excludedCommandBreadth(pattern string) string {
 	if shells[shell] && (strings.Contains(command, "*") || strings.Contains(strings.Join(fields[1:], " "), "*")) {
 		return "broad"
 	}
-	if !strings.Contains(pattern, "*") || (len(fields) > 2 && !strings.Contains(fields[1], "*")) {
+	if !strings.Contains(pattern, "*") || (command == "docker" && len(fields) > 2 && fields[1] == "build") {
 		return "narrow"
 	}
 	return "unassessed"
@@ -410,22 +410,25 @@ func excludedCommandBreadth(pattern string) string {
 
 func unwrapEnvCommand(fields []string) (string, []string, bool) {
 	index := 1
+	options := true
 	for index < len(fields) {
 		field := fields[index]
 		switch {
-		case field == "--":
+		case options && field == "--":
+			options = false
 			index++
-			goto resolved
-		case field == "-i" || field == "--ignore-environment" || field == "-0" || field == "--null":
+		case !strings.HasPrefix(field, "-") && strings.Contains(field, "="):
 			index++
-		case field == "-u" || field == "--unset":
+		case options && (field == "-i" || field == "--ignore-environment" || field == "-0" || field == "--null"):
+			index++
+		case options && (field == "-u" || field == "--unset"):
 			if index+1 >= len(fields) {
 				return "", nil, false
 			}
 			index += 2
-		case strings.HasPrefix(field, "--unset=") || (!strings.HasPrefix(field, "-") && strings.Contains(field, "=")):
+		case options && strings.HasPrefix(field, "--unset="):
 			index++
-		case strings.HasPrefix(field, "-"):
+		case options && strings.HasPrefix(field, "-"):
 			return "", nil, false
 		default:
 			goto resolved
