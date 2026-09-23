@@ -1,0 +1,145 @@
+package scanner
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/velzepooz/skill-detector/pkg/model"
+	"github.com/velzepooz/skill-detector/pkg/rules"
+)
+
+func TestClaudeDiagnosticsSurviveScoringAndKeepProtectiveDeny(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"permissions":{"defaultMode":"bypassPermissions","allow":["Bash(*)"],"deny":["Bash(rm -rf *)"]},"sandbox":{"excludedCommands":["docker *"]}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	analysis := model.AnalysisContext{
+		Version:           model.ContextValue{State: model.ContextKnown, Value: "2.1.277", Evidence: "test"},
+		DeclarationOrigin: model.ContextValue{State: model.ContextKnown, Value: "project", Evidence: "test"},
+	}
+	result, err := New(rules.DefaultRegistry(), Options{}).run(context.Background(), root, analysis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joinedWarnings := strings.Join(result.Warnings, "\n")
+	if !strings.Contains(joinedWarnings, "does not activate") || !strings.Contains(joinedWarnings, "every component") {
+		t.Fatalf("diagnostics lost after full scanner path: %v", result.Warnings)
+	}
+	var found bool
+	for _, finding := range result.Findings {
+		if finding.RuleID != "SD-018" {
+			continue
+		}
+		found = true
+		combined := finding.Description + "\n" + finding.Remediation + "\n" + finding.Diagnosis
+		for _, want := range []string{"protective deny", "when both rules apply", "Keep the protective deny", "deny precedence protects the overlapping subset"} {
+			if !strings.Contains(combined, want) {
+				t.Errorf("SD-018 lost %q after scoring: %+v", want, finding)
+			}
+		}
+		if strings.Contains(strings.ToLower(combined), "deny is redundant") || strings.HasPrefix(finding.Remediation, "Remove the deny") {
+			t.Errorf("SD-018 recommends weakening protection: %+v", finding)
+		}
+	}
+	if !found {
+		t.Fatalf("SD-018 missing: %+v", result.Findings)
+	}
+}
+
+func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"permissions":{"defaultMode":"bypassPermissions"},"sandbox":{"excludedCommands":true}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		reg  *rules.RuleRegistry
+	}{
+		{"default-registry", rules.DefaultRegistry()},
+		{"empty-registry", rules.NewRegistry()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := New(tc.reg, Options{}).Scan(context.Background(), contextInput(root))
+			if err == nil || result != nil {
+				t.Fatalf("result=%+v error=%v; want error and no graded result", result, err)
+			}
+			if !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
+				t.Fatalf("unsanitized or unclear error: %v", err)
+			}
+		})
+	}
+}
+
+func TestClaudeDiagnosticsSurviveEmptyRegistry(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "skills", "audit", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("!`printf ready`\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := New(rules.NewRegistry(), Options{}).Scan(context.Background(), contextInput(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Findings) != 0 || result.RuleCount != 0 || !strings.Contains(strings.Join(result.Warnings, "\n"), "executable inline shell") {
+		t.Fatalf("diagnostics did not survive disabled semantic rules/scoring: %+v", result)
+	}
+}
+
+func TestClaudePermissionContextFixtures(t *testing.T) {
+	s := New(rules.DefaultRegistry(), Options{})
+
+	clean, err := s.Scan(context.Background(), contextInput("../../testdata/clean/claude-permission-context"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clean.Findings) != 0 {
+		t.Fatalf("clean fixture findings = %+v", clean.Findings)
+	}
+	cleanWarnings := strings.Join(clean.Warnings, "\n")
+	for _, want := range []string{"Read/Edit/Write path rule", "narrow exclusion", "narrowly names"} {
+		if !strings.Contains(cleanWarnings, want) {
+			t.Errorf("clean fixture missing %q in %q", want, cleanWarnings)
+		}
+	}
+	if strings.Contains(cleanWarnings, "executable inline shell") {
+		t.Errorf("prose treated as executable: %q", cleanWarnings)
+	}
+
+	malicious, err := s.Scan(context.Background(), contextInput("../../testdata/malicious/claude-permission-context"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundSD018 bool
+	for _, finding := range malicious.Findings {
+		foundSD018 = foundSD018 || finding.RuleID == "SD-018"
+	}
+	if !foundSD018 {
+		t.Fatalf("malicious fixture missing SD-018: %+v", malicious.Findings)
+	}
+	maliciousWarnings := strings.Join(malicious.Warnings, "\n")
+	for _, want := range []string{
+		"executable inline shell", "broader than", "defaultMode=bypassPermissions",
+		"path-scoped Write", "negated path rule", "scoped Bash/PowerShell deny", "broad or wildcard exclusion",
+	} {
+		if !strings.Contains(maliciousWarnings, want) {
+			t.Errorf("malicious fixture missing %q in %q", want, maliciousWarnings)
+		}
+	}
+}

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **ST-136, diagnostic/rule-text change:** Claude configuration diagnostics now
+  inventory executable skill/command `!` injections, per-command
+  `allowed_domains`, project/local `bypassPermissions`, managed-only permission
+  locks, source-local path negation, Read/Edit/Write and symlink limits, scoped
+  shell denies, and narrow/broad `sandbox.excludedCommands`. Messages condition
+  claims on supplied version/source/trust/session evidence and never certify
+  runtime permission or sandbox enforcement. Claude **2.1.268**, **2.1.271** and
+  **2.1.277** remain dated anchors; unknown historical behavior stays unknown.
+  Malformed Claude settings and unsupported analyzed field types now fail the
+  scan without returning grades.
+- **SD-018 keeps High severity and grading behavior**, but is renamed to
+  "Broad Allow with Protective Deny". Its description, remediation and scorer
+  diagnosis now say deny precedence protects the subset when both declarations
+  apply; advice narrows the broad allow and never recommends removing the deny.
+  Rule metadata changes the
+  26-rule checksum to **`a00e1d4179d5c4fc`**. JSON schema remains **1.5**;
+  scope, axes, thresholds and exit codes are unchanged.
 - **ST-135, no grading change:** add a source-backed CFG-01–CFG-08 evidence
   matrix with one semantic owner per row and explicit future versus completed
   test evidence. Release anchors, prereleases, current mutable documentation

@@ -51,9 +51,9 @@ Owner: **ST-136**.
 
 | Row | Evidence and context | Supported input; inert controls | Expected diagnostic; engine/test result |
 |---|---|---|---|
-| 01.1 Inline `!` commands | C271: at v2.1.271 auto-mode skill/slash inline commands use default-mode permissions; undecided commands become reviewed tool calls. Claude provider; skill/command candidate source; trust/session unknown. Older range unknown. | Parsed inline executable syntax. Risky: undecided `!` command. Benign: same text as prose. | Explain conditional review; never execute. **Future ST-136:** `TestInlineShellDistinguishesExecutableSyntax`; not implemented/run. |
-| 01.2 Per-command domains | C271: `allowed_domains` for Bash, PowerShell and Monitor in auto mode with sandboxing, scoped to one command. Project declaration is candidate only; enforcement/session unknown. | Risky: broader/different destination. Benign: narrow destination; absence control: unavailable context. | Inventory declared grant without certifying confinement. **Future ST-136:** `TestAllowedDomainsArePerCommandDeclarations`; not implemented/run. |
-| 01.3 Parser safety | C271 establishes syntax behavior, not detector execution. Harness/version may be known or unknown; host state unavailable. | Risky: executable command/helper marker. Benign: same bytes in prose or an inactive field. | Parse only; no process/network call. **Future ST-136:** `TestInlineAndDomainAnalysisIsInert`; not implemented/run. |
+| 01.1 Inline `!` commands | C271: at v2.1.271 auto-mode skill/slash inline commands use default-mode permissions; undecided commands become reviewed tool calls. Claude provider; skill/command candidate source; trust/session unknown. Older range unknown. | Parsed inline executable syntax. Risky: undecided `!` command in `testdata/malicious/claude-permission-context`; benign: literal prose in the paired clean fixture. | Conditional review warning; never execute. `TestInlineShellDistinguishesExecutableSyntax` passed: inline/fenced executable forms differ from prose, escaped and assignment forms. |
+| 01.2 Per-command domains | C271: `allowed_domains` for Bash, PowerShell and Monitor in auto mode with sandboxing, scoped to one command. Project declaration is candidate only; enforcement/session unknown. | Risky: broader/different destination in the malicious fixture. Benign: narrow destination in the paired clean fixture; absence control: unavailable context. | Declaration inventory without confinement claim. `TestAllowedDomainsArePerCommandDeclarations` passed for narrow, wildcard-broad, different and missing-command contexts across all three tools. |
+| 01.3 Parser safety | C271 establishes syntax behavior, not detector execution. Harness/version may be known or unknown; host state unavailable. | Risky: executable command/helper marker. Benign: same bytes in prose or an inactive field. | Parse only; no process/network call. `TestInlineAndDomainAnalysisIsInert` and `TestClaudeDiagnosticsSurviveEmptyRegistry` passed; marker commands were not executed and warnings survived scoring with no rules. |
 
 ## CFG-02 — Copilot approval and sandbox switches
 
@@ -129,9 +129,9 @@ permission and MCP behavior in one bullet.
 
 | Row | Evidence and context | Supported input; inert controls | Expected diagnostic; engine/test result |
 |---|---|---|---|
-| 08.1a Permission precedence (ST-136) | DSET: deny applies in every mode, including bypass; managed-only rules prevent lower-tier allow/ask/deny and lower tiers cannot negate managed restrictions. C268/C273 anchor symlink and unanalyzable-shell changes, showing semantics vary by release. Exact Read/Edit/Write historical ranges remain unknown. | Risky: broad project allow/bypass or source-local negation. Benign: protective deny plus narrow allow; include symlink/path/shell twins. | Preserve protective restrictions; unknown version/source stays conditional. **Future:** `TestPermissionPrecedenceNeedsVersionSource`; not implemented/run. |
+| 08.1a Permission precedence (ST-136) | DSET: deny applies in every mode, including bypass; managed-only rules prevent lower-tier allow/ask/deny and lower tiers cannot negate managed restrictions. C268/C273 anchor symlink and unanalyzable-shell changes, showing semantics vary by release. Exact Read/Edit/Write historical ranges remain unknown. | Risky: broad project allow/bypass, ineffective `Write(path)`, source-local negation in the malicious fixture. Benign: protective deny, narrow project allow and `Read(path)` in the paired clean fixture; known project/managed and unknown-source contexts cover symlink/path/shell limits. | Protective deny retained. `TestPermissionPrecedenceNeedsVersionSource` and `TestClaudeDiagnosticsSurviveScoringAndKeepProtectiveDeny` passed for known current/old project, known managed and unknown candidate contexts; scorer text never recommends deny removal. |
 | 08.1b Managed MCP precedence (ST-138) | DMCP documents current allow/deny evaluation. C271 says unreadable managed MCP retains exclusive control and warns. Effective managed source remains caller evidence. | Risky: user server against managed deny or malformed managed policy. Benign: allowed managed server; unknown-provenance control. | Never convert unresolved effective policy into clean. **Future:** `TestManagedMCPFailureIsNotClean`; not implemented/run. |
-| 08.2 Compound exclusions (ST-136) | C277 fixes one matching component exempting an entire compound command; every component must match. This anchors fixed behavior at 2.1.277 only. | Risky: only one component matches. Benign: every component matches plus narrow exclusion control. | Distinguish partial from complete match without shell simulation. **Future:** `TestSandboxExcludedCommandsRequireEveryComponent`; not implemented/run. |
+| 08.2 Compound exclusions (ST-136) | C277 fixes one matching component exempting an entire compound command; every component must match. This anchors fixed behavior at 2.1.277 only. | Unit model: risky when only one component matches; benign when every component matches. Paired scanner fixtures carry wildcard versus narrow exclusion declarations, not runtime commands. | `TestSandboxExcludedCommandsRequireEveryComponent` passed for the bounded matcher: one/all simple components differ and complex shell stays unresolved. Production diagnostics inventory narrow/broad declarations and explain the anchor; they do not claim to match a runtime command. |
 | 08.3 Hook context (ST-137) | DHOOK documents command/HTTP handlers, event matchers, POST event data, URL allowlists and env/header exposure. Current docs do not establish historical ranges. | Risky: matching HTTP hook with sensitive exposure. Benign: command/nonmatching hook and harmless external URL/header placeholders. | Preserve generic SD-007; external is not inherently malicious; response text is data. **Future:** `TestHookTypeEventMatcherAndExposure`; not implemented/run. |
 
 ## Internal analysis-context contract
@@ -169,7 +169,7 @@ Configuration validation and limitation messages use
 rules. A malformed/unsupported analyzed input therefore returns an error even
 with an empty registry, and warnings survive the finding scorer.
 
-## Completed ST-135 contract evidence
+## Completed analysis-context contract evidence
 
 | Test | Result represented |
 |---|---|
@@ -178,6 +178,8 @@ with an empty registry, and warnings survive the finding scorer.
 | `TestRunPropagatesSuppliedContextWithoutPathOverride` | Known internal context reaches per-file rules unchanged. |
 | `TestFileAnalysisContextCandidates` | Placement produces only bounded candidates. |
 | `TestCodexValidationCannotReturnCleanResult` | Unsupported/malformed analyzed input yields no graded result. |
+| `TestClaudeSettingsValidationFailsClosed` | Malformed Claude settings and unsupported analyzed field types return a sanitized error. |
+| `TestMalformedClaudeSettingsCannotReturnGradedResult` | Claude validation failure yields no graded result with default or empty registries. |
 | `TestCodexDiagnosticsSurviveDisabledRulesAndScoring` | Diagnostics remain with no semantic rules and after scoring. |
 | `TestCodexDoesNotExecuteOrReadExternalConfiguration` | No helper/server executes and host config is not read. |
 

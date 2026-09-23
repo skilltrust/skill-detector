@@ -27,6 +27,7 @@ var diagnosisTable = map[string]struct {
 	"SD-012": {"malicious post-install action", "legitimate setup automation"},
 	"SD-013": {"persistence backdoor mechanism", "legitimate service or scheduled task configuration"},
 	"SD-014": {"git hook hijacking for code execution", "development workflow automation tool"},
+	"SD-018": {"an overbroad shell allow whose remaining range may enable unintended commands", "intentional defense in depth; when both rules apply, deny precedence protects the overlapping subset"},
 }
 
 // corroboratingPairs defines rules whose co-occurrence in the same file boosts confidence.

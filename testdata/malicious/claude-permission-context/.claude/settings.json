@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": ["Bash(*)", "Write(**/.env)"],
+    "deny": ["Bash(rm -rf *)", "Read(**/.env)", "Read(!sample.env)"]
+  },
+  "sandbox": {
+    "excludedCommands": ["*"]
+  }
+}
