@@ -43,7 +43,7 @@ func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]st
 	if IsClaudeSettings(ctx.Path) {
 		settings, valid := decodeClaudeDiagnosticSettings(content)
 		if !valid {
-			return nil, fmt.Errorf("malformed Claude settings JSON or unsupported analyzed field type; configuration was not assessed")
+			return nil, fmt.Errorf("%s: malformed Claude settings JSON or unsupported analyzed field type; configuration was not assessed", ctx.Path)
 		}
 		warnings = append(warnings, claudePermissionDiagnostics(settings, ctx)...)
 	}

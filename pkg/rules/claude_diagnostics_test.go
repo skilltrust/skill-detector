@@ -295,7 +295,7 @@ func TestClaudeSettingsValidationFailsClosed(t *testing.T) {
 		if err == nil || warnings != nil {
 			t.Fatalf("warnings=%v error=%v; want sanitized error and no diagnostics", warnings, err)
 		}
-		if !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
+		if !strings.Contains(err.Error(), ctx.Path) || !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
 			t.Fatalf("unsanitized or unclear error: %v", err)
 		}
 	}

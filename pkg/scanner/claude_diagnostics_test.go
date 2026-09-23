@@ -71,7 +71,7 @@ func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
 	} {
 		t.Run(invalid.name, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, ".claude", "settings.json")
+			path := filepath.Join(root, "nested", ".claude", "settings.local.json")
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ func TestMalformedClaudeSettingsCannotReturnGradedResult(t *testing.T) {
 					if err == nil || result != nil {
 						t.Fatalf("result=%+v error=%v; want error and no graded result", result, err)
 					}
-					if !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
+					if !strings.Contains(err.Error(), "nested/.claude/settings.local.json") || !strings.Contains(err.Error(), "configuration was not assessed") || strings.Contains(err.Error(), "bypassPermissions") {
 						t.Fatalf("unsanitized or unclear error: %v", err)
 					}
 				})
