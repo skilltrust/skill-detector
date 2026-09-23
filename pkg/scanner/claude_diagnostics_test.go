@@ -251,6 +251,8 @@ func TestSandboxExclusionBreadthSurvivesRegistries(t *testing.T) {
 		{"env env /bin/bash *", "unassessed exclusion"},
 		{"custom exec *", "unassessed exclusion"},
 		{"docker build *", "narrow exclusion"},
+		{"env FOO=* docker build *", "unassessed exclusion"},
+		{"/tmp/*/docker build *", "unassessed exclusion"},
 	} {
 		root := t.TempDir()
 		path := filepath.Join(root, ".claude", "settings.json")

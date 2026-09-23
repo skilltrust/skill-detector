@@ -385,13 +385,16 @@ func excludedCommandBreadth(pattern string) string {
 	if len(fields) == 0 {
 		return "unassessed"
 	}
+	originalWildcardCount := strings.Count(pattern, "*")
 	command := strings.ToLower(filepath.Base(filepath.ToSlash(fields[0])))
+	wrapperWildcardFree := true
 	if command == "env" {
 		var resolved bool
 		command, fields, resolved = unwrapEnvCommand(fields)
 		if !resolved {
 			return "unassessed"
 		}
+		wrapperWildcardFree = originalWildcardCount == strings.Count(strings.Join(fields, " "), "*")
 	}
 	shell := strings.TrimSuffix(command, "*")
 	shells := map[string]bool{
@@ -402,7 +405,7 @@ func excludedCommandBreadth(pattern string) string {
 	if shells[shell] && (strings.Contains(command, "*") || strings.Contains(strings.Join(fields[1:], " "), "*")) {
 		return "broad"
 	}
-	if !strings.Contains(pattern, "*") || (command == "docker" && len(fields) > 2 && fields[1] == "build") {
+	if !strings.Contains(pattern, "*") || (wrapperWildcardFree && command == "docker" && len(fields) > 2 && fields[1] == "build" && !strings.Contains(fields[0], "*")) {
 		return "narrow"
 	}
 	return "unassessed"

@@ -154,6 +154,8 @@ func TestSandboxExcludedCommandsRequireEveryComponent(t *testing.T) {
 		{`{"sandbox":{"excludedCommands":["env env /bin/bash *"]}}`, "unassessed exclusion"},
 		{`{"sandbox":{"excludedCommands":["custom *"]}}`, "unassessed exclusion"},
 		{`{"sandbox":{"excludedCommands":["custom exec *"]}}`, "unassessed exclusion"},
+		{`{"sandbox":{"excludedCommands":["env FOO=* docker build *"]}}`, "unassessed exclusion"},
+		{`{"sandbox":{"excludedCommands":["/tmp/*/docker build *"]}}`, "unassessed exclusion"},
 	} {
 		ctx := model.FileContext{
 			Path: ".claude/settings.json",
