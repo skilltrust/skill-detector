@@ -71,6 +71,8 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"dynamic-prefix-before-quoted-destination", `{"name":"Bash","input":{"command":"curl \"$PREFIX\"\"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"dynamic-prefix-before-unquoted-destination", `{"name":"Bash","input":{"command":"curl ${PREFIX}https://api.example.com/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"substitution-prefix-before-quoted-destination", `{"name":"Bash","input":{"command":"curl $(get_prefix)\"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"continued-prefix-before-quoted-destination", `{"name":"Bash","input":{"command":"curl \"$PREFIX\"\\\n\"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"continued-prefix-before-unquoted-destination", `{"name":"Bash","input":{"command":"curl ${PREFIX}\\\nhttps://api.example.com/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
 		{"standalone-quoted-literal", `{"name":"Bash","input":{"command":"curl \"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "narrowly names"},
 		{"dynamic-grant", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["$HOST:443"]}}`, "cannot be compared"},
 		{"unsupported-wildcard-position", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.*.example.com:443"]}}`, "cannot be compared"},

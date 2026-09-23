@@ -583,7 +583,7 @@ func classifyDomainDeclaration(command string, domains []string) string {
 }
 
 func unsupportedURLBoundary(command string, start, end int) bool {
-	if start > 0 && command[start-1] != '\'' && command[start-1] != '"' && !isShellWordBoundary(command[start-1]) {
+	if start > 0 && command[start-1] != '\'' && command[start-1] != '"' && !isShellWordBoundaryAt(command, start-1) {
 		return true
 	}
 	if end >= len(command) || (command[end] != '\'' && command[end] != '"') {
@@ -594,15 +594,27 @@ func unsupportedURLBoundary(command string, start, end int) bool {
 		return true
 	}
 	opening := start - 1
-	if opening > 0 && !isShellWordBoundary(command[opening-1]) {
+	if opening > 0 && !isShellWordBoundaryAt(command, opening-1) {
 		return true
 	}
 	after := end + 1
-	return after < len(command) && !isShellWordBoundary(command[after])
+	return after < len(command) && !isShellWordBoundaryAt(command, after)
 }
 
-func isShellWordBoundary(char byte) bool {
-	return char == ' ' || char == '\t' || char == '\r' || char == '\n' || strings.ContainsRune(";|&<>", rune(char))
+func isShellWordBoundaryAt(command string, index int) bool {
+	char := command[index]
+	if char != ' ' && char != '\t' && char != '\r' && char != '\n' && !strings.ContainsRune(";|&<>", rune(char)) {
+		return false
+	}
+	if char == '\n' && index > 0 && command[index-1] == '\r' {
+		index--
+	}
+	backslashes := 0
+	for index > 0 && command[index-1] == '\\' {
+		backslashes++
+		index--
+	}
+	return backslashes%2 == 0
 }
 
 func strictDomainSuffixes(host string) []string {

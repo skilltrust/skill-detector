@@ -212,6 +212,8 @@ func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
 		`{"name":"Bash","input":{"command":"curl \"$PREFIX\"\"https://api.example.test/resource\"","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl ${PREFIX}https://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl $(get_prefix)\"https://api.example.test/resource\"","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl \"$PREFIX\"\\\n\"https://api.example.test/resource\"","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl ${PREFIX}\\\nhttps://api.example.test/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["$HOST:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.*.example.test:443"]}}`,
 	} {
