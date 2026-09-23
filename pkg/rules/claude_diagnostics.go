@@ -101,6 +101,7 @@ func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, b
 
 func hasUnambiguousAnalyzedJSONMembers(content []byte) bool {
 	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.UseNumber()
 	if !consumeJSONValue(decoder, "root") {
 		return false
 	}
@@ -504,7 +505,11 @@ type domainPattern struct {
 
 func classifyDomainDeclaration(command string, domains []string) string {
 	targets := make(map[domainTarget]bool)
-	for _, raw := range commandURL.FindAllString(command, -1) {
+	for _, bounds := range commandURL.FindAllStringIndex(command, -1) {
+		if unsupportedURLBoundary(command, bounds[0], bounds[1]) {
+			return "cannot be compared because a destination uses unsupported quoting or interpolation"
+		}
+		raw := command[bounds[0]:bounds[1]]
 		target, valid := parseDomainTarget(raw)
 		if !valid {
 			return "cannot be compared because a destination uses an unsupported host/port form"
@@ -570,6 +575,22 @@ func classifyDomainDeclaration(command string, domains []string) string {
 		return "is broader than its literal command destination(s)"
 	}
 	return "narrowly names its literal command destination(s)"
+}
+
+func unsupportedURLBoundary(command string, start, end int) bool {
+	if end >= len(command) || (command[end] != '\'' && command[end] != '"') {
+		return false
+	}
+	quote := command[end]
+	if start == 0 || command[start-1] != quote {
+		return true
+	}
+	after := end + 1
+	return after < len(command) && !isShellWordBoundary(command[after])
+}
+
+func isShellWordBoundary(char byte) bool {
+	return char == ' ' || char == '\t' || char == '\r' || char == '\n' || strings.ContainsRune(";|&()<>", rune(char))
 }
 
 func strictDomainSuffixes(host string) []string {

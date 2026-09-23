@@ -66,6 +66,9 @@ func TestAllowedDomainsArePerCommandDeclarations(t *testing.T) {
 		{"wildcard-nested-subdomain", `{"name":"Bash","input":{"command":"curl https://v1.api.example.com:8443/a","allowed_domains":["*.example.com:8443"]}}`, "broader than"},
 		{"mixed-case-scheme", `{"name":"Bash","input":{"command":"curl https://api.example.com/a HTTPS://other.example.com/a","allowed_domains":["api.example.com:443"]}}`, "does not cover"},
 		{"dynamic-destination", `{"name":"Bash","input":{"command":"curl https://$HOST/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"quote-adjacent-dynamic-destination", `{"name":"Bash","input":{"command":"curl https://api.example.com\"$SUFFIX\"/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"quoted-then-dynamic-destination", `{"name":"Bash","input":{"command":"curl \"https://api.example.com\"$SUFFIX/a","allowed_domains":["api.example.com:443"]}}`, "cannot be compared"},
+		{"standalone-quoted-literal", `{"name":"Bash","input":{"command":"curl \"https://api.example.com/a\"","allowed_domains":["api.example.com:443"]}}`, "narrowly names"},
 		{"dynamic-grant", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["$HOST:443"]}}`, "cannot be compared"},
 		{"unsupported-wildcard-position", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.*.example.com:443"]}}`, "cannot be compared"},
 		{"unsupported-domain", `{"name":"Bash","input":{"command":"curl https://api.example.com/a","allowed_domains":["api.example.com:"]}}`, "cannot be compared"},
@@ -273,5 +276,13 @@ func TestClaudeSettingsAllowCaseSensitiveDataKeysAndLargeObjects(t *testing.T) {
 	warnings, err := ClaudeConfigurationDiagnostics([]byte(content.String()), ctx)
 	if err != nil || len(warnings) != 0 {
 		t.Fatalf("large case-sensitive data map: warnings=%v error=%v", warnings, err)
+	}
+}
+
+func TestClaudeSettingsAllowIgnoredLargeJSONNumber(t *testing.T) {
+	content := []byte(`{"extensionData":{"large":1e1000},"permissions":{"deny":["Read(**/.env)"]}}`)
+	ctx := model.FileContext{Path: ".claude/settings.json"}
+	if _, err := ClaudeConfigurationDiagnostics(content, ctx); err != nil {
+		t.Fatal(err)
 	}
 }

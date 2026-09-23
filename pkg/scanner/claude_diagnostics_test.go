@@ -118,6 +118,24 @@ func TestClaudeSettingsCaseSensitiveDataKeysCanBeGraded(t *testing.T) {
 	}
 }
 
+func TestClaudeSettingsIgnoredLargeNumberCanBeGraded(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"extensionData":{"large":1e1000},"permissions":{"deny":["Read(**/.env)"]}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, registry := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+		result, err := New(registry, Options{}).Scan(context.Background(), contextInput(root))
+		if err != nil || result == nil || len(result.Axes) == 0 {
+			t.Fatalf("result=%+v error=%v; want graded result", result, err)
+		}
+	}
+}
+
 func TestAllowedDomainsLargeInputSurvivesRegistries(t *testing.T) {
 	var content strings.Builder
 	content.WriteString(`{"name":"Bash","input":{"command":"curl`)
@@ -171,6 +189,8 @@ func TestAllowedDomainsLongHostnameIsUnresolved(t *testing.T) {
 func TestAllowedDomainsUnsupportedHostsAreUnresolved(t *testing.T) {
 	for _, content := range []string{
 		`{"name":"Bash","input":{"command":"curl https://$HOST/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl https://api.example.test\"$SUFFIX\"/resource","allowed_domains":["api.example.test:443"]}}`,
+		`{"name":"Bash","input":{"command":"curl \"https://api.example.test\"$SUFFIX/resource","allowed_domains":["api.example.test:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["$HOST:443"]}}`,
 		`{"name":"Bash","input":{"command":"curl https://api.example.test/resource","allowed_domains":["api.*.example.test:443"]}}`,
 	} {
