@@ -583,6 +583,9 @@ func classifyDomainDeclaration(command string, domains []string) string {
 }
 
 func unsupportedURLBoundary(command string, start, end int) bool {
+	if start > 0 && command[start-1] != '\'' && command[start-1] != '"' && !isShellWordBoundary(command[start-1]) {
+		return true
+	}
 	if end >= len(command) || (command[end] != '\'' && command[end] != '"') {
 		return false
 	}
@@ -599,7 +602,7 @@ func unsupportedURLBoundary(command string, start, end int) bool {
 }
 
 func isShellWordBoundary(char byte) bool {
-	return char == ' ' || char == '\t' || char == '\r' || char == '\n' || strings.ContainsRune(";|&()<>", rune(char))
+	return char == ' ' || char == '\t' || char == '\r' || char == '\n' || strings.ContainsRune(";|&<>", rune(char))
 }
 
 func strictDomainSuffixes(host string) []string {
