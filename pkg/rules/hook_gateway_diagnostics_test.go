@@ -30,7 +30,7 @@ func TestHookTypeEventMatcherAndExposure(t *testing.T) {
 	for _, want := range []string{
 		"command hook event PostToolUse", "runtime event does not match",
 		"HTTP hook event PreToolUse", "supplied event and matcher input match",
-		"POSTs the event JSON body to https://hooks.example.test/events",
+		"POSTs the event JSON body to an unresolved redacted destination",
 		"1 header(s)", "1 handler-allowed environment variable(s)",
 		"same-file URL allowlist with 1 pattern", "same-file outer environment allowlist with 1 name",
 		"HTTP hook event SessionStart", "does not support HTTP handlers for this event",
@@ -223,6 +223,11 @@ upstreams:
 	joined = strings.Join(claudeDiagnostics(t, benign, model.FileContext{Path: ".claude/gateway.yaml"}), "\n")
 	if strings.Contains(joined, "EGRESS_BOUNDARY") || !strings.Contains(joined, "1 static header(s)") {
 		t.Fatalf("benign header inventory = %q", joined)
+	}
+	aliased := []byte("boundary: &boundary 1\nenv:\n  CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY: *boundary\nheaders: &headers\n  authorization: Bearer TOKEN\nupstreams:\n  - headers: *headers\n")
+	joined = strings.Join(claudeDiagnostics(t, aliased, model.FileContext{Path: ".claude/gateway.yaml"}), "\n")
+	if !strings.Contains(joined, "CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY=1") || !strings.Contains(joined, "1 static header(s)") {
+		t.Fatalf("aliased gateway inventory = %q", joined)
 	}
 }
 

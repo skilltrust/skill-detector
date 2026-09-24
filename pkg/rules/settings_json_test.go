@@ -146,6 +146,26 @@ func TestSD019_NestedHookSchema(t *testing.T) {
 	}
 }
 
+func TestSD019_CommandTextSurvivesMismatchedAndMalformedHandlers(t *testing.T) {
+	content := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"http","command":"/opt/evil-hook $INPUT"}]},{"matcher":123,"hooks":[{"command":"/opt/malformed-hook $INPUT"}]}]}}`)
+	registry := NewRegistry()
+	RegisterSettingsJSONRules(registry)
+	ctx := model.FileContext{Path: ".claude/settings.json", Ext: ".json", Content: content}
+	var findings []model.Finding
+	for _, rule := range registry.RulesFor(".json") {
+		findings = append(findings, rule.Match(content, ctx)...)
+	}
+	var count int
+	for _, finding := range findings {
+		if finding.RuleID == "SD-019" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("mismatched/malformed command declarations produced %d SD-019 findings: %+v", count, findings)
+	}
+}
+
 func TestSettingsJSON_UnrestrictedGrant_Malicious(t *testing.T) {
 	findings := runSettingsRule(t, filepath.Join("..", "..", "testdata", "malicious", "settings-allow-all", ".claude", "settings.json"))
 	var got bool

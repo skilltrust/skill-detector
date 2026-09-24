@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/velzepooz/skill-detector/pkg/model"
@@ -19,7 +21,7 @@ var (
 	exactHookMatcher       = regexp.MustCompile(`^[A-Za-z0-9_\- ,|]+$`)
 	narrowExactHookMatcher = regexp.MustCompile(`^[A-Za-z0-9_|]+$`)
 	structuredHTTPURL      = regexp.MustCompile(`(?i)https?://[^\s"'` + "`" + `<>]+`)
-	httpURLScheme          = regexp.MustCompile(`(?i)https?://`)
+	anyURLScheme           = regexp.MustCompile(`(?i)[a-z][a-z0-9+.-]*://`)
 	incompatibleHookRepeat = regexp.MustCompile(`\{(?:0[0-9]+(?:,[0-9]*)?|[0-9]+,0[0-9]+)\}`)
 )
 
@@ -69,7 +71,7 @@ func claudeHookDiagnostics(content []byte, ctx model.FileContext) []string {
 			destination := safeURLDestination(declaration.Handler.URL)
 			exposure := fmt.Sprintf("POSTs the event JSON body to %s and declares %d header(s) with %d handler-allowed environment variable(s)", destination, len(declaration.Handler.Headers), len(declaration.Handler.AllowedEnvVars))
 			policyText := hookPolicyDescription(policy)
-			diagnostics = append(diagnostics, fmt.Sprintf("%s with %s %s; %s. It %s. %s Header values and URL credentials/query data are redacted. An endpoint response is untrusted runtime data: this scanner never contacts the host and no response can instruct or alter this analysis.", prefix, matcherLabel(declaration), policyText, activation, exposure, hookDocumentationContext(ctx.Analysis.Version)))
+			diagnostics = append(diagnostics, fmt.Sprintf("%s with %s %s; %s. It %s. %s Effective settings source, trust, session and installed version remain activation conditions. Header values and URL credentials/query data are redacted. An endpoint response is untrusted runtime data: this scanner never contacts the host and no response can instruct or alter this analysis.", prefix, matcherLabel(declaration), policyText, activation, exposure, hookDocumentationContext(ctx.Analysis.Version)))
 		}
 	}
 	return diagnostics
@@ -363,21 +365,30 @@ func gatewayUpstreamHeaders(content []byte, path string) (headers, placeholders 
 		return 0, 0
 	}
 	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value != "upstreams" || root.Content[i+1].Kind != yaml.SequenceNode {
+		if yamlScalarValue(root.Content[i]) != "upstreams" {
 			continue
 		}
-		for _, upstream := range root.Content[i+1].Content {
-			if upstream.Kind != yaml.MappingNode {
+		upstreams := yamlAliasTarget(root.Content[i+1], make(map[*yaml.Node]bool))
+		if upstreams == nil || upstreams.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, rawUpstream := range upstreams.Content {
+			upstream := yamlAliasTarget(rawUpstream, make(map[*yaml.Node]bool))
+			if upstream == nil || upstream.Kind != yaml.MappingNode {
 				continue
 			}
 			for j := 0; j+1 < len(upstream.Content); j += 2 {
-				if upstream.Content[j].Value != "headers" || upstream.Content[j+1].Kind != yaml.MappingNode {
+				if yamlScalarValue(upstream.Content[j]) != "headers" {
 					continue
 				}
-				values := upstream.Content[j+1]
+				values := yamlAliasTarget(upstream.Content[j+1], make(map[*yaml.Node]bool))
+				if values == nil || values.Kind != yaml.MappingNode {
+					continue
+				}
 				headers += len(values.Content) / 2
 				for k := 1; k < len(values.Content); k += 2 {
-					if strings.Contains(values.Content[k].Value, "${") || strings.Contains(values.Content[k].Value, "$ENV{") {
+					value := yamlScalarValue(values.Content[k])
+					if strings.Contains(value, "${") || strings.Contains(value, "$ENV{") {
 						placeholders++
 					}
 				}
@@ -402,38 +413,102 @@ func gatewayBoundaryDeclared(content []byte, path string) bool {
 	if yaml.Unmarshal(content, &document) != nil {
 		return false
 	}
-	return yamlScalarPairExists(&document, "CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY", "1")
+	return yamlScalarPairExists(&document, "CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY", "1", make(map[*yaml.Node]bool))
 }
 
-func yamlScalarPairExists(node *yaml.Node, key, value string) bool {
+func yamlScalarPairExists(node *yaml.Node, key, value string, visited map[*yaml.Node]bool) bool {
+	if node == nil || visited[node] {
+		return false
+	}
+	visited[node] = true
+	if alias := yamlAliasTarget(node, make(map[*yaml.Node]bool)); alias != node {
+		return yamlScalarPairExists(alias, key, value, visited)
+	}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			if node.Content[i].Value == key && node.Content[i+1].Value == value {
+			if yamlScalarValue(node.Content[i]) == key && yamlScalarValue(node.Content[i+1]) == value {
 				return true
 			}
-			if yamlScalarPairExists(node.Content[i+1], key, value) {
+			if yamlScalarPairExists(node.Content[i+1], key, value, visited) {
 				return true
 			}
 		}
 	}
 	for _, child := range node.Content {
-		if node.Kind != yaml.MappingNode && yamlScalarPairExists(child, key, value) {
+		if node.Kind != yaml.MappingNode && yamlScalarPairExists(child, key, value, visited) {
 			return true
 		}
 	}
 	return false
 }
 
+func yamlAliasTarget(node *yaml.Node, visited map[*yaml.Node]bool) *yaml.Node {
+	for node != nil && node.Kind == yaml.AliasNode && node.Alias != nil {
+		if visited[node] {
+			return nil
+		}
+		visited[node] = true
+		node = node.Alias
+	}
+	return node
+}
+
+func yamlScalarValue(node *yaml.Node) string {
+	node = yamlAliasTarget(node, make(map[*yaml.Node]bool))
+	if node == nil || node.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return node.Value
+}
+
+func publishedURL(raw string) string {
+	return safeURLDestination(raw)
+}
+
 func safeURLDestination(raw string) string {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	trimmed := strings.TrimSpace(raw)
+	if strings.Contains(trimmed, "@") {
+		return "an unresolved redacted destination"
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
 		return "an unresolved redacted destination"
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.User = nil
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
+	if pathLooksSensitive(parsed.Path) {
+		parsed.Path = "/[redacted]"
+		parsed.RawPath = ""
+	}
+	if parsed.Opaque != "" && pathLooksSensitive(parsed.Opaque) {
+		parsed.Opaque = "[redacted]"
+	}
 	return parsed.String()
+}
+
+func pathLooksSensitive(path string) bool {
+	lower := strings.ToLower(path)
+	if strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.Contains(lower, "passwd") {
+		return true
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if len(segment) >= 12 && strings.ContainsAny(segment, "0123456789") && strings.ContainsAny(segment, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+			return true
+		}
+	}
+	return false
+}
+
+// RedactPublishedURL removes credential-bearing URL text from published
+// rationale without changing ordinary destinations.
+func RedactPublishedURL(value string) string {
+	return redactURLPath(value)
+}
+
+func redactURLPath(value string) string {
+	return structuredHTTPURL.ReplaceAllStringFunc(value, safeURLDestination)
 }
 
 func sanitizeURLsForDisplay(value string) string {
@@ -455,6 +530,8 @@ func SanitizeConfigurationForVerifier(content []byte, ctx model.FileContext) []b
 			if _, err := decoder.Token(); err == io.EOF {
 				var values []string
 				collectSensitiveJSON(value, false, &values)
+				collectHookIfEnvNamesJSON(value, &values)
+				collectHookCommandTokensJSON(value, &values)
 				return sanitizeSourceLayout(content, values)
 			}
 		}
@@ -465,6 +542,8 @@ func SanitizeConfigurationForVerifier(content []byte, ctx model.FileContext) []b
 		if yaml.Unmarshal(content, &document) == nil {
 			var values []string
 			if collectSensitiveYAML(&document, false, make(map[*yaml.Node]uint8), &values, 0) {
+				collectHookIfEnvNamesYAML(&document, &values, make(map[*yaml.Node]bool), 0)
+				collectHookCommandTokensYAML(&document, &values, make(map[*yaml.Node]bool), 0)
 				return sanitizeSourceLayout(content, values)
 			}
 		}
@@ -488,7 +567,129 @@ func sanitizeSourceLayout(content []byte, values []string) []byte {
 			text = strings.ReplaceAll(text, escaped, redactionWithLineCount(escaped))
 		}
 	}
-	return []byte(sanitizeStructuredText(text))
+	return []byte(redactURLPath(sanitizeStructuredText(text)))
+}
+
+var envNameToken = regexp.MustCompile(`\$\{?[A-Z_][A-Z0-9_]{2,}\}?`)
+
+func jsonIfNeedsFullRedaction(value any) bool {
+	text, ok := value.(string)
+	if !ok {
+		return jsonValueHasContent(value)
+	}
+	return ifHasNonEnvSecret(text)
+}
+
+func yamlIfNeedsFullRedaction(node *yaml.Node) bool {
+	text := yamlScalarValue(node)
+	if text == "" {
+		return yamlValueHasContent(node, make(map[*yaml.Node]bool), 0)
+	}
+	return ifHasNonEnvSecret(text)
+}
+
+func jsonCommandNeedsFullRedaction(value any) bool {
+	text, ok := value.(string)
+	if !ok {
+		return jsonValueHasContent(value)
+	}
+	return commandHasNonURLSecret(text)
+}
+
+func yamlCommandNeedsFullRedaction(node *yaml.Node) bool {
+	resolved := yamlAliasTarget(node, make(map[*yaml.Node]bool))
+	if resolved == nil || resolved.Kind != yaml.ScalarNode {
+		return yamlValueHasContent(node, make(map[*yaml.Node]bool), 0)
+	}
+	return commandHasNonURLSecret(resolved.Value)
+}
+
+func commandHasNonURLSecret(text string) bool {
+	return len(commandRedactionFragments(text)) > 0
+}
+
+func ifHasNonEnvSecret(text string) bool {
+	remainder := envNameToken.ReplaceAllString(text, " ")
+	for _, field := range strings.FieldsFunc(remainder, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '=' || r == '!' || r == '<' || r == '>' || r == '&' || r == '|' || r == '(' || r == ')' || r == '+' || r == '-' || r == '*' || r == '/' || r == '%'
+	}) {
+		if field != "" && !isIfLiteral(field) {
+			return true
+		}
+	}
+	return strings.ContainsAny(remainder, "\"'`:@\\$?#")
+}
+
+func isIfLiteral(field string) bool {
+	if field == "true" || field == "false" || field == "null" {
+		return true
+	}
+	if _, err := strconv.Atoi(field); err == nil {
+		return true
+	}
+	return false
+}
+
+func collectHookIfEnvNamesJSON(value any, values *[]string) {
+	switch value := value.(type) {
+	case []any:
+		for _, child := range value {
+			collectHookIfEnvNamesJSON(child, values)
+		}
+	case map[string]any:
+		if hookHandlerType(jsonTypeValue(value)) {
+			for key, child := range value {
+				if strings.EqualFold(key, "if") {
+					if text, ok := child.(string); ok {
+						*values = append(*values, envNameToken.FindAllString(text, -1)...)
+					}
+				}
+			}
+		}
+		for _, child := range value {
+			collectHookIfEnvNamesJSON(child, values)
+		}
+	}
+}
+
+func jsonTypeValue(value map[string]any) string {
+	var handler string
+	var count int
+	for key, child := range value {
+		if strings.EqualFold(key, "type") {
+			count++
+			handler, _ = child.(string)
+		}
+	}
+	if count != 1 {
+		return ""
+	}
+	return handler
+}
+
+func collectHookIfEnvNamesYAML(node *yaml.Node, values *[]string, visited map[*yaml.Node]bool, depth int) {
+	if node == nil || depth > 100 || visited[node] {
+		return
+	}
+	visited[node] = true
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		collectHookIfEnvNamesYAML(node.Alias, values, visited, depth+1)
+		return
+	}
+	if node.Kind == yaml.MappingNode && yamlHookHandler(node) {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key := yamlAliasTarget(node.Content[index], make(map[*yaml.Node]bool))
+			if key == nil || !strings.EqualFold(key.Value, "if") {
+				continue
+			}
+			if text := yamlScalarValue(node.Content[index+1]); text != "" {
+				*values = append(*values, envNameToken.FindAllString(text, -1)...)
+			}
+		}
+	}
+	for _, child := range node.Content {
+		collectHookIfEnvNamesYAML(child, values, visited, depth+1)
+	}
 }
 
 func failClosedConfiguration(content []byte) []byte {
@@ -518,12 +719,26 @@ func SanitizeConfigurationFindings(findings []model.Finding, content []byte, ctx
 		return
 	}
 	values := sensitiveConfigurationValues(content, ctx.Path)
+	values = append(values, hookCommandRedactionFragments(content, ctx.Path)...)
 	var fragments []string
 	for _, value := range values {
 		fragments = append(fragments, value)
 		fragments = append(fragments, structuredHTTPURL.FindAllString(value, -1)...)
 		fragments = append(fragments, reFullPath.FindAllString(value, -1)...)
 	}
+	sort.Slice(fragments, func(i, j int) bool {
+		if len(fragments[i]) != len(fragments[j]) {
+			return len(fragments[i]) > len(fragments[j])
+		}
+		return fragments[i] < fragments[j]
+	})
+	unique := fragments[:0]
+	for _, fragment := range fragments {
+		if fragment != "" && (len(unique) == 0 || unique[len(unique)-1] != fragment) {
+			unique = append(unique, fragment)
+		}
+	}
+	fragments = unique
 	sanitize := func(text string) string {
 		for _, value := range fragments {
 			if value == "" {
@@ -535,9 +750,9 @@ func SanitizeConfigurationFindings(findings []model.Finding, content []byte, ctx
 		return sanitizeStructuredText(text)
 	}
 	for index := range findings {
-		findings[index].Description = sanitize(findings[index].Description)
-		findings[index].Remediation = sanitize(findings[index].Remediation)
-		findings[index].Diagnosis = sanitize(findings[index].Diagnosis)
+		findings[index].Description = redactURLPath(sanitize(findings[index].Description))
+		findings[index].Remediation = redactURLPath(sanitize(findings[index].Remediation))
+		findings[index].Diagnosis = redactURLPath(sanitize(findings[index].Diagnosis))
 	}
 }
 
@@ -595,12 +810,25 @@ func jsonHasSensitiveField(value any) bool {
 		if typeKeys > 1 {
 			return true
 		}
-		allowedHTTPField := map[string]bool{
-			"type": true, "url": true, "headers": true, "allowedEnvVars": true,
+		structuralHookField := map[string]bool{
+			"type": true, "url": true, "command": true, "headers": true, "allowedEnvVars": true,
 			"if": true, "timeout": true,
 		}
+		hookHandler := typeKeys == 1 && hookHandlerType(httpHandler)
 		for key, child := range value {
-			if strings.EqualFold(key, "headers") || (httpHandler == "http" && !allowedHTTPField[key]) {
+			if strings.EqualFold(key, "headers") && jsonValueHasContent(child) {
+				return true
+			}
+			if (strings.EqualFold(key, "allowedEnvVars") || strings.EqualFold(key, "httpHookAllowedEnvVars")) && jsonValueHasContent(child) {
+				return true
+			}
+			if hookHandler && strings.EqualFold(key, "command") && jsonCommandNeedsFullRedaction(child) {
+				return true
+			}
+			if hookHandler && strings.EqualFold(key, "if") && jsonIfNeedsFullRedaction(child) {
+				return true
+			}
+			if hookHandler && !structuralHookField[key] && jsonValueHasContent(child) {
 				return true
 			}
 			if jsonHasSensitiveField(child) {
@@ -609,6 +837,35 @@ func jsonHasSensitiveField(value any) bool {
 		}
 	}
 	return false
+}
+
+func jsonValueHasContent(value any) bool {
+	switch value := value.(type) {
+	case string:
+		return value != ""
+	case []any:
+		for _, child := range value {
+			if jsonValueHasContent(child) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, child := range value {
+			if jsonValueHasContent(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hookHandlerType(value string) bool {
+	switch strings.ToLower(value) {
+	case "http", "command", "prompt", "agent", "mcp_tool":
+		return true
+	default:
+		return false
+	}
 }
 
 func yamlHasSensitiveField(node *yaml.Node, visited map[*yaml.Node]bool, depth int) bool {
@@ -623,10 +880,30 @@ func yamlHasSensitiveField(node *yaml.Node, visited map[*yaml.Node]bool, depth i
 		return stringHasSensitiveURL(node.Value)
 	}
 	if node.Kind == yaml.MappingNode {
+		handler := yamlHookHandler(node)
 		for index := 0; index+1 < len(node.Content); index += 2 {
-			if node.Content[index].Kind != yaml.ScalarNode ||
-				strings.EqualFold(node.Content[index].Value, "headers") ||
-				yamlHasSensitiveField(node.Content[index+1], visited, depth+1) {
+			key := yamlAliasTarget(node.Content[index], make(map[*yaml.Node]bool))
+			value := node.Content[index+1]
+			if key == nil || key.Kind != yaml.ScalarNode {
+				return true
+			}
+			name := key.Value
+			if yamlTypeKeyCount(node) > 1 {
+				return true
+			}
+			if (strings.EqualFold(name, "headers") || strings.EqualFold(name, "allowedEnvVars") || strings.EqualFold(name, "httpHookAllowedEnvVars")) && yamlValueHasContent(value, make(map[*yaml.Node]bool), 0) {
+				return true
+			}
+			if handler && strings.EqualFold(name, "if") && yamlIfNeedsFullRedaction(value) {
+				return true
+			}
+			if handler && strings.EqualFold(name, "command") && yamlCommandNeedsFullRedaction(value) {
+				return true
+			}
+			if handler && !yamlStructuralHookField(name) && yamlValueHasContent(value, make(map[*yaml.Node]bool), 0) {
+				return true
+			}
+			if yamlHasSensitiveField(value, visited, depth+1) {
 				return true
 			}
 		}
@@ -640,9 +917,62 @@ func yamlHasSensitiveField(node *yaml.Node, visited map[*yaml.Node]bool, depth i
 	return false
 }
 
+func yamlTypeKeyCount(node *yaml.Node) int {
+	var typeKeys int
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		key := yamlAliasTarget(node.Content[index], make(map[*yaml.Node]bool))
+		if key != nil && key.Kind == yaml.ScalarNode && strings.EqualFold(key.Value, "type") {
+			typeKeys++
+		}
+	}
+	return typeKeys
+}
+
+func yamlHookHandler(node *yaml.Node) bool {
+	if yamlTypeKeyCount(node) != 1 {
+		return false
+	}
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		key := yamlAliasTarget(node.Content[index], make(map[*yaml.Node]bool))
+		if key == nil || key.Kind != yaml.ScalarNode || !strings.EqualFold(key.Value, "type") {
+			continue
+		}
+		return hookHandlerType(yamlScalarValue(node.Content[index+1]))
+	}
+	return false
+}
+
+func yamlStructuralHookField(name string) bool {
+	switch strings.ToLower(name) {
+	case "type", "url", "command", "headers", "allowedenvvars", "if", "timeout":
+		return true
+	default:
+		return false
+	}
+}
+
+func yamlValueHasContent(node *yaml.Node, visited map[*yaml.Node]bool, depth int) bool {
+	if node == nil || depth > 100 || visited[node] {
+		return depth > 100
+	}
+	visited[node] = true
+	if node.Kind == yaml.AliasNode {
+		return yamlValueHasContent(node.Alias, visited, depth+1)
+	}
+	if node.Kind == yaml.ScalarNode {
+		return node.Value != ""
+	}
+	for _, child := range node.Content {
+		if yamlValueHasContent(child, visited, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
 func stringHasSensitiveURL(value string) bool {
 	for offset := 0; offset < len(value); {
-		match := httpURLScheme.FindStringIndex(value[offset:])
+		match := anyURLScheme.FindStringIndex(value[offset:])
 		if match == nil {
 			return false
 		}
@@ -727,6 +1057,240 @@ func jsonValueHasDuplicateKey(decoder *json.Decoder, depth int) (bool, error) {
 	}
 }
 
+func hookCommandRedactionFragments(content []byte, path string) []string {
+	ext := strings.ToLower(filepath.Ext(path))
+	var commands []string
+	if ext == ".json" {
+		var value any
+		if json.Unmarshal(content, &value) == nil {
+			collectHookCommandsJSON(value, &commands)
+		}
+	}
+	if ext == ".yaml" || ext == ".yml" {
+		var document yaml.Node
+		if yaml.Unmarshal(content, &document) == nil {
+			collectHookCommandsYAML(&document, &commands, make(map[*yaml.Node]bool), 0)
+		}
+	}
+	var fragments []string
+	for _, command := range commands {
+		fragments = append(fragments, commandRedactionFragments(command)...)
+	}
+	return fragments
+}
+
+func commandRedactionFragments(command string) []string {
+	stripped := structuredHTTPURL.ReplaceAllString(command, " ")
+	stripped = envNameToken.ReplaceAllString(stripped, " ")
+	var fragments []string
+	fields := commandFields(stripped)
+	redactRest := false
+	for index, field := range fields {
+		field = strings.Trim(field, "\"'`=,;()[]{}")
+		if redactRest && field != "" {
+			fragments = append(fragments, field)
+			continue
+		}
+		if credentialShapedToken(field) || (index > 0 && credentialFlag(fields[index-1]) && field != "") {
+			fragments = append(fragments, field)
+			if strings.HasSuffix(field, ":") {
+				redactRest = true
+			}
+		}
+		if credentialFlag(field) {
+			redactRest = true
+		}
+	}
+	return fragments
+}
+
+func credentialFlag(field string) bool {
+	switch strings.ToLower(strings.Trim(field, "\"'`")) {
+	case "-u", "-p", "-h", "--user", "--password", "--header", "--proxy-header", "--proxy-user":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandFields(command string) []string {
+	var fields []string
+	var current strings.Builder
+	var quote rune
+	for _, r := range command {
+		switch {
+		case quote != 0:
+			if r == quote {
+				if current.Len() > 0 {
+					fields = append(fields, current.String())
+					current.Reset()
+				}
+				quote = 0
+				continue
+			}
+			current.WriteRune(r)
+		case r == '"' || r == '\'':
+			if current.Len() > 0 {
+				fields = append(fields, current.String())
+				current.Reset()
+			}
+			quote = r
+		case r == ' ' || r == '\t':
+			if current.Len() > 0 {
+				fields = append(fields, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if current.Len() > 0 {
+		fields = append(fields, current.String())
+	}
+	return fields
+}
+
+func credentialShapedToken(field string) bool {
+	if field == "" || strings.Contains(field, "://") {
+		return false
+	}
+	candidate := stripCredentialFlag(field)
+	if strings.Contains(candidate, ":") && !strings.HasPrefix(candidate, "-") {
+		user, pass, ok := strings.Cut(candidate, ":")
+		if ok && user != "" && !strings.Contains(user, "/") && pass != "" {
+			return true
+		}
+	}
+	if candidate != field && candidate != "" && !strings.Contains(candidate, " ") {
+		return true
+	}
+	lower := strings.ToLower(field)
+	if strings.HasPrefix(field, "AKIA") && len(field) >= 16 {
+		return true
+	}
+	if strings.HasPrefix(lower, "sk-") || strings.HasPrefix(lower, "ghp_") || strings.HasPrefix(lower, "github_pat_") || strings.Count(field, ".") == 2 && len(field) >= 20 {
+		return true
+	}
+	return looksLikeCommandSecret(field)
+}
+
+func collectHookCommandTokensJSON(value any, values *[]string) {
+	switch value := value.(type) {
+	case []any:
+		for _, child := range value {
+			collectHookCommandTokensJSON(child, values)
+		}
+	case map[string]any:
+		if hookHandlerType(jsonTypeValue(value)) {
+			for key, child := range value {
+				if strings.EqualFold(key, "command") {
+					if text, ok := child.(string); ok {
+						*values = append(*values, commandRedactionFragments(text)...)
+					}
+				}
+			}
+		}
+		for _, child := range value {
+			collectHookCommandTokensJSON(child, values)
+		}
+	}
+}
+
+func collectHookCommandTokensYAML(node *yaml.Node, values *[]string, visited map[*yaml.Node]bool, depth int) {
+	if node == nil || depth > 100 || visited[node] {
+		return
+	}
+	visited[node] = true
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		collectHookCommandTokensYAML(node.Alias, values, visited, depth+1)
+		return
+	}
+	if node.Kind == yaml.MappingNode && yamlHookHandler(node) {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key := yamlAliasTarget(node.Content[index], make(map[*yaml.Node]bool))
+			if key == nil || !strings.EqualFold(key.Value, "command") {
+				continue
+			}
+			if text := yamlScalarValue(node.Content[index+1]); text != "" {
+				*values = append(*values, commandRedactionFragments(text)...)
+			}
+		}
+	}
+	for _, child := range node.Content {
+		collectHookCommandTokensYAML(child, values, visited, depth+1)
+	}
+}
+
+func stripCredentialFlag(field string) string {
+	lower := strings.ToLower(field)
+	for _, prefix := range []string{"--header=", "--proxy-header=", "--proxy-user=", "--user=", "--password="} {
+		if strings.HasPrefix(lower, prefix) && len(field) > len(prefix) {
+			return field[len(prefix):]
+		}
+	}
+	for _, flag := range []string{"-H", "-u", "-p"} {
+		if len(field) > len(flag) && strings.EqualFold(field[:len(flag)], flag) && field[len(flag)] != '-' {
+			return field[len(flag):]
+		}
+	}
+	return field
+}
+
+func looksLikeCommandSecret(field string) bool {
+	if len(field) < 8 || strings.Contains(field, "://") || strings.HasPrefix(field, "/") || strings.HasPrefix(field, ".") {
+		return false
+	}
+	lower := strings.ToLower(field)
+	return strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.Contains(lower, "bearer")
+}
+
+func collectHookCommandsJSON(value any, commands *[]string) {
+	switch value := value.(type) {
+	case []any:
+		for _, child := range value {
+			collectHookCommandsJSON(child, commands)
+		}
+	case map[string]any:
+		if hookHandlerType(jsonTypeValue(value)) {
+			for key, child := range value {
+				if strings.EqualFold(key, "command") {
+					if text, ok := child.(string); ok && text != "" {
+						*commands = append(*commands, text)
+					}
+				}
+			}
+		}
+		for _, child := range value {
+			collectHookCommandsJSON(child, commands)
+		}
+	}
+}
+
+func collectHookCommandsYAML(node *yaml.Node, commands *[]string, visited map[*yaml.Node]bool, depth int) {
+	if node == nil || depth > 100 || visited[node] {
+		return
+	}
+	visited[node] = true
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		collectHookCommandsYAML(node.Alias, commands, visited, depth+1)
+		return
+	}
+	if node.Kind == yaml.MappingNode && yamlHookHandler(node) {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			key := yamlAliasTarget(node.Content[index], make(map[*yaml.Node]bool))
+			if key == nil || !strings.EqualFold(key.Value, "command") {
+				continue
+			}
+			if text := yamlScalarValue(node.Content[index+1]); text != "" {
+				*commands = append(*commands, text)
+			}
+		}
+	}
+	for _, child := range node.Content {
+		collectHookCommandsYAML(child, commands, visited, depth+1)
+	}
+}
+
 func sensitiveConfigurationValues(content []byte, path string) []string {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".json" {
@@ -769,13 +1333,15 @@ func collectSensitiveJSON(value any, sensitive bool, values *[]string) {
 				httpHandler, _ = child.(string)
 			}
 		}
-		allowedHTTPField := map[string]bool{
-			"type": true, "url": true, "headers": true, "allowedEnvVars": true,
+		structuralHookField := map[string]bool{
+			"type": true, "url": true, "command": true, "headers": true, "allowedEnvVars": true,
 			"if": true, "timeout": true,
 		}
+		hookHandler := hookHandlerType(httpHandler)
 		for key, child := range value {
 			childSensitive := sensitive || strings.EqualFold(key, "headers") ||
-				(httpHandler == "http" && !allowedHTTPField[key])
+				strings.EqualFold(key, "allowedEnvVars") || strings.EqualFold(key, "httpHookAllowedEnvVars") ||
+				(hookHandler && !structuralHookField[key])
 			collectSensitiveJSON(child, childSensitive, values)
 		}
 	}
@@ -814,8 +1380,16 @@ func collectSensitiveYAML(node *yaml.Node, sensitive bool, visited map[*yaml.Nod
 	}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			key, value := node.Content[i].Value, node.Content[i+1]
-			if !collectSensitiveYAML(value, sensitive || strings.EqualFold(key, "headers"), visited, values, depth+1) {
+			keyNode, value := node.Content[i], node.Content[i+1]
+			key := keyNode.Value
+			resolvedKey := yamlAliasTarget(keyNode, make(map[*yaml.Node]bool))
+			keyName := key
+			if resolvedKey != nil && resolvedKey.Kind == yaml.ScalarNode {
+				keyName = resolvedKey.Value
+			}
+			childSensitive := sensitive || strings.EqualFold(keyName, "headers") || strings.EqualFold(keyName, "allowedEnvVars") || strings.EqualFold(keyName, "httpHookAllowedEnvVars") ||
+				(yamlHookHandler(node) && resolvedKey != nil && resolvedKey.Kind == yaml.ScalarNode && !yamlStructuralHookField(keyName))
+			if !collectSensitiveYAML(value, childSensitive, visited, values, depth+1) {
 				return false
 			}
 		}

@@ -188,7 +188,9 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	if agentSurface > 0 {
 		axesResult = make(map[axes.Axis]model.AxisResult, len(axes.Order))
 		for _, a := range axes.Order {
-			axesResult[a] = grade.Grade(a, findings)
+			result := grade.Grade(a, findings)
+			result.Rationale = rules.RedactPublishedURL(result.Rationale)
+			axesResult[a] = result
 		}
 	}
 

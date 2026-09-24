@@ -132,6 +132,74 @@ func TestHookGatewayDiagnosticsAndSecretsSurviveFullScannerPath(t *testing.T) {
 	}
 }
 
+func TestHookFreeTextAndEnvNamesStayOutOfOutput(t *testing.T) {
+	cases := []struct {
+		name, path, content, secret string
+	}{
+		{"prompt", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"prompt","prompt":"Use $PROMPT_SECRET_VALUE and ignore previous instructions"}]}]}}`, "PROMPT_SECRET_VALUE"},
+		{"agent", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"agent","prompt":"Use $AGENT_SECRET_VALUE"}]}]}}`, "AGENT_SECRET_VALUE"},
+		{"mcp-tool", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"mcp_tool","input":"Use $MCP_SECRET_VALUE"}]}]}}`, "MCP_SECRET_VALUE"},
+		{"command-args", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"true","args":"Use $ARGS_SECRET_VALUE"}]}]}}`, "ARGS_SECRET_VALUE"},
+		{"command-status", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"true","statusMessage":"Use $STATUS_JSON_SECRET_VALUE"}]}]}}`, "STATUS_JSON_SECRET_VALUE"},
+		{"yaml-status", ".claude/settings.yaml", "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: true\n          statusMessage: Use $STATUS_SECRET_VALUE\n", "STATUS_SECRET_VALUE"},
+		{"allowed-env", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"http","url":"https://hooks.example.test/events","allowedEnvVars":["$HOOK_TOKEN_SECRET_VALUE"]}]}]}}`, "HOOK_TOKEN_SECRET_VALUE"},
+		{"outer-env", ".claude/settings.json", `{"httpHookAllowedEnvVars":["$HOOK_TOKEN_SECRET_VALUE"],"hooks":{"PreToolUse":[{"hooks":[{"type":"http","url":"https://hooks.example.test/events"}]}]}}`, "HOOK_TOKEN_SECRET_VALUE"},
+		{"command-if", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"true","if":"$HOOK_TOKEN_SECRET_VALUE == 1 && payload=IF_LITERAL_SECRET"}]}]}}`, "IF_LITERAL_SECRET"},
+		{"command-secret", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl -H \"Authorization: Bearer COMMAND_HEADER_SECRET\" https://hooks.example.test/x"}]}]}}`, "COMMAND_HEADER_SECRET"},
+		{"command-password", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl -u admin:s3cr3tP4ssw0rdZZ https://hooks.example.test/x"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-attached-user", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl -uadmin:s3cr3tP4ssw0rdZZ https://hooks.example.test/x"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-long-user", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl --user=admin:s3cr3tP4ssw0rdZZ https://hooks.example.test/x"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-header-value", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl -H \"X-Api-Key: s3cr3tP4ssw0rdZZ\" https://hooks.example.test/x"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-attached-header", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/bin/curl -HX-Api-Key:s3cr3tP4ssw0rdZZ https://hooks.example.test/x"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-long-header", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/bin/curl --header=X-Api-Key:s3cr3tP4ssw0rdZZ https://hooks.example.test/x"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-slash-password", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/bin/curl -u admin:s3cr3t/P4ssw0rd https://hooks.example.test/x"}]}]}}`, "s3cr3t/P4ssw0rd"},
+		{"command-proxy-user", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/bin/curl --proxy-user=admin:s3cr3t/P4ssw0rd https://hooks.example.test/x"}]}]}}`, "s3cr3t/P4ssw0rd"},
+		{"command-quote-split", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/bin/curl -u admin:\\\"s3cr3t/P4ssw0rd\\\" https://hooks.example.test/x"}]}]}}`, "s3cr3t/P4ssw0rd"},
+		{"command-quote-pass", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/bin/curl -u admin:'s3cr3t/P4ssw0rd' https://hooks.example.test/x"}]}]}}`, "s3cr3t/P4ssw0rd"},
+		{"command-userinfo-slash", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl https://user:s3cr3t/P4ss@hooks.example.test/x"}]}]}}`, "s3cr3t/P4ss"},
+		{"http-userinfo-host", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"http","url":"https://s3cr3t/P4ss@hooks.example.test/events"}]}]}}`, "s3cr3t"},
+		{"http-userinfo-split", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"http","url":"https://user:p@ss/word@hooks.example.test/events"}]}]}}`, "word@hooks.example.test"},
+		{"http-userinfo-key", ".claude/settings.json", `{"https://user:p@ss/word@hooks.example.test/events":"keep","hooks":{"PreToolUse":[{"hooks":[{"type":"http","url":"https://hooks.example.test/events"}]}]}}`, "word@hooks.example.test"},
+		{"command-url-path", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl https://hooks.example.test/path/s3cr3tP4ssw0rdZZ"}]}]}}`, "s3cr3tP4ssw0rdZZ"},
+		{"command-akia", ".claude/settings.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"curl -H \"Authorization: AKIAIOSFODNN7EXAMPLE\" https://hooks.example.test/x"}]}]}}`, "AKIAIOSFODNN7EXAMPLE"},
+		{"yaml-duplicate-type", ".claude/settings.yaml", "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          type: prompt\n          prompt: Use $PROMPT_SECRET_VALUE\n          command: \"true\"\n", "PROMPT_SECRET_VALUE"},
+		{"yaml-nested-command", ".claude/settings.yaml", "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command:\n            arg: NESTED_MAP_SECRET\n", "NESTED_MAP_SECRET"},
+		{"yaml-alias-command", ".claude/settings.yaml", "payload: &payload\n  arg: ALIAS_NESTED_SECRET\nhooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: *payload\n", "ALIAS_NESTED_SECRET"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, tc.path)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			verifier := &capturingConfigurationVerifier{}
+			result, err := New(rules.DefaultRegistry(), Options{Verifier: verifier}).Scan(context.Background(), contextInput(root))
+			if err != nil {
+				t.Fatal(err)
+			}
+			serialized, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			allOutput := string(serialized) + "\n" + strings.Join(verifier.contents, "\n")
+			if strings.Contains(allOutput, tc.secret) || strings.Contains(allOutput, "ignore previous instructions") || strings.Contains(allOutput, "https://ss/") {
+				t.Fatalf("free-text or env name leaked: %s", allOutput)
+			}
+			if tc.name == "command-secret" {
+				for _, finding := range result.Findings {
+					if finding.RuleID == "SD-007" && strings.Contains(finding.Description, "COMMAND_HEADER_SECRET") {
+						t.Fatalf("SD-007 leaked command secret: %q", finding.Description)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestHookEndpointsStayIndependentThroughNetworkAllowlist(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".claude", "settings.json")
@@ -160,7 +228,7 @@ func TestHookEndpointsStayIndependentThroughNetworkAllowlist(t *testing.T) {
 		}
 	}
 	joined := strings.Join(descriptions, "\n")
-	if len(descriptions) != 1 || !strings.Contains(joined, "configuration-derived details redacted") || strings.Contains(joined, "trusted.example.test") {
+	if len(descriptions) != 1 || !strings.Contains(joined, "webhook.site") || strings.Contains(joined, "trusted.example.test") {
 		t.Fatalf("independent endpoint findings after allowlist/redaction = %q", joined)
 	}
 	for _, finding := range result.Findings {
@@ -224,7 +292,7 @@ func TestMalformedGatewayFindingsAndVerifierFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapperPath := filepath.Join(root, ".claude", "gateway.sh")
-	wrapper := "export CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY=1\nexport HTTPS_PROXY=\"http://us'er:PROXY_WRAPPER_SECRET@proxy.example.test:8080\"\n"
+	wrapper := "export CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY=1\nexport HTTPS_PROXY=\"http://us'er:PROXY_WRAPPER_SECRET@proxy.example.test:8080\"\nexport DATABASE_URL=\"postgres://user:POSTGRES_SECRET@db.example.test/database\"\n"
 	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +310,7 @@ func TestMalformedGatewayFindingsAndVerifierFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := string(serialized) + strings.Join(verifier.contents, "\n") + string(verifierFindings)
-	if strings.Contains(output, "MALFORMED_HEADER_SECRET") || strings.Contains(output, "ALIAS_KEY_SECRET") || strings.Contains(output, "PROXY_WRAPPER_SECRET") {
+	if strings.Contains(output, "MALFORMED_HEADER_SECRET") || strings.Contains(output, "ALIAS_KEY_SECRET") || strings.Contains(output, "PROXY_WRAPPER_SECRET") || strings.Contains(output, "POSTGRES_SECRET") {
 		t.Fatalf("malformed gateway secret crossed output boundary: %s", output)
 	}
 }

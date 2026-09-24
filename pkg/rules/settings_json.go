@@ -228,7 +228,18 @@ func hookDeclarations(event string, raw json.RawMessage) []hookDeclaration {
 		}
 		var group nestedHookMatcher
 		if err := json.Unmarshal(entry, &group); err != nil || group.Hooks == nil {
-			declarations = append(declarations, hookDeclaration{Event: event, Unsupported: "matcher group fields use unsupported types"})
+			unsupported := hookDeclaration{Event: event, Unsupported: "matcher group fields use unsupported types"}
+			var rawHandlers []json.RawMessage
+			if raw, ok := object["hooks"]; ok && json.Unmarshal(raw, &rawHandlers) == nil {
+				for _, rawHandler := range rawHandlers {
+					var handler hookEntry
+					if json.Unmarshal(rawHandler, &handler) == nil && strings.TrimSpace(handler.Command) != "" {
+						unsupported.Handler = handler
+						break
+					}
+				}
+			}
+			declarations = append(declarations, unsupported)
 			continue
 		}
 		for _, handler := range group.Hooks {
@@ -271,8 +282,7 @@ func allHookDeclarations(hooks map[string]json.RawMessage) []hookDeclaration {
 func hookCommands(hooks map[string]json.RawMessage) []hookDeclaration {
 	var commands []hookDeclaration
 	for _, declaration := range allHookDeclarations(hooks) {
-		if strings.TrimSpace(declaration.Handler.Command) != "" &&
-			(declaration.Handler.Type == "command" || !declaration.Documented) {
+		if strings.TrimSpace(declaration.Handler.Command) != "" {
 			commands = append(commands, declaration)
 		}
 	}
