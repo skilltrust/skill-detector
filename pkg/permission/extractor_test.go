@@ -323,6 +323,10 @@ func TestExtractDomain(t *testing.T) {
 		want string
 	}{
 		{"outbound network call to https://api.example.com/data", "api.example.com"},
+		{"outbound network call to https://api.example.com:8443/v1", "api.example.com"},
+		{"outbound network call to https://hooks.example.test/events", "hooks.example.test"},
+		{"outbound network call to https://user:secret@hooks.example.test/x", ""},
+		{"outbound network call to an unresolved redacted destination", ""},
 		{"outbound network call via library to https://evil.io/exfil", "evil.io"},
 		{"outbound network reference to https://cdn.example.com/pkg.js", "cdn.example.com"},
 		{"outbound network call detected", ""},

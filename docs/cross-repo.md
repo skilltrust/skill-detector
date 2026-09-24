@@ -70,6 +70,12 @@ diagnostics entry point. These are additive Go API changes. Existing keyed
 new scanner option, method argument, CLI flag or JSON field; the hosted scanner
 therefore has nothing to supply or persist, and runtime facts remain unknown.
 
+ST-137 adds `rules.SanitizeConfigurationForVerifier`, used by the scanner
+before invoking an optional verifier. Embedders that bypass `scanner.Scanner`
+and send Claude hook/gateway configuration to another analyzer should apply
+the same boundary; header values and URL credentials/query data must not cross
+it. `ScanResult`, CLI JSON and schema version are unchanged.
+
 ## A release is not done when the tag is cut
 
 Three places downstream pin this engine's version, and **none of them notices a

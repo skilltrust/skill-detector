@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"bytes"
 	"regexp"
 	"slices"
 	"strings"
@@ -123,15 +124,50 @@ func add(m map[string]map[string]bool, typ, detail string) {
 
 func extractDomain(desc string) string {
 	match := reDomain.FindStringSubmatch(desc)
-	if len(match) >= 2 {
-		return match[1]
+	if len(match) < 2 {
+		return ""
 	}
-	return ""
+	host := match[1]
+	if i := strings.LastIndex(host, ":"); i >= 0 && i < len(host)-1 && portDigits(host[i+1:]) {
+		host = host[:i]
+	}
+	if host == "" || strings.ContainsAny(host, "@:") {
+		return ""
+	}
+	return host
+}
+
+func portDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func configurationFullyRedacted(content []byte) bool {
+	prefix := []byte("[redacted: structured configuration could not be sanitized]")
+	if !bytes.HasPrefix(content, prefix) {
+		return false
+	}
+	for _, b := range content[len(prefix):] {
+		if b != '\n' {
+			return false
+		}
+	}
+	return true
 }
 
 func extractEnvVars(files []model.FileContext) []string {
 	seen := make(map[string]bool)
 	for _, f := range files {
+		if configurationFullyRedacted(f.Content) {
+			continue
+		}
 		for _, m := range reEnvVar.FindAllSubmatch(f.Content, -1) {
 			name := string(m[1])
 			if !envVarExclusions[name] {

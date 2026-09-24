@@ -51,6 +51,13 @@ Direct `Rule.Match` consumers must also call
 channel. `CodexConfigDiagnostics` remains the bounded Codex analyzer behind
 that shared entry point. The scanner handles both.
 
+Claude hook/gateway diagnostics preserve handler type, event and matcher
+context, but file presence alone never proves runtime activation. HTTP hook
+destinations and event/header/environment exposure are inventory, not an
+external-host threat classification. Before a configuration file crosses the
+optional verifier boundary, hook/gateway header values and URL credentials are
+redacted; configured hosts are never contacted.
+
 ## Commands
 
 `cmd/skill-detector` is a Cobra CLI with three sub-commands:

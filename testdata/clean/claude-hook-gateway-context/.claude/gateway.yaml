@@ -1,0 +1,5 @@
+upstreams:
+  - provider: anthropic
+    headers:
+      x-source: claude-apps-gateway
+      x-proxy-token: ${PROXY_TOKEN}

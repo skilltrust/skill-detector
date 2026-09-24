@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **ST-137, no grading-policy change:** Claude command and HTTP hook
+  diagnostics now preserve handler type, event and matcher context; distinguish
+  matching, nonmatching, unknown, unsupported and legacy declarations; and
+  explain POST event-body plus allowed header/environment exposure without
+  treating external hooks as inherently malicious. Missing version, source,
+  trust, session or effective merged policy never implies activation. The
+  Claude **2.1.275** `SubagentStop` empty-agent-type fix is a release anchor;
+  other versions remain unresolved. Matcher diagnostics follow current exact,
+  list and unanchored-regexp semantics, ignore matchers on events that do not
+  support them, and version-gate comma-list and hyphen-exact behavior.
+- Inventory `CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY=1` and Claude apps gateway
+  upstream headers at the **2.1.277** anchor. Diagnostics state the sole-egress
+  forward-proxy precondition and never claim the declaration proves DNS
+  routing or confinement. Header values and URL credentials/query data are
+  redacted from diagnostics, SD-007 findings and optional verifier context,
+  including URLs embedded in command strings, allowlist arrays and
+  unsupported response-like fields;
+  generic SD-007 endpoint detection remains. No configured host is contacted,
+  and hook response data cannot alter scanner analysis. JSON schema remains
+  **1.5**; rules, axes, severities, thresholds, scope and exit codes are
+  unchanged.
+- Static command-hook checks continue to inspect command text even when a
+  nested handler is malformed or has a mismatched type; unsupported HTTP
+  response-like fields and sensitive header/URL data remain fail-closed at the
+  verifier boundary. Empty header maps retain ordinary diagnostics. Settings
+  analysis rejects ambiguous JSON members and preserves gateway inventory
+  through YAML aliases; non-HTTP credential URLs are also protected. Free-text
+  hook fields (`prompt`, `args`, `input`, `statusMessage` and any other
+  non-structural handler field) fail closed in JSON and YAML, and environment
+  names from a redacted hook/gateway file are not published as permission
+  details. The outer `httpHookAllowedEnvVars` list is treated the same way.
+  Environment-name tokens inside structural `if` conditions are redacted.
+  An `if` value that also carries a literal secret fail-closes. A hook
+  `command` that carries a non-URL secret, including a non-scalar or aliased
+  command value, fail-closes. Scalar commands redact credential-shaped tokens,
+  including attached `-u`/`-p`/`-H`/`--user=`/`--password=`/`--header=`/`--proxy-user=` flags, slash-bearing passwords, and quoted header
+  values. HTTP(S) destinations stay available to SD-007. Any URL containing
+  userinfo is published as an unresolved redacted destination; ordinary paths
+  such as `/mcp` and `/events` stay. A non-default port remains in the
+  network permission detail; userinfo authorities do not. A YAML mapping with more than one `type`
+  key fail-closes like duplicate JSON keys. YAML alias keys are resolved
+  before sensitive-field checks.
 - **ST-136, diagnostic/rule-text change:** Claude configuration diagnostics now
   inventory executable skill/command `!` injections, per-command
   `allowed_domains`, project/local `bypassPermissions`, managed-only permission

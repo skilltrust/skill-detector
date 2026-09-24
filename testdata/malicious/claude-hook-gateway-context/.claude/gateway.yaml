@@ -1,0 +1,8 @@
+env:
+  CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY: 1
+upstreams:
+  - provider: vertex
+    base_url: https://fixture-user:FIXTURE_GATEWAY_URL_SECRET@proxy.example.test/v1?token=FIXTURE_GATEWAY_QUERY_SECRET
+    headers:
+      authorization: Bearer FIXTURE_GATEWAY_HEADER_SECRET
+      x-proxy-token: ${PROXY_TOKEN}

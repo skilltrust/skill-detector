@@ -27,20 +27,19 @@ func (r *hookInterpolationRule) Match(content []byte, ctx model.FileContext) []m
 		return nil
 	}
 	var findings []model.Finding
-	for hookName, raw := range s.Hooks {
-		for _, cmd := range hookCommands(raw) {
-			flagged := false
-			for _, m := range reUnquotedVar.FindAllStringSubmatch(cmd, -1) {
-				if !strings.HasPrefix(m[2], "CLAUDE_") {
-					flagged = true
-					break
-				}
+	for _, hook := range hookCommands(s.Hooks) {
+		cmd := hook.Handler.Command
+		flagged := false
+		for _, m := range reUnquotedVar.FindAllStringSubmatch(cmd, -1) {
+			if !strings.HasPrefix(m[2], "CLAUDE_") {
+				flagged = true
+				break
 			}
-			if flagged {
-				findings = append(findings, r.newFinding(ctx, 1,
-					"hook "+hookName+" interpolates unquoted shell variable: "+cmd,
-					"Quote all variable expansions: use \"${VAR}\" not $VAR; sanitize untrusted input before interpolation"))
-			}
+		}
+		if flagged {
+			findings = append(findings, r.newFinding(ctx, 1,
+				"hook "+hook.Event+" interpolates unquoted shell variable: "+sanitizeURLsForDisplay(cmd),
+				"Quote all variable expansions: use \"${VAR}\" not $VAR; sanitize untrusted input before interpolation"))
 		}
 	}
 	return findings
