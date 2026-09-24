@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **ST-137, no grading-policy change:** Claude command and HTTP hook
+  diagnostics now preserve handler type, event and matcher context; distinguish
+  matching, nonmatching, unknown, unsupported and legacy declarations; and
+  explain POST event-body plus allowed header/environment exposure without
+  treating external hooks as inherently malicious. Missing version, source,
+  trust, session or effective merged policy never implies activation. The
+  Claude **2.1.275** `SubagentStop` empty-agent-type fix is a release anchor;
+  current hook docs do not establish historical ranges.
+- Inventory `CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY=1` and Claude apps gateway
+  upstream headers at the **2.1.277** anchor. Diagnostics state the sole-egress
+  forward-proxy precondition and never claim the declaration proves DNS
+  routing or confinement. Header values and URL credentials/query data are
+  redacted from diagnostics, SD-007 findings and optional verifier context;
+  generic SD-007 endpoint detection remains. No configured host is contacted,
+  and hook response data cannot alter scanner analysis. JSON schema remains
+  **1.5**; rules, axes, severities, thresholds, scope and exit codes are
+  unchanged.
 - **ST-136, diagnostic/rule-text change:** Claude configuration diagnostics now
   inventory executable skill/command `!` injections, per-command
   `allowed_domains`, project/local `bypassPermissions`, managed-only permission

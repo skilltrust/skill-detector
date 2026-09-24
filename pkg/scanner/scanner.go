@@ -243,6 +243,7 @@ func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, fil
 
 	contentByPath := make(map[string]model.FileContext, len(files))
 	for _, f := range files {
+		f.Content = rules.SanitizeConfigurationForVerifier(f.Content, f)
 		contentByPath[f.Path] = f
 	}
 

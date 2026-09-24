@@ -351,7 +351,7 @@ func (r *networkCallRule) endpointFinding(ctx model.FileContext, line int, url, 
 	if declared && url != "" && noSuspiciousEndpoint(stmt) &&
 		!exfiltratesLocalData(stmt) && isSoleCall(stmt) {
 		return r.newFindingAs(ctx, line, model.SeverityMedium, axes.Transparency,
-			"documented endpoint "+url,
+			"documented endpoint "+safeURLDestination(url),
 			"Confirm the skill's documentation matches what it actually contacts")
 	}
 	return r.newFinding(ctx, line, desc,
@@ -381,7 +381,7 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 		if runsNetworkCommand(stmt) {
 			desc := "outbound network call detected"
 			if urlMatch != "" {
-				desc = "outbound network call to " + urlMatch
+				desc = "outbound network call to " + safeURLDestination(urlMatch)
 			}
 			findings = append(findings, r.endpointFinding(ctx, lineNum, urlMatch, stmt, declared, desc))
 			continue
@@ -389,7 +389,7 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 		if reRequestsLib.MatchString(stmt) {
 			desc := "outbound network call via library"
 			if urlMatch != "" {
-				desc = "outbound network call via library to " + urlMatch
+				desc = "outbound network call via library to " + safeURLDestination(urlMatch)
 			}
 			findings = append(findings, r.endpointFinding(ctx, lineNum, urlMatch, stmt, declared, desc))
 			continue
@@ -404,7 +404,7 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 		switch {
 		case isDocFile(ctx.Path) && hasRoutableIPLiteral(stmt):
 			findings = append(findings, r.newFinding(ctx, lineNum,
-				"outbound network reference to "+urlMatch,
+				"outbound network reference to "+safeURLDestination(urlMatch),
 				"Remove or restrict outbound network references; document why external access is needed"))
 		case isDocFile(ctx.Path):
 			// A bare URL in prose is a link. It says nothing about
@@ -415,11 +415,11 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 		case isDeclarativeFile(ctx.Path) && noSuspiciousEndpoint(stmt):
 			findings = append(findings, r.newFindingAs(ctx, lineNum,
 				model.SeverityMedium, axes.Transparency,
-				"declared endpoint "+urlMatch,
+				"declared endpoint "+safeURLDestination(urlMatch),
 				"Confirm the skill's configuration matches what it actually contacts"))
 		default:
 			findings = append(findings, r.newFinding(ctx, lineNum,
-				"outbound network reference to "+urlMatch,
+				"outbound network reference to "+safeURLDestination(urlMatch),
 				"Remove or restrict outbound network references; document why external access is needed"))
 		}
 	}

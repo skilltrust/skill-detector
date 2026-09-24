@@ -60,6 +60,8 @@ func ClaudeConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]st
 		}
 	}
 	warnings = append(warnings, allowedDomainDiagnostics(content, ctx)...)
+	warnings = append(warnings, claudeHookDiagnostics(content, ctx)...)
+	warnings = append(warnings, gatewayDiagnostics(content, ctx)...)
 	return warnings, nil
 }
 
@@ -95,6 +97,16 @@ func decodeClaudeDiagnosticSettings(content []byte) (claudeDiagnosticSettings, b
 			return settings, false
 		}
 		if field, present := jsonField(sandbox, "excludedCommands"); present && !validJSONStringArray(field) {
+			return settings, false
+		}
+	}
+	if raw, ok := jsonField(root, "hooks"); ok {
+		if _, valid := jsonObject(raw); !valid {
+			return settings, false
+		}
+	}
+	for _, key := range []string{"allowedHttpHookUrls", "httpHookAllowedEnvVars"} {
+		if raw, ok := jsonField(root, key); ok && !validJSONStringArray(raw) {
 			return settings, false
 		}
 	}
@@ -164,7 +176,7 @@ func analyzedJSONMember(scope, key string) (canonical, childScope string) {
 	var names []string
 	switch scope {
 	case "root":
-		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox"}
+		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox", "hooks", "allowedHttpHookUrls", "httpHookAllowedEnvVars"}
 	case "permissions":
 		names = []string{"allow", "ask", "deny", "defaultMode"}
 	case "sandbox":

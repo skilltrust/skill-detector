@@ -313,6 +313,10 @@ func TestClaudeSettingsValidationFailsClosed(t *testing.T) {
 		`{"permissions":{"deny":[null]},"permissions":{}}`,
 		`{"sandbox":{"excludedCommands":["*"],"EXCLUDEDCOMMANDS":[]}}`,
 		`{"PERMISSIONS":{"DENY":[null]}}`,
+		`{"hooks":[]}`,
+		`{"allowedHttpHookUrls":"*"}`,
+		`{"httpHookAllowedEnvVars":[null]}`,
+		`{"hooks":{},"HOOKS":{}}`,
 		deep,
 	} {
 		warnings, err := ClaudeConfigurationDiagnostics([]byte(content), ctx)

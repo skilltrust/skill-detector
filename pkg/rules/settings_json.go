@@ -2,6 +2,7 @@ package rules
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/velzepooz/skill-detector/pkg/axes"
@@ -177,40 +178,105 @@ type unsanctionedHookRule struct {
 }
 
 type hookEntry struct {
-	Command string `json:"command"`
+	Type           string            `json:"type"`
+	Command        string            `json:"command"`
+	URL            string            `json:"url"`
+	Headers        map[string]string `json:"headers"`
+	AllowedEnvVars []string          `json:"allowedEnvVars"`
+	If             string            `json:"if"`
 }
 
 // nestedHookMatcher is one element of the real Claude Code hooks schema:
 // {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"..."}]}]}}
 type nestedHookMatcher struct {
-	Matcher string      `json:"matcher"`
+	Matcher *string     `json:"matcher"`
 	Hooks   []hookEntry `json:"hooks"`
 }
 
-// hookCommands extracts command strings from a hooks entry, accepting both
-// the real nested shape and the flat shape ([{"command":"..."}]) used by
-// this repo's older fixtures.
-func hookCommands(raw json.RawMessage) []string {
-	var cmds []string
-	var nested []nestedHookMatcher
-	if err := json.Unmarshal(raw, &nested); err == nil {
-		for _, m := range nested {
-			for _, h := range m.Hooks {
-				if strings.TrimSpace(h.Command) != "" {
-					cmds = append(cmds, h.Command)
+type hookDeclaration struct {
+	Event       string
+	Matcher     string
+	MatcherSet  bool
+	Handler     hookEntry
+	Documented  bool
+	Unsupported string
+}
+
+// hookDeclarations preserves event, matcher and handler type. Legacy flat
+// entries remain available to SD-019/020, but diagnostics never certify them
+// as active hooks.
+func hookDeclarations(event string, raw json.RawMessage) []hookDeclaration {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return []hookDeclaration{{Event: event, Unsupported: "event value is not an array"}}
+	}
+	var declarations []hookDeclaration
+	for _, entry := range entries {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(entry, &object); err != nil || object == nil {
+			declarations = append(declarations, hookDeclaration{Event: event, Unsupported: "event entry is not an object"})
+			continue
+		}
+		if _, nested := object["hooks"]; !nested {
+			var legacy hookEntry
+			if err := json.Unmarshal(entry, &legacy); err == nil && strings.TrimSpace(legacy.Command) != "" {
+				declarations = append(declarations, hookDeclaration{Event: event, Handler: legacy, Unsupported: "legacy flat hook shape"})
+			} else {
+				declarations = append(declarations, hookDeclaration{Event: event, Unsupported: "matcher group has no hooks array"})
+			}
+			continue
+		}
+		var group nestedHookMatcher
+		if err := json.Unmarshal(entry, &group); err != nil || group.Hooks == nil {
+			declarations = append(declarations, hookDeclaration{Event: event, Unsupported: "matcher group fields use unsupported types"})
+			continue
+		}
+		for _, handler := range group.Hooks {
+			declaration := hookDeclaration{Event: event, Handler: handler, Documented: true}
+			if group.Matcher != nil {
+				declaration.Matcher = *group.Matcher
+				declaration.MatcherSet = true
+			}
+			switch handler.Type {
+			case "command":
+				if strings.TrimSpace(handler.Command) == "" {
+					declaration.Unsupported = "command handler has no command"
 				}
+			case "http":
+				if strings.TrimSpace(handler.URL) == "" {
+					declaration.Unsupported = "HTTP handler has no URL"
+				}
+			default:
+				declaration.Unsupported = "handler type is not command or HTTP"
 			}
+			declarations = append(declarations, declaration)
 		}
 	}
-	var flat []hookEntry
-	if err := json.Unmarshal(raw, &flat); err == nil {
-		for _, e := range flat {
-			if strings.TrimSpace(e.Command) != "" {
-				cmds = append(cmds, e.Command)
-			}
+	return declarations
+}
+
+func allHookDeclarations(hooks map[string]json.RawMessage) []hookDeclaration {
+	events := make([]string, 0, len(hooks))
+	for event := range hooks {
+		events = append(events, event)
+	}
+	slices.Sort(events)
+	var declarations []hookDeclaration
+	for _, event := range events {
+		declarations = append(declarations, hookDeclarations(event, hooks[event])...)
+	}
+	return declarations
+}
+
+func hookCommands(hooks map[string]json.RawMessage) []hookDeclaration {
+	var commands []hookDeclaration
+	for _, declaration := range allHookDeclarations(hooks) {
+		if strings.TrimSpace(declaration.Handler.Command) != "" &&
+			(declaration.Handler.Type == "command" || !declaration.Documented) {
+			commands = append(commands, declaration)
 		}
 	}
-	return cmds
+	return commands
 }
 
 func (r *unsanctionedHookRule) Match(content []byte, ctx model.FileContext) []model.Finding {
@@ -222,29 +288,27 @@ func (r *unsanctionedHookRule) Match(content []byte, ctx model.FileContext) []mo
 		return nil
 	}
 	var findings []model.Finding
-	for hookName, raw := range s.Hooks {
-		for _, cmd := range hookCommands(raw) {
-			cmd = strings.TrimSpace(cmd)
-			if cmd == "" {
-				continue
-			}
-			firstField := strings.Fields(cmd)
-			if len(firstField) == 0 {
-				continue
-			}
-			head := firstField[0]
-			isInRepo := strings.HasPrefix(cmd, "./") || strings.HasPrefix(cmd, "../") ||
-				(!strings.HasPrefix(head, "/") && !strings.Contains(head, "/"))
-			// Even an in-repo-looking command fails if it pipes to a shell.
-			if isInRepo && (strings.Contains(cmd, "| sh") || strings.Contains(cmd, "|sh") ||
-				strings.Contains(cmd, "| bash") || strings.Contains(cmd, "|bash")) {
-				isInRepo = false
-			}
-			if !isInRepo {
-				findings = append(findings, r.newFinding(ctx, 1,
-					"hook "+hookName+" runs unsanctioned command: "+cmd,
-					"Restrict hook commands to in-repo scripts (./scripts/...) or maintain an explicit allowlist"))
-			}
+	for _, hook := range hookCommands(s.Hooks) {
+		cmd := strings.TrimSpace(hook.Handler.Command)
+		if cmd == "" {
+			continue
+		}
+		firstField := strings.Fields(cmd)
+		if len(firstField) == 0 {
+			continue
+		}
+		head := firstField[0]
+		isInRepo := strings.HasPrefix(cmd, "./") || strings.HasPrefix(cmd, "../") ||
+			(!strings.HasPrefix(head, "/") && !strings.Contains(head, "/"))
+		// Even an in-repo-looking command fails if it pipes to a shell.
+		if isInRepo && (strings.Contains(cmd, "| sh") || strings.Contains(cmd, "|sh") ||
+			strings.Contains(cmd, "| bash") || strings.Contains(cmd, "|bash")) {
+			isInRepo = false
+		}
+		if !isInRepo {
+			findings = append(findings, r.newFinding(ctx, 1,
+				"hook "+hook.Event+" runs unsanctioned command: "+sanitizeURLsForDisplay(cmd),
+				"Restrict hook commands to in-repo scripts (./scripts/...) or maintain an explicit allowlist"))
 		}
 	}
 	return findings
