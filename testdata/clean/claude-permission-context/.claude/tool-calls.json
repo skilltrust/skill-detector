@@ -1,0 +1,7 @@
+{
+  "name": "Bash",
+  "input": {
+    "command": "printf https:\/\/api.example.test/status",
+    "allowed_domains": ["api.example.test:443"]
+  }
+}

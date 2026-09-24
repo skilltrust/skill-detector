@@ -1,0 +1,7 @@
+{
+  "name": "Bash",
+  "input": {
+    "command": "curl https://api.example.test/status",
+    "allowed_domains": ["*.example.test"]
+  }
+}

@@ -71,10 +71,9 @@ func (r *redundantDenyRule) Match(content []byte, ctx model.FileContext) []model
 	}
 	var findings []model.Finding
 
-	// Pattern: a deny entry for a specific Bash/PowerShell subcommand is made
-	// redundant by an allow entry that already covers it (deny still wins —
-	// Claude Code applies deny unconditionally over allow — but the deny is
-	// then dead weight and the allow is silently overbroad).
+	// Pattern: a broad Bash/PowerShell allow overlaps a narrower deny. Deny
+	// precedence keeps the restriction effective; the finding is about the
+	// risky breadth that remains outside the denied subset.
 	for _, deny := range s.Permissions.Deny {
 		denyCmd := bashCommand(deny)
 		if denyCmd == "" {
@@ -87,8 +86,8 @@ func (r *redundantDenyRule) Match(content []byte, ctx model.FileContext) []model
 			}
 			if allowSubsumes(allowCmd, denyCmd) {
 				findings = append(findings, r.newFinding(ctx, 1,
-					"deny "+deny+" is redundant: allow "+allow+" covers the same commands",
-					"Deny rules take precedence over allow in Claude Code, so this deny still blocks. Narrow the allow entry so the intended restriction is expressed by the allowlist, not by a deny that the allow silently makes unnecessary"))
+					"broad allow "+allow+" overlaps protective deny "+deny+"; when both rules apply, deny precedence protects the denied subset",
+					"Keep the protective deny. Narrow or remove the broad allow if its remaining command range is unnecessary; do not remove the deny merely because the allow overlaps it"))
 			}
 		}
 	}
@@ -302,7 +301,7 @@ func RegisterSettingsJSONRules(registry *RuleRegistry) {
 	registry.Register(&redundantDenyRule{
 		baseRule: baseRule{
 			id:       "SD-018",
-			name:     "settings.json Redundant Deny Rule",
+			name:     "settings.json Broad Allow with Protective Deny",
 			severity: model.SeverityHigh,
 			category: "SettingsJSON",
 			types:    []string{".json"},

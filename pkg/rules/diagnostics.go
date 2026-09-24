@@ -6,5 +6,13 @@ import "github.com/velzepooz/skill-detector/pkg/model"
 // must survive disabled rules and finding scoring. Add bounded configuration
 // analyzers here; rules remain responsible only for findings.
 func ConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]string, error) {
-	return CodexConfigDiagnostics(content, ctx)
+	warnings, err := CodexConfigDiagnostics(content, ctx)
+	if err != nil {
+		return nil, err
+	}
+	claudeWarnings, err := ClaudeConfigurationDiagnostics(content, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return append(warnings, claudeWarnings...), nil
 }

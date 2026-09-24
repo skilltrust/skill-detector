@@ -12,7 +12,8 @@ dist/
 # tracked is a test that silently stops running.
 /vendor/
 
-.claude/
+# Local root config stays private; fixture .claude trees are test inputs.
+/.claude/
 
 # Engineering knowledge base — local only, because this repo is public.
 # Excludes the *contents* of docs/, not the directory itself, so the

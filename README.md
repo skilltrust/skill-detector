@@ -42,7 +42,7 @@ packages and the surrounding configuration files:
 | **Integrity**        | Tampered or unsigned files                              |
 | **Access control**   | Permission-declaration vs. actual-behavior mismatches   |
 | **CLAUDE.md**        | SQL-injection-by-instruction, Comment-and-Control patterns |
-| **settings.json**    | `Bash(curl:*)`/`Bash(curl*)` and PowerShell wildcards, unrestricted `"*"` grant, redundant deny made moot by a broader allow, unsanctioned hooks |
+| **settings.json**    | `Bash(curl:*)`/`Bash(curl*)` and PowerShell wildcards, unrestricted `"*"` grant, broad allows constrained by protective denies, unsanctioned hooks |
 | **Hooks**            | Shell metacharacter interpolation in hook command strings (real nested Claude Code schema) |
 | **MCP**              | External-domain reach (raise to High with `--strict-mcp`) and auto-installed registry packages (`npx`/`uvx`/`pipx`/`bunx`) |
 | **Reverse shell**    | Reverse-shell payloads in skill scripts and instruction files |
