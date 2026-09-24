@@ -9,12 +9,16 @@
   treating external hooks as inherently malicious. Missing version, source,
   trust, session or effective merged policy never implies activation. The
   Claude **2.1.275** `SubagentStop` empty-agent-type fix is a release anchor;
-  current hook docs do not establish historical ranges.
+  other versions remain unresolved. Matcher diagnostics follow current exact,
+  list and unanchored-regexp semantics, ignore matchers on events that do not
+  support them, and version-gate comma-list and hyphen-exact behavior.
 - Inventory `CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY=1` and Claude apps gateway
   upstream headers at the **2.1.277** anchor. Diagnostics state the sole-egress
   forward-proxy precondition and never claim the declaration proves DNS
   routing or confinement. Header values and URL credentials/query data are
-  redacted from diagnostics, SD-007 findings and optional verifier context;
+  redacted from diagnostics, SD-007 findings and optional verifier context,
+  including URLs embedded in command strings, allowlist arrays and
+  unsupported response-like fields;
   generic SD-007 endpoint detection remains. No configured host is contacted,
   and hook response data cannot alter scanner analysis. JSON schema remains
   **1.5**; rules, axes, severities, thresholds, scope and exit codes are

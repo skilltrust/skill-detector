@@ -123,7 +123,6 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 		findings = ApplyAllowlists(findings, cfg.Allow)
 		overrides = filterConfigOverrides(findings, overrides)
 	}
-
 	// Sort deterministically: by file path, then line, then rule ID.
 	slices.SortStableFunc(findings, func(a, b model.Finding) int {
 		if a.FilePath != b.FilePath {
@@ -134,6 +133,22 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 		}
 		return strings.Compare(a.RuleID, b.RuleID)
 	})
+	filesByPath := make(map[string]model.FileContext, len(files))
+	for _, file := range files {
+		filesByPath[file.Path] = file
+	}
+	for start := 0; start < len(findings); {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		end := start + 1
+		for end < len(findings) && findings[end].FilePath == findings[start].FilePath {
+			end++
+		}
+		file := filesByPath[findings[start].FilePath]
+		rules.SanitizeConfigurationFindings(findings[start:end], file.Content, file)
+		start = end
+	}
 
 	findings = s.applyTriage(ctx, findings, files)
 
@@ -161,7 +176,12 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	// a claim about files no rule inspected.
 	var perms []model.Permission
 	if agentSurface > 0 {
-		perms = permission.Extract(findings, files)
+		permissionFiles := make([]model.FileContext, len(files))
+		copy(permissionFiles, files)
+		for index := range permissionFiles {
+			permissionFiles[index].Content = rules.SanitizeConfigurationForVerifier(permissionFiles[index].Content, permissionFiles[index])
+		}
+		perms = permission.Extract(findings, permissionFiles)
 	}
 
 	var axesResult map[axes.Axis]model.AxisResult

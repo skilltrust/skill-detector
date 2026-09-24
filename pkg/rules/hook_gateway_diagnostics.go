@@ -15,6 +15,15 @@ import (
 )
 
 var gatewayBoundaryAssignment = regexp.MustCompile(`(?m)^\s*(?:export\s+)?CLAUDE_GATEWAY_PROXY_IS_EGRESS_BOUNDARY\s*=\s*["']?1["']?\s*(?:#.*)?$`)
+var (
+	exactHookMatcher       = regexp.MustCompile(`^[A-Za-z0-9_\- ,|]+$`)
+	narrowExactHookMatcher = regexp.MustCompile(`^[A-Za-z0-9_|]+$`)
+	structuredHTTPURL      = regexp.MustCompile(`(?i)https?://[^\s"'` + "`" + `<>]+`)
+	httpURLScheme          = regexp.MustCompile(`(?i)https?://`)
+	incompatibleHookRepeat = regexp.MustCompile(`\{(?:0[0-9]+(?:,[0-9]*)?|[0-9]+,0[0-9]+)\}`)
+)
+
+const claudeSubagentStopAnchor = "2.1.275"
 
 type hookPolicy struct {
 	urlAllowlistSet bool
@@ -145,12 +154,25 @@ func hookActivationDescription(declaration hookDeclaration, analysis model.Analy
 	if event.Value != declaration.Event {
 		return "the supplied runtime event does not match this declaration, so it is inactive for that event"
 	}
+	if !hookEventSupportsMatcher(declaration.Event) {
+		if declaration.MatcherSet {
+			return "the supplied event matches; this event does not support matcher filtering, so the configured matcher is ignored, but runtime activation is not proven"
+		}
+		return "the supplied event matches this declaration without matcher filtering, but runtime activation is not proven"
+	}
 	if !declaration.MatcherSet || declaration.Matcher == "" || declaration.Matcher == "*" {
 		return "the supplied event matches this catch-all declaration, but runtime activation is not proven"
 	}
-	matcher, err := regexp.Compile(declaration.Matcher)
-	if err != nil {
-		return "the matcher is not a supported regular expression, so activation is unresolved"
+	exact := hookMatcherIsExact(declaration.Event, declaration.Matcher)
+	if exact && (strings.Contains(declaration.Matcher, ",") || matcherUsesWhitespaceTolerance(declaration.Matcher)) {
+		if comparison, ok := compareStableVersion(analysis.Version, 2, 1, 191); !ok || comparison < 0 {
+			return "the event matches, but comma-list or separator-whitespace semantics require Claude Code 2.1.191 or later and the supplied version does not establish applicability, so activation is unresolved"
+		}
+	}
+	if exact && strings.Contains(declaration.Matcher, "-") {
+		if comparison, ok := compareStableVersion(analysis.Version, 2, 1, 195); !ok || comparison < 0 {
+			return "the event matches, but exact hyphen semantics require Claude Code 2.1.195 or later and the supplied version does not establish applicability, so activation is unresolved"
+		}
 	}
 	conditionName := "claude_hook_matcher_value"
 	if declaration.Event == "SubagentStop" {
@@ -160,23 +182,137 @@ func hookActivationDescription(declaration hookDeclaration, analysis model.Analy
 	if value.State != model.ContextKnown {
 		return "the event matches but matcher input is unknown, so activation is unresolved"
 	}
-	if matcher.MatchString(value.Value) {
+	matched, supported := hookMatcherMatches(declaration.Matcher, value.Value, exact)
+	if !supported {
+		return "the matcher uses regular-expression syntax outside the bounded evaluator, so activation is unresolved"
+	}
+	if matched {
 		return "the supplied event and matcher input match, but runtime activation is not proven"
 	}
 	if declaration.Event == "SubagentStop" && value.Value == "" {
-		return "the supplied SubagentStop agent type is empty and does not match this specific matcher, as fixed at Claude Code 2.1.275"
+		if contextKnownIs(analysis.Version, claudeSubagentStopAnchor) {
+			return "the supplied SubagentStop agent type is empty and does not match this specific matcher, as fixed at the exact Claude Code 2.1.275 release anchor"
+		}
+		return "the supplied SubagentStop agent type is empty, but empty-agent-type behavior is unresolved without the exact Claude Code 2.1.275 release anchor"
 	}
 	return "the supplied matcher input does not match, so the declaration is inactive for that event"
+}
+
+func hookMatcherIsExact(event, pattern string) bool {
+	if event == "FileChanged" || event == "StopFailure" {
+		return narrowExactHookMatcher.MatchString(pattern)
+	}
+	return exactHookMatcher.MatchString(pattern)
+}
+
+func matcherUsesWhitespaceTolerance(pattern string) bool {
+	for index, char := range pattern {
+		if char != '|' && char != ',' {
+			continue
+		}
+		if (index > 0 && pattern[index-1] == ' ') || (index+1 < len(pattern) && pattern[index+1] == ' ') {
+			return true
+		}
+	}
+	return false
+}
+
+func hookMatcherMatches(pattern, value string, exact bool) (matched, supported bool) {
+	if exact {
+		for part := range strings.FieldsFuncSeq(pattern, func(r rune) bool { return r == '|' || r == ',' }) {
+			if strings.TrimSpace(part) == value {
+				return true, true
+			}
+		}
+		return false, true
+	}
+	if !compatibleHookRegexp(pattern, value) {
+		return false, false
+	}
+	matcher, err := regexp.Compile(pattern)
+	if err != nil {
+		return false, false
+	}
+	return matcher.MatchString(value), true
+}
+
+func compatibleHookRegexp(pattern, value string) bool {
+	if strings.Contains(pattern, "(?") || strings.Contains(pattern, "[[:") || strings.Contains(pattern, "[]") ||
+		strings.Contains(pattern, "[^]") || incompatibleHookRepeat.MatchString(pattern) {
+		return false
+	}
+	for _, char := range pattern {
+		if char > 0xffff {
+			return false
+		}
+	}
+	for _, char := range value {
+		if char > 0xffff {
+			return false
+		}
+	}
+	if regexpHasWildcard(pattern) && strings.ContainsAny(value, "\r\u2028\u2029") {
+		return false
+	}
+	for index := 0; index < len(pattern); index++ {
+		if pattern[index] != '\\' || index+1 >= len(pattern) {
+			continue
+		}
+		index++
+		escaped := pattern[index]
+		if escaped >= '0' && escaped <= '9' {
+			return false
+		}
+		if (escaped >= 'A' && escaped <= 'Z') || (escaped >= 'a' && escaped <= 'z') {
+			if !strings.ContainsRune("dDwWbB", rune(escaped)) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func regexpHasWildcard(pattern string) bool {
+	escaped, inClass := false, false
+	for _, char := range pattern {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch char {
+		case '\\':
+			escaped = true
+		case '[':
+			inClass = true
+		case ']':
+			inClass = false
+		case '.':
+			if !inClass {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hookEventSupportsMatcher(event string) bool {
+	switch event {
+	case "UserPromptSubmit", "PostToolBatch", "Stop", "TeammateIdle", "TaskCreated", "TaskCompleted",
+		"WorktreeCreate", "WorktreeRemove", "MessageDisplay", "CwdChanged":
+		return false
+	default:
+		return true
+	}
 }
 
 func knownHookEvent(event string) bool {
 	switch event {
 	case "SessionStart", "Setup", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
 		"PostToolUse", "PostToolUseFailure", "Notification", "SubagentStart", "SubagentStop",
-		"Stop", "TeammateIdle", "TaskCompleted", "ConfigChange", "CwdChanged", "FileChanged",
+		"Stop", "StopFailure", "TeammateIdle", "TaskCompleted", "ConfigChange", "CwdChanged", "FileChanged",
 		"WorktreeCreate", "WorktreeRemove", "PreCompact", "SessionEnd", "InstructionsLoaded",
 		"Elicitation", "ElicitationResult", "PostToolBatch", "TaskCreated", "PermissionDenied",
-		"UserPromptExpansion", "PreModelSwitch", "PostModelSwitch":
+		"UserPromptExpansion", "PreModelSwitch", "PostModelSwitch", "PostCompact", "MessageDisplay":
 		return true
 	default:
 		return false
@@ -301,116 +437,394 @@ func safeURLDestination(raw string) string {
 }
 
 func sanitizeURLsForDisplay(value string) string {
-	return reHTTPURL.ReplaceAllStringFunc(value, safeURLDestination)
+	return sanitizeStructuredText(value)
 }
 
 // SanitizeConfigurationForVerifier removes hook/gateway header values and URL
-// credentials before a FileContext can cross the verifier boundary.
+// credentials before deterministic URL analysis or the verifier boundary.
 func SanitizeConfigurationForVerifier(content []byte, ctx model.FileContext) []byte {
-	if !IsClaudeSettings(ctx.Path) {
-		headers, _ := gatewayUpstreamHeaders(content, ctx.Path)
-		if headers == 0 && !gatewayBoundaryDeclared(content, ctx.Path) {
-			return content
-		}
-	}
 	ext := strings.ToLower(filepath.Ext(ctx.Path))
+	if (ext == ".json" || ext == ".yaml" || ext == ".yml") && configurationRequiresFullRedaction(content, ext) {
+		return failClosedConfiguration(content)
+	}
 	if ext == ".json" {
 		var value any
 		decoder := json.NewDecoder(bytes.NewReader(content))
 		decoder.UseNumber()
 		if decoder.Decode(&value) == nil {
 			if _, err := decoder.Token(); err == io.EOF {
-				sanitizeStructuredConfig(value)
-				if sanitized, err := json.Marshal(value); err == nil {
-					return sanitized
-				}
+				var values []string
+				collectSensitiveJSON(value, false, &values)
+				return sanitizeSourceLayout(content, values)
 			}
+		}
+		return failClosedConfiguration(content)
+	}
+	if ext == ".yaml" || ext == ".yml" {
+		var document yaml.Node
+		if yaml.Unmarshal(content, &document) == nil {
+			var values []string
+			if collectSensitiveYAML(&document, false, make(map[*yaml.Node]uint8), &values, 0) {
+				return sanitizeSourceLayout(content, values)
+			}
+		}
+		return failClosedConfiguration(content)
+	}
+	if stringHasSensitiveURL(string(content)) {
+		return failClosedConfiguration(content)
+	}
+	return []byte(sanitizeURLsForDisplay(string(content)))
+}
+
+func sanitizeSourceLayout(content []byte, values []string) []byte {
+	text := string(content)
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, value, redactionWithLineCount(value))
+		if encoded, err := json.Marshal(value); err == nil && len(encoded) >= 2 {
+			escaped := string(encoded[1 : len(encoded)-1])
+			text = strings.ReplaceAll(text, escaped, redactionWithLineCount(escaped))
+		}
+	}
+	return []byte(sanitizeStructuredText(text))
+}
+
+func failClosedConfiguration(content []byte) []byte {
+	return []byte("[redacted: structured configuration could not be sanitized]" + strings.Repeat("\n", bytes.Count(content, []byte("\n"))))
+}
+
+func redactionWithLineCount(value string) string {
+	return "[redacted]" + strings.Repeat("\n", strings.Count(value, "\n"))
+}
+
+func sanitizeStructuredText(value string) string {
+	return structuredHTTPURL.ReplaceAllStringFunc(value, safeURLDestination)
+}
+
+// SanitizeConfigurationFindings prevents secret-bearing configuration fields
+// from crossing the result or verifier boundary while leaving rule matching on
+// the original content and source lines.
+func SanitizeConfigurationFindings(findings []model.Finding, content []byte, ctx model.FileContext) {
+	ext := strings.ToLower(filepath.Ext(ctx.Path))
+	if ((ext == ".json" || ext == ".yaml" || ext == ".yml") && configurationRequiresFullRedaction(content, ext)) ||
+		stringHasSensitiveURL(string(content)) {
+		for index := range findings {
+			findings[index].Description = findings[index].RuleName + " detected; configuration-derived details redacted"
+			findings[index].Remediation = sanitizeStructuredText(findings[index].Remediation)
+			findings[index].Diagnosis = sanitizeStructuredText(findings[index].Diagnosis)
+		}
+		return
+	}
+	values := sensitiveConfigurationValues(content, ctx.Path)
+	var fragments []string
+	for _, value := range values {
+		fragments = append(fragments, value)
+		fragments = append(fragments, structuredHTTPURL.FindAllString(value, -1)...)
+		fragments = append(fragments, reFullPath.FindAllString(value, -1)...)
+	}
+	sanitize := func(text string) string {
+		for _, value := range fragments {
+			if value == "" {
+				continue
+			}
+			text = strings.ReplaceAll(text, value, "[redacted]")
+			text = strings.ReplaceAll(text, sanitizeStructuredText(value), "[redacted]")
+		}
+		return sanitizeStructuredText(text)
+	}
+	for index := range findings {
+		findings[index].Description = sanitize(findings[index].Description)
+		findings[index].Remediation = sanitize(findings[index].Remediation)
+		findings[index].Diagnosis = sanitize(findings[index].Diagnosis)
+	}
+}
+
+func configurationRequiresFullRedaction(content []byte, ext string) bool {
+	if ext == ".json" {
+		if duplicate, err := jsonHasDuplicateKey(content); err != nil || duplicate {
+			return true
+		}
+		var value any
+		decoder := json.NewDecoder(bytes.NewReader(content))
+		decoder.UseNumber()
+		if decoder.Decode(&value) != nil {
+			return true
+		}
+		if _, err := decoder.Token(); err != io.EOF {
+			return true
+		}
+		return jsonHasSensitiveField(value)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	for {
+		var document yaml.Node
+		err := decoder.Decode(&document)
+		if err == io.EOF {
+			return false
+		}
+		if err != nil {
+			return true
+		}
+		if yamlHasSensitiveField(&document, make(map[*yaml.Node]bool), 0) {
+			return true
+		}
+	}
+}
+
+func jsonHasSensitiveField(value any) bool {
+	switch value := value.(type) {
+	case string:
+		return stringHasSensitiveURL(value)
+	case []any:
+		for _, child := range value {
+			if jsonHasSensitiveField(child) {
+				return true
+			}
+		}
+	case map[string]any:
+		var httpHandler string
+		var typeKeys int
+		for key, child := range value {
+			if strings.EqualFold(key, "type") {
+				typeKeys++
+				httpHandler, _ = child.(string)
+			}
+		}
+		if typeKeys > 1 {
+			return true
+		}
+		allowedHTTPField := map[string]bool{
+			"type": true, "url": true, "headers": true, "allowedEnvVars": true,
+			"if": true, "timeout": true,
+		}
+		for key, child := range value {
+			if strings.EqualFold(key, "headers") || (httpHandler == "http" && !allowedHTTPField[key]) {
+				return true
+			}
+			if jsonHasSensitiveField(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func yamlHasSensitiveField(node *yaml.Node, visited map[*yaml.Node]bool, depth int) bool {
+	if depth > 100 || visited[node] {
+		return depth > 100
+	}
+	visited[node] = true
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return yamlHasSensitiveField(node.Alias, visited, depth+1)
+	}
+	if node.Kind == yaml.ScalarNode {
+		return stringHasSensitiveURL(node.Value)
+	}
+	if node.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			if node.Content[index].Kind != yaml.ScalarNode ||
+				strings.EqualFold(node.Content[index].Value, "headers") ||
+				yamlHasSensitiveField(node.Content[index+1], visited, depth+1) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, child := range node.Content {
+		if yamlHasSensitiveField(child, visited, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringHasSensitiveURL(value string) bool {
+	for offset := 0; offset < len(value); {
+		match := httpURLScheme.FindStringIndex(value[offset:])
+		if match == nil {
+			return false
+		}
+		start := offset + match[0]
+		end := start
+		for end < len(value) && value[end] != ' ' && value[end] != '\t' && value[end] != '\r' && value[end] != '\n' {
+			end++
+		}
+		raw := value[start:end]
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+			strings.Contains(raw, "@") || strings.ContainsAny(raw, "?#") {
+			return true
+		}
+		offset = end
+	}
+	return false
+}
+
+func jsonHasDuplicateKey(content []byte) (bool, error) {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.UseNumber()
+	duplicate, err := jsonValueHasDuplicateKey(decoder, 0)
+	if err != nil {
+		return false, err
+	}
+	if duplicate {
+		return true, nil
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return false, err
+	}
+	return duplicate, nil
+}
+
+func jsonValueHasDuplicateKey(decoder *json.Decoder, depth int) (bool, error) {
+	if depth > 100 {
+		return true, nil
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return false, err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return false, nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]bool)
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return false, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return false, fmt.Errorf("JSON object key is not a string")
+			}
+			if seen[key] {
+				return true, nil
+			}
+			seen[key] = true
+			duplicate, err := jsonValueHasDuplicateKey(decoder, depth+1)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		_, err = decoder.Token()
+		return false, err
+	case '[':
+		for decoder.More() {
+			duplicate, err := jsonValueHasDuplicateKey(decoder, depth+1)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		_, err = decoder.Token()
+		return false, err
+	default:
+		return false, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+}
+
+func sensitiveConfigurationValues(content []byte, path string) []string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".json" {
+		var value any
+		decoder := json.NewDecoder(bytes.NewReader(content))
+		decoder.UseNumber()
+		if decoder.Decode(&value) == nil {
+			var values []string
+			collectSensitiveJSON(value, false, &values)
+			return values
 		}
 	}
 	if ext == ".yaml" || ext == ".yml" {
 		var document yaml.Node
 		if yaml.Unmarshal(content, &document) == nil {
-			sanitizeYAMLConfig(&document, false)
-			if sanitized, err := yaml.Marshal(&document); err == nil {
-				return sanitized
+			var values []string
+			if !collectSensitiveYAML(&document, false, make(map[*yaml.Node]uint8), &values, 0) {
+				return []string{string(content)}
 			}
+			return values
 		}
 	}
-	return []byte(sanitizeURLsForDisplay(string(content)))
+	return nil
 }
 
-func sanitizeStructuredConfig(value any) {
+func collectSensitiveJSON(value any, sensitive bool, values *[]string) {
 	switch value := value.(type) {
+	case string:
+		if sensitive {
+			*values = append(*values, value)
+		}
 	case []any:
 		for _, child := range value {
-			sanitizeStructuredConfig(child)
+			collectSensitiveJSON(child, sensitive, values)
 		}
 	case map[string]any:
-		if handlerType, ok := value["type"].(string); ok && handlerType == "http" {
-			allowed := map[string]bool{
-				"type": true, "url": true, "headers": true, "allowedEnvVars": true,
-				"if": true, "timeout": true,
-			}
-			for key := range value {
-				if !allowed[key] {
-					delete(value, key)
-				}
+		var httpHandler string
+		for key, child := range value {
+			if strings.EqualFold(key, "type") {
+				httpHandler, _ = child.(string)
 			}
 		}
+		allowedHTTPField := map[string]bool{
+			"type": true, "url": true, "headers": true, "allowedEnvVars": true,
+			"if": true, "timeout": true,
+		}
 		for key, child := range value {
-			if strings.EqualFold(key, "headers") {
-				if headers, ok := child.(map[string]any); ok {
-					for name := range headers {
-						headers[name] = "[redacted]"
-					}
-				}
-				continue
-			}
-			if text, ok := child.(string); ok && (strings.EqualFold(key, "url") || strings.EqualFold(key, "base_url")) {
-				value[key] = sanitizeURLValue(text)
-				continue
-			}
-			sanitizeStructuredConfig(child)
+			childSensitive := sensitive || strings.EqualFold(key, "headers") ||
+				(httpHandler == "http" && !allowedHTTPField[key])
+			collectSensitiveJSON(child, childSensitive, values)
 		}
 	}
 }
 
-func sanitizeYAMLConfig(node *yaml.Node, redact bool) {
-	if redact && node.Kind == yaml.ScalarNode {
-		node.Value = "[redacted]"
-		return
+func collectSensitiveYAML(node *yaml.Node, sensitive bool, visited map[*yaml.Node]uint8, values *[]string, depth int) bool {
+	if depth > 100 {
+		return false
+	}
+	state := uint8(1)
+	if sensitive {
+		state = 2
+	}
+	if visited[node]&state != 0 {
+		return true
+	}
+	visited[node] |= state
+	for _, comment := range []string{node.HeadComment, node.LineComment, node.FootComment} {
+		if comment != "" {
+			*values = append(*values, comment)
+		}
+		for _, field := range strings.Fields(comment) {
+			if strings.HasPrefix(field, "/") || strings.HasPrefix(field, `\`) || strings.Contains(field, "://") {
+				*values = append(*values, field)
+			}
+		}
+	}
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return collectSensitiveYAML(node.Alias, sensitive, visited, values, depth+1)
+	}
+	if node.Kind == yaml.ScalarNode {
+		if sensitive {
+			*values = append(*values, node.Value)
+		}
+		return true
 	}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key, value := node.Content[i].Value, node.Content[i+1]
-			if redact {
-				sanitizeYAMLConfig(value, true)
-				continue
+			if !collectSensitiveYAML(value, sensitive || strings.EqualFold(key, "headers"), visited, values, depth+1) {
+				return false
 			}
-			if strings.EqualFold(key, "headers") {
-				sanitizeYAMLConfig(value, true)
-				continue
-			}
-			if value.Kind == yaml.ScalarNode && (strings.EqualFold(key, "url") || strings.EqualFold(key, "base_url")) {
-				value.Value = sanitizeURLValue(value.Value)
-				continue
-			}
-			sanitizeYAMLConfig(value, false)
 		}
-		return
+		return true
 	}
 	for _, child := range node.Content {
-		sanitizeYAMLConfig(child, redact)
+		if !collectSensitiveYAML(child, sensitive, visited, values, depth+1) {
+			return false
+		}
 	}
-}
-
-func sanitizeURLValue(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "[redacted-url]"
-	}
-	parsed.User = nil
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String()
+	return true
 }
