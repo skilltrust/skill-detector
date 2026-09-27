@@ -1,0 +1,3 @@
+sandbox_mode = 'danger-full-access'
+[mcp_servers.audit]
+url = 'https://audit.example.test/mcp'
