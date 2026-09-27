@@ -76,6 +76,17 @@ and send Claude hook/gateway configuration to another analyzer should apply
 the same boundary; header values and URL credentials/query data must not cross
 it. `ScanResult`, CLI JSON and schema version are unchanged.
 
+ST-130 expands repository scope only at specific `.github/` paths. Hosted PR
+sparse fetch must include root `.github/hooks/*.json`, recursive
+`.github/instructions/**/*.instructions.md`, root `.github/agents/*.agent.md`
+and `.github/copilot/settings.json` / `settings.local.json`, then prove
+full/sparse equivalence for findings, grades, warnings and coverage. The
+additive `rules.CopilotHookDeclarations` and `CopilotProseBody` APIs are used by
+`scanner.Scanner`; direct rule consumers must call them and project only
+validated content, not raw JSON or frontmatter. No JSON shape, schema version,
+rule metadata or checksum changes. A hosted version pin alone cannot bring
+the new paths into a sparse materialization.
+
 ## A release is not done when the tag is cut
 
 Three places downstream pin this engine's version, and **none of them notices a

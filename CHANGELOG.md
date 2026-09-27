@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **ST-130, scope/detection change:** inspect root `.github/hooks/*.json`,
+  recursive path instructions, root custom-agent profiles and documented
+  repository inline Copilot hooks. Validated version-1 hook commands, prompts
+  and HTTP destinations reach existing rules without treating adjacent JSON
+  metadata as executable content. Invalid structures/frontmatter fail without
+  grades; invalid directory hook items are dropped with diagnostics when valid
+  siblings remain. Trust, path match, agent selection, managed policy and
+  session activation stay unknown. No fixture command is run. Copilot CLI
+  prereleases (including 1.0.87-0) are not treated as stable security fixes.
+  JSON schema remains 1.5; rule metadata and ruleset fingerprint are unchanged.
 - **ST-138, diagnostic change:** inventory supplied Claude marketplace/MCP
   policy declarations, plugin installation and installed-commit evidence,
   SDK MCP compatibility, instruction fallback/selection, `omitClaudeMd`,

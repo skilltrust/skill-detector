@@ -362,7 +362,9 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 	if !InScope(ctx) {
 		return nil
 	}
-	declared := isDocFile(ctx.Path) || isDeclarativeFile(ctx.Path)
+	prose := isDocFile(ctx.Path) || ctx.Analysis.Conditions["copilot_hook_prompt"].State == model.ContextKnown
+	declared := (prose || isDeclarativeFile(ctx.Path)) &&
+		ctx.Analysis.Conditions["copilot_hook_command"].State != model.ContextKnown
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i := 0; i < len(lines); i++ {
@@ -402,11 +404,11 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 			continue
 		}
 		switch {
-		case isDocFile(ctx.Path) && hasRoutableIPLiteral(stmt):
+		case prose && hasRoutableIPLiteral(stmt):
 			findings = append(findings, r.newFinding(ctx, lineNum,
 				"outbound network reference to "+publishedURL(urlMatch),
 				"Remove or restrict outbound network references; document why external access is needed"))
-		case isDocFile(ctx.Path):
+		case prose:
 			// A bare URL in prose is a link. It says nothing about
 			// behaviour, and escalating it on suspiciousEndpoint's full
 			// predicate is noise on both sides of the label — see

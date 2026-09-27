@@ -11,6 +11,7 @@ import (
 
 	ignore "github.com/sabhiram/go-gitignore"
 	"github.com/velzepooz/skill-detector/pkg/model"
+	"github.com/velzepooz/skill-detector/pkg/rules"
 )
 
 // walkableHiddenDirs lists hidden directories that should still be walked
@@ -130,10 +131,8 @@ func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext
 }
 
 // skillManifestNames are the markers that make a directory a skill root.
-// Deliberately the same set rules.IsSkillManifest accepts, mirrored here
-// because pkg/scanner/discover.go does not import pkg/rules — keeping the two
-// definitions identical is the point, since the gap this closed was exactly
-// them disagreeing.
+// Deliberately the same set rules.IsSkillManifest accepts. Keeping the two
+// definitions identical matters: the gap this closed was their disagreement.
 //
 // v0.8.0 recognised SKILL.md alone. That left a payload beside a skill.yaml
 // out of scope while the manifest above it was read — and because skill.yaml
@@ -250,7 +249,10 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 						// gitignored .vscode/ (near-universal boilerplate)
 						// must not trip the "blind to the primary attack
 						// surface" warning.
-						if inAgentDir(relForIgnore + "/") {
+						clean := filepath.ToSlash(relForIgnore)
+						if inAgentDir(relForIgnore+"/") || clean == ".github/hooks" ||
+							clean == ".github/instructions" || strings.HasPrefix(clean, ".github/instructions/") ||
+							clean == ".github/agents" || clean == ".github/copilot" {
 							stats.GitignoredAgentPaths++
 						}
 						return filepath.SkipDir
@@ -354,16 +356,9 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 	return files, stats, nil
 }
 
-// isAgentShapedPath mirrors rules.IsAgentFile for warning purposes only.
+// isAgentShapedPath includes agent file classes for ignored-path warnings.
 func isAgentShapedPath(rel string) bool {
-	base := filepath.Base(rel)
-	switch base {
-	case "SKILL.md", "skill.yaml", "CLAUDE.md", ".mcp.json":
-		return true
-	case "settings.json", "settings.local.json", "mcp.json":
-		return inAgentDir(rel)
-	}
-	return false
+	return rules.IsAgentFile(rel)
 }
 
 // readFromRoot reads file content through the scoped os.Root to avoid TOCTOU

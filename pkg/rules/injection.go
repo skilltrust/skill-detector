@@ -206,7 +206,7 @@ func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []mode
 		return nil
 	}
 	var fenced map[int]bool
-	if strings.HasSuffix(ctx.Path, ".md") {
+	if strings.HasSuffix(ctx.Path, ".md") || ctx.Analysis.Conditions["copilot_hook_prompt"].State == model.ContextKnown {
 		fenced = shellFencedLines(content)
 	}
 	var findings []model.Finding
@@ -240,7 +240,8 @@ func (r *promptInjectionRule) Match(content []byte, ctx model.FileContext) []mod
 	// arm is added so a raw-layout skill reaches the same files an installed
 	// one already does.
 	if !IsSkillManifest(ctx.Path) && !IsInstructionFile(ctx.Path) &&
-		!isInAgentConfigDir(ctx.Path) && !InSkillSubtree(ctx) {
+		!isInAgentConfigDir(ctx.Path) && !InSkillSubtree(ctx) &&
+		(!IsCopilotHookConfig(ctx.Path) || ctx.Analysis.Conditions["copilot_hook_prompt"].State != model.ContextKnown) {
 		return nil
 	}
 	var findings []model.Finding

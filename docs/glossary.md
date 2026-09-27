@@ -8,8 +8,10 @@ term names something in the code, the package is given. Terms are alphabetical.
 A file that configures an AI coding agent, and therefore one of the file
 classes the scanner inspects: a skill manifest, a per-harness instruction file
 (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules`,
-`.github/copilot-instructions.md`, a `.mdc` under `.cursor/rules/`), a Claude
-settings file, or an MCP configuration. `rules.IsAgentFile` is the union
+`.github/copilot-instructions.md`, `.github/instructions/**/*.instructions.md`,
+`.github/agents/*.agent.md`, a `.mdc` under `.cursor/rules/`), a Claude
+settings file, a supported repository Copilot hook/inline settings file, or an
+MCP configuration. `rules.IsAgentFile` is the union
 predicate over those classes; `README.md` lists the exact filenames.
 
 ### Analysis context

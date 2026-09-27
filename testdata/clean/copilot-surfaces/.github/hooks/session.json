@@ -1,0 +1,1 @@
+{"version":1,"hooks":{"sessionEnd":[{"bash":"printf ready","env":{"EXAMPLE":"cat ~/.ssh/id_rsa"}}]}}

@@ -109,24 +109,62 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	var findings []model.Finding
 	var warnings []string
 	activeRules := make(map[string]bool)
-	for _, file := range files {
+	assessedFiles := make([]model.FileContext, len(files))
+	for fileIndex, file := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		content, proseWarnings, err := rules.CopilotProseBody(file.Content, file.Path)
+		if err != nil {
+			return nil, fmt.Errorf("scanner: %w", err)
+		}
+		warnings = append(warnings, proseWarnings...)
 		configWarnings, err := rules.ConfigurationDiagnostics(file.Content, file)
 		if err != nil {
 			return nil, fmt.Errorf("scanner: %w", err)
 		}
 		warnings = append(warnings, configWarnings...)
-		matched := s.reg.RulesFor(file.Ext)
-		for _, rule := range matched {
-			if s.isRuleDisabled(rule.ID()) {
-				continue
+		parts := []rules.CopilotHookPart{{Content: string(content), Ext: file.Ext}}
+		if rules.IsCopilotHookConfig(file.Path) {
+			var hookWarnings []string
+			parts, hookWarnings, err = rules.CopilotHookDeclarations(file.Content, file)
+			if err != nil {
+				return nil, fmt.Errorf("scanner: %w", err)
 			}
-			activeRules[rule.ID()] = true
-			results := rule.Match(file.Content, file)
-			findings = append(findings, results...)
+			warnings = append(warnings, hookWarnings...)
 		}
+		var assessedContent []string
+		for _, part := range parts {
+			assessedContent = append(assessedContent, part.Content)
+			projection := file
+			projection.Content = []byte(part.Content)
+			projection.Ext = part.Ext
+			if rules.IsCopilotHookConfig(file.Path) {
+				switch part.Ext {
+				case ".md":
+					projection.Analysis.Conditions = map[string]model.ContextValue{"copilot_hook_prompt": {State: model.ContextKnown}}
+				case ".sh":
+					projection.Analysis.Conditions = map[string]model.ContextValue{"copilot_hook_command": {State: model.ContextKnown}}
+				}
+			}
+			for _, rule := range s.reg.RulesFor(part.Ext) {
+				if s.isRuleDisabled(rule.ID()) {
+					continue
+				}
+				activeRules[rule.ID()] = true
+				matched := rule.Match(projection.Content, projection)
+				for i := range matched {
+					if part.Line > 0 {
+						// JSON escapes (notably \\n) can create projected lines
+						// without corresponding physical source lines.
+						matched[i].Line = part.Line
+					}
+				}
+				findings = append(findings, matched...)
+			}
+		}
+		assessedFiles[fileIndex] = file
+		assessedFiles[fileIndex].Content = []byte(strings.Join(assessedContent, "\n"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -152,8 +190,8 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 		}
 		return strings.Compare(a.RuleID, b.RuleID)
 	})
-	filesByPath := make(map[string]model.FileContext, len(files))
-	for _, file := range files {
+	filesByPath := make(map[string]model.FileContext, len(assessedFiles))
+	for _, file := range assessedFiles {
 		filesByPath[file.Path] = file
 	}
 	for start := 0; start < len(findings); {
@@ -165,11 +203,16 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 			end++
 		}
 		file := filesByPath[findings[start].FilePath]
+		if rules.IsCopilotHookConfig(file.Path) {
+			// Only decoded values remain. Sanitize them as text, not as
+			// malformed JSON, while retaining the real path on each finding.
+			file.Path += ".sh"
+		}
 		rules.SanitizeConfigurationFindings(findings[start:end], file.Content, file)
 		start = end
 	}
 
-	findings = s.applyTriage(ctx, findings, files)
+	findings = s.applyTriage(ctx, findings, assessedFiles)
 
 	// A grade is a statement about files that were read. Discovery is
 	// deliberately wider than the rules' path gates (it walks every
@@ -195,10 +238,14 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	// a claim about files no rule inspected.
 	var perms []model.Permission
 	if agentSurface > 0 {
-		permissionFiles := make([]model.FileContext, len(files))
-		copy(permissionFiles, files)
+		permissionFiles := make([]model.FileContext, len(assessedFiles))
+		copy(permissionFiles, assessedFiles)
 		for index := range permissionFiles {
-			permissionFiles[index].Content = rules.SanitizeConfigurationForVerifier(permissionFiles[index].Content, permissionFiles[index])
+			sanitizeCtx := permissionFiles[index]
+			if rules.IsCopilotHookConfig(sanitizeCtx.Path) {
+				sanitizeCtx.Path += ".sh"
+			}
+			permissionFiles[index].Content = rules.SanitizeConfigurationForVerifier(permissionFiles[index].Content, sanitizeCtx)
 		}
 		perms = permission.Extract(findings, permissionFiles)
 	}
@@ -260,6 +307,8 @@ func fileAnalysisContext(base model.AnalysisContext, path string) model.Analysis
 			ctx.Harness = candidate("codex")
 		case rules.IsClaudeSettings(path):
 			ctx.Harness = candidate("claude-code")
+		case rules.IsCopilotHookConfig(path):
+			ctx.Harness = candidate("copilot")
 		}
 	}
 	return ctx
@@ -306,6 +355,12 @@ func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, fil
 
 	for _, p := range paths {
 		idxs := idxByPath[p]
+		// Hook findings have source coordinates in JSON, while their semantic
+		// projections do not. Never let a verifier suppress them using a
+		// misaligned synthetic file. Static findings remain intact.
+		if rules.IsCopilotHookConfig(p) {
+			continue
+		}
 		if err := tctx.Err(); err != nil {
 			markUnavailable(idxs)
 			continue

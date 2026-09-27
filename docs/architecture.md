@@ -51,6 +51,18 @@ Direct `Rule.Match` consumers must also call
 channel. `CodexConfigDiagnostics` remains the bounded Codex analyzer behind
 that shared entry point. The scanner handles both.
 
+Copilot repository hook JSON is a separate v1 schema, not Claude's nested
+hooks schema. `rules.CopilotHookDeclarations` validates it and supplies only
+decoded command, prompt and HTTP endpoint values to content rules; dropped
+items and unsupported direct-exec argument semantics produce warnings.
+`rules.CopilotProseBody` validates path-instruction/agent frontmatter and
+passes only the body to rules. The scanner preserves source paths/lines while
+isolating raw metadata from rules and permission extraction. Copilot hook
+findings keep the deterministic floor and bypass optional verifier triage:
+decoded strings do not share the JSON source's physical line coordinates.
+Structural errors return no graded result. Trust, selected agent, path match
+and effective policy are not inferred from repository placement.
+
 Claude hook/gateway diagnostics preserve handler type, event and matcher
 context, but file presence alone never proves runtime activation. HTTP hook
 destinations and event/header/environment exposure are inventory, not an
@@ -160,7 +172,7 @@ plus allowlist entries.
 - `gitignore.go` is a best-effort wrapper over the root `.gitignore` only. A
   missing or malformed file is a no-op.
 - `scanner.go` orchestrates, in this order: discover, stamp internal analysis
-  context, run configuration diagnostics, run the enabled rules,
+  context, validate/project Copilot content, run configuration diagnostics and enabled rules,
   score, apply config overrides, apply allowlists, sort, triage, aggregate
   axes, build warnings. `Options` carries `Config`, `Version`, `Timeout`,
   `ScanAll`, `Verifier` and `TriageTimeout`.
@@ -174,7 +186,7 @@ plus allowlist entries.
   so an in-package reference is distinguished from one that leaves the skill.
 - The rule files themselves: `injection.go`, `access_control.go`,
   `misconfiguration.go`, `exfiltration.go`, `supply_chain.go`, `integrity.go`,
-  `claude_md.go`, `settings_json.go`, `hooks.go`, `mcp.go`, `dns_exfil.go`,
+  `claude_md.go`, `settings_json.go`, `hooks.go`, `copilot_hooks.go`, `mcp.go`, `dns_exfil.go`,
   `reverse_shell.go`. Rule IDs are `SD-NNN`; `CHANGELOG.md` records what each
   one detects.
 
@@ -314,7 +326,8 @@ Its three arms:
 - `IsAgentFile(path)` — the union of the agent file classes:
   `IsSkillManifest` (`SKILL.md`, `skill.yaml`), `IsInstructionFile` (the
   per-harness instruction files, at any level of the hierarchy),
-  `IsClaudeSettings` and `IsMCPConfig`.
+  `IsClaudeSettings`, `IsMCPConfig` and `IsCopilotHookConfig` (specific
+  repository-root hook JSON and inline settings locations).
 - `isInAgentConfigDir(path)` — any file under `.claude/`, `.codex/`,
   `.opencode/`, `.cursor/`, `.gemini/`, `.windsurf/` or `.agents/`. It
   deliberately excludes `.github/` and `.vscode/`: those directories are walked
