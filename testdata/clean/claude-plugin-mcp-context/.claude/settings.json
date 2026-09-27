@@ -1,0 +1,1 @@
+{"strictKnownMarketplaces":[],"blockedMarketplaces":[{"source":"github","repo":"example/market"}],"allowedMcpServers":[],"deniedMcpServers":[],"enabledPlugins":{"demo@market":false},"pluginConfigs":{"agents-md@builtin":{"options":{"instructionFiles":"managed-only"}}}}

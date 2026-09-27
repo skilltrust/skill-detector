@@ -1,0 +1,1 @@
+{"plugins":[{"source":{"source":"npm","package":"sample"}},{"source":{"source":"command","command":"echo synthetic-token"}}]}

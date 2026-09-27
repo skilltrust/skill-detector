@@ -176,7 +176,7 @@ func analyzedJSONMember(scope, key string) (canonical, childScope string) {
 	var names []string
 	switch scope {
 	case "root":
-		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox", "hooks", "allowedHttpHookUrls", "httpHookAllowedEnvVars"}
+		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox", "hooks", "allowedHttpHookUrls", "httpHookAllowedEnvVars", "strictKnownMarketplaces", "blockedMarketplaces", "allowManagedMcpServersOnly", "allowedMcpServers", "deniedMcpServers", "enabledPlugins", "pluginConfigs", "mcpServers", "plugins"}
 	case "permissions":
 		names = []string{"allow", "ask", "deny", "defaultMode"}
 	case "sandbox":

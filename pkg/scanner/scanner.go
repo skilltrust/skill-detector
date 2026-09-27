@@ -83,8 +83,27 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	if err != nil {
 		return nil, fmt.Errorf("scanner: %w", err)
 	}
+	submitted := make(map[string]bool, len(files))
+	for _, file := range files {
+		submitted[file.Path] = true
+	}
 	for i := range files {
 		files[i].Analysis = fileAnalysisContext(analysis, files[i].Path)
+		if strings.HasSuffix(files[i].Path, "AGENTS.md") && rules.IsInstructionFile(files[i].Path) && files[i].Analysis.Conditions["claude_instructions"].State == model.ContextUnknown {
+			path := strings.TrimSuffix(files[i].Path, "AGENTS.md")
+			// This is only same-directory submitted evidence; ancestors, user
+			// instructions and the live selection remain unknown.
+			value := "absent"
+			if submitted[path+"CLAUDE.md"] {
+				value = "present"
+			}
+			conditions := make(map[string]model.ContextValue, len(files[i].Analysis.Conditions)+1)
+			for key, fact := range files[i].Analysis.Conditions {
+				conditions[key] = fact
+			}
+			conditions["claude_instructions"] = model.ContextValue{State: model.ContextKnown, Value: value, Evidence: path}
+			files[i].Analysis.Conditions = conditions
+		}
 	}
 
 	var findings []model.Finding
