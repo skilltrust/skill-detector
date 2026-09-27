@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -32,6 +33,8 @@ var copilotHookEvents = map[string]bool{
 	"PostToolUse": true, "PostToolUseFailure": true, "Stop": true,
 	"SubagentStop": true, "UserPromptSubmit": true, "ErrorOccurred": true,
 }
+
+var copilotAgentName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // CopilotHookDeclarations validates the documented v1 hook shape. Repository
 // files drop malformed items independently; inline settings reject the whole
@@ -298,6 +301,9 @@ func CopilotProseBody(content []byte, path string) ([]byte, []string, error) {
 	}
 	invalid := func() ([]byte, []string, error) {
 		return nil, nil, fmt.Errorf("%s: Copilot frontmatter malformed or unsupported; instructions were not assessed", path)
+	}
+	if agent && !copilotAgentName.MatchString(strings.TrimSuffix(filepath.Base(clean), ".agent.md")) {
+		return invalid()
 	}
 	lines := strings.SplitAfter(string(content), "\n")
 	if len(lines) < 3 || strings.TrimRight(lines[0], "\r\n") != "---" {
