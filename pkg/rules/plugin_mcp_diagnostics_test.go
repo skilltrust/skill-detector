@@ -30,6 +30,7 @@ func TestMarketplacePolicyStatesAndSource(t *testing.T) {
 		{`{"strictKnownMarketplaces":[{"source":"github","repo":"org/repo"}]}`, "entry validity not established"},
 		{`{"strictKnownMarketplaces":[{"source":"npm","package":"demo"}]}`, "parses but matches no registered marketplace"},
 		{`{"strictKnownMarketplaces":[],"strictKnownMarketplaces":[{"source":"github","repo":"org/repo"}]}`, "ambiguous"},
+		{`{"pluginConfigs":{"agents-md@builtin":{"options":{"instructionFiles":"managed-only"}},"agents-md@builtin":{"options":{"instructionFiles":"claude-md"}}}}`, "ambiguous"},
 	} {
 		got := pluginDiagnostics(t, path, tc.input, model.AnalysisContext{})
 		if !strings.Contains(got, tc.want) || strings.Contains(got, "source=supplied managed") {
@@ -171,7 +172,7 @@ func TestRespawnedAgentNeedsSourceTrust(t *testing.T) {
 		{model.AnalysisContext{Session: knownPluginFact("teammate-respawn"), Conditions: map[string]model.ContextValue{"same_name_agent": knownPluginFact("false")}}, ""},
 		{model.AnalysisContext{Session: knownPluginFact("teammate-respawn"), Conditions: map[string]model.ContextValue{"same_name_agent": knownPluginFact("true")}}, "source trust=unknown"},
 		{model.AnalysisContext{Session: knownPluginFact("teammate-respawn"), Trust: knownPluginFact("untrusted"), Conditions: map[string]model.ContextValue{"same_name_agent": knownPluginFact("true")}}, "source trust=untrusted"},
-		{model.AnalysisContext{Session: knownPluginFact("teammate-respawn"), Trust: knownPluginFact("trusted"), Conditions: map[string]model.ContextValue{"same_name_agent": knownPluginFact("true")}}, "source trust=trusted"},
+		{model.AnalysisContext{Session: knownPluginFact("teammate-respawn"), Trust: knownPluginFact("trusted"), Conditions: map[string]model.ContextValue{"same_name_agent": knownPluginFact("true")}}, ""},
 	} {
 		got := pluginDiagnostics(t, path, content, tc.analysis)
 		if !strings.Contains(got, tc.want) || (tc.want == "" && got != "") {

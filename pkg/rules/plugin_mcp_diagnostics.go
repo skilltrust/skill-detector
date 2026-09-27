@@ -178,7 +178,7 @@ func marketplacePolicyDiagnostics(root map[string]json.RawMessage, ctx model.Fil
 		if key == "strictKnownMarketplaces" {
 			meaning = "a managed allowlist candidate; empty means lockdown if the policy is applicable, not unrestricted access"
 		}
-		warnings = append(warnings, fmt.Sprintf("%s: %s is %s (%s); source=%s. At the Claude Code 2.1.277 anchor a malformed entry could disable the whole policy; validity and file placement do not prove runtime enforcement or non-enforcement (%s)", ctx.Path, key, state, meaning, originDescription(ctx.Analysis.DeclarationOrigin), anchorVersionDescription(ctx.Analysis.Version, "2.1.277")))
+		warnings = append(warnings, fmt.Sprintf("%s: %s is %s (%s); source=%s. Claude Code 2.1.277 fixes a malformed entry disabling the entire policy; the earlier affected range is unknown. Validity and file placement do not prove runtime enforcement or non-enforcement (%s)", ctx.Path, key, state, meaning, originDescription(ctx.Analysis.DeclarationOrigin), anchorVersionDescription(ctx.Analysis.Version, "2.1.277")))
 		for _, entry := range entries {
 			var source struct {
 				Source string `json:"source"`
@@ -396,8 +396,11 @@ func teammateProvenance(ctx model.FileContext) []string {
 	if !contextKnownIs(ctx.Analysis.Session, "teammate-respawn") || !contextKnownIs(ctx.Analysis.Conditions["same_name_agent"], "true") {
 		return nil
 	}
+	if contextKnownIs(ctx.Analysis.Trust, "trusted") {
+		return nil
+	}
 	trust := "unknown"
-	if contextKnownIs(ctx.Analysis.Trust, "trusted") || contextKnownIs(ctx.Analysis.Trust, "untrusted") {
+	if contextKnownIs(ctx.Analysis.Trust, "untrusted") {
 		trust = ctx.Analysis.Trust.Value
 	}
 	return []string{ctx.Path + ": teammate respawn with supplied same-name agent definition; source trust=" + trust + ". Claude Code 2.1.268 fixes loading same-name files from untrusted folders; no agent was executed and earlier range is unknown"}

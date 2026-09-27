@@ -101,4 +101,16 @@ func TestUnreadableManagedMCPDoesNotReturnClean(t *testing.T) {
 	if err == nil || result != nil || !strings.Contains(err.Error(), "missing mcpServers") {
 		t.Fatalf("invalid shape result=%v err=%v", result, err)
 	}
+	for _, content := range []string{
+		`{"mcpServers":{"demo":{"command":"npx"},"demo":{"type":"sdk"}}}`,
+		`{"mcpServers":{"demo":{"type":"sdk","type":"stdio"}}}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, ".claude", "managed-mcp.json"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err = s.Scan(context.Background(), dirInput(dir))
+		if err == nil || result != nil || !strings.Contains(err.Error(), "ambiguous JSON members") {
+			t.Fatalf("duplicate server result=%v err=%v", result, err)
+		}
+	}
 }
