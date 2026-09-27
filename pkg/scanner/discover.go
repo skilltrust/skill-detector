@@ -131,10 +131,8 @@ func DiscoverWithOptions(root string, opts DiscoverOptions) ([]model.FileContext
 }
 
 // skillManifestNames are the markers that make a directory a skill root.
-// Deliberately the same set rules.IsSkillManifest accepts, mirrored here
-// because pkg/scanner/discover.go does not import pkg/rules — keeping the two
-// definitions identical is the point, since the gap this closed was exactly
-// them disagreeing.
+// Deliberately the same set rules.IsSkillManifest accepts. Keeping the two
+// definitions identical matters: the gap this closed was their disagreement.
 //
 // v0.8.0 recognised SKILL.md alone. That left a payload beside a skill.yaml
 // out of scope while the manifest above it was read — and because skill.yaml

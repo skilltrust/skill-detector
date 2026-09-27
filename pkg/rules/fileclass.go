@@ -139,7 +139,7 @@ func IsSkillManifest(path string) bool {
 
 // IsAgentFile is the union predicate covering every file class the product
 // inspects: skill manifests + any harness's instruction file +
-// .claude/settings.json + MCP configs.
+// .claude/settings.json + MCP configs + documented Copilot hook locations.
 // Use this as the default gate in rules that don't need to discriminate
 // between agent file classes.
 func IsAgentFile(path string) bool {
