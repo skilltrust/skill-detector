@@ -62,10 +62,28 @@ func IsInstructionFile(path string) bool {
 	if base == "copilot-instructions.md" && hasDirComponent(clean, ".github/") {
 		return true
 	}
+	if strings.HasPrefix(clean, ".github/instructions/") && strings.HasSuffix(base, ".instructions.md") ||
+		strings.HasPrefix(clean, ".github/agents/") && strings.HasSuffix(base, ".agent.md") && !strings.Contains(strings.TrimPrefix(clean, ".github/agents/"), "/") {
+		return true
+	}
 	if strings.HasSuffix(base, ".mdc") && hasDirComponent(clean, ".cursor/rules/") {
 		return true
 	}
 	return false
+}
+
+// IsCopilotHookConfig recognizes only documented repository hook and inline
+// settings locations; .github as a whole remains outside agent scope.
+func IsCopilotHookConfig(path string) bool {
+	if isExcluded(path) {
+		return false
+	}
+	clean := filepath.ToSlash(path)
+	if clean == ".github/copilot/settings.json" || clean == ".github/copilot/settings.local.json" {
+		return true
+	}
+	return strings.HasPrefix(clean, ".github/hooks/") &&
+		!strings.Contains(strings.TrimPrefix(clean, ".github/hooks/"), "/") && strings.HasSuffix(clean, ".json")
 }
 
 // hasDirComponent reports whether clean has d as a path-boundary-safe
@@ -126,7 +144,7 @@ func IsSkillManifest(path string) bool {
 // between agent file classes.
 func IsAgentFile(path string) bool {
 	return IsSkillManifest(path) || IsInstructionFile(path) ||
-		IsClaudeSettings(path) || IsMCPConfig(path)
+		IsClaudeSettings(path) || IsMCPConfig(path) || IsCopilotHookConfig(path)
 }
 
 // agentConfigDirs are the per-harness directories whose whole subtree is in

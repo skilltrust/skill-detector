@@ -82,7 +82,8 @@ Key wiring points:
 
 The scanner intentionally walks only AI-agent files by default:
 - Skill manifests: `SKILL.md`, `skill.yaml` (`IsSkillManifest`).
-- Per-harness instruction files, at any hierarchy level: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules` — plus `.github/copilot-instructions.md` and any `.mdc` under `.cursor/rules/`, which are matched by directory component, not by basename alone (`instructionFileNames` / `IsInstructionFile`). Content rules run uniformly across all of them; a rule that only handles `CLAUDE.md` is a bug.
+- Per-harness instruction files, at any hierarchy level: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules` — plus `.github/copilot-instructions.md`, recursive `.github/instructions/**/*.instructions.md`, root `.github/agents/*.agent.md`, and any `.mdc` under `.cursor/rules/` (`IsInstructionFile`). Copilot frontmatter is parsed separately from prose. Content rules run uniformly across instruction prose; a rule that only handles `CLAUDE.md` is a bug.
+- Repository-root Copilot `.github/hooks/*.json` and inline hooks in `.github/copilot/settings.json` / `settings.local.json` (`IsCopilotHookConfig`). Only validated hook declarations reach content rules; malformed structures cannot earn grades, and runtime activation remains unknown. Other `.github/` files remain out of scope.
 - `.claude/settings.json`, `.claude/settings.local.json`, at any depth under a `.claude/` (`IsClaudeSettings`).
 - MCP configs (`IsMCPConfig`): `.mcp.json` (leading dot) anywhere; bare `mcp.json` only under `.claude/`, `.cursor/` or `.vscode/`.
 - Anything under `.claude/`, `.codex/`, `.opencode/`, `.cursor/`, `.gemini/`, `.windsurf/`, `.agents/` directories (hook scripts, bundled test files, etc.). `.agents/` is the `npx skills add` install path — a skill installed the standard way lands there.

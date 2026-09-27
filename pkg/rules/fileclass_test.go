@@ -1,6 +1,10 @@
 package rules
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/velzepooz/skill-detector/pkg/model"
+)
 
 func TestIsClaudeMD(t *testing.T) {
 	cases := map[string]bool{
@@ -118,9 +122,13 @@ func TestIsInstructionFile_MultiHarness(t *testing.T) {
 		"CLAUDE.md", "sub/CLAUDE.md", "AGENTS.md", "pkg/AGENTS.md", "GEMINI.md",
 		".cursorrules", ".windsurfrules",
 		".github/copilot-instructions.md", ".cursor/rules/style.mdc",
+		".github/instructions/a.instructions.md", ".github/instructions/sub/a.instructions.md",
+		".github/agents/a.agent.md",
 	}
 	no := []string{
 		"README.md", "docs/agents.md", "node_modules/x/AGENTS.md", "style.mdc",
+		".github/agents/nested/a.agent.md", ".github/workflows/a.agent.md",
+		".github/instructions/a.md", "docs/a.instructions.md",
 		// Boundary-safety: a basename that merely contains ".github/" or
 		// ".cursor/rules/" as a substring, without an actual matching
 		// directory component, must not match.
@@ -134,6 +142,22 @@ func TestIsInstructionFile_MultiHarness(t *testing.T) {
 	for _, p := range no {
 		if IsInstructionFile(p) {
 			t.Errorf("IsInstructionFile(%q) = true, want false", p)
+		}
+	}
+}
+
+func TestIsCopilotHookConfig(t *testing.T) {
+	yes := []string{".github/hooks/a.json", ".github/copilot/settings.json", ".github/copilot/settings.local.json"}
+	no := []string{".github/hooks/sub/a.json", ".github/hooks/a.yaml", ".github/workflows/a.json",
+		"x.github/hooks/a.json", "sub/.github/hooks/a.json", ".github/copilot/other.json", "vendor/.github/hooks/a.json"}
+	for _, path := range yes {
+		if !IsCopilotHookConfig(path) || !InScope(model.FileContext{Path: path}) {
+			t.Errorf("documented Copilot hook location %q not in scope", path)
+		}
+	}
+	for _, path := range no {
+		if IsCopilotHookConfig(path) {
+			t.Errorf("undocumented Copilot hook location %q in scope", path)
 		}
 	}
 }

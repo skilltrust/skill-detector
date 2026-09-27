@@ -362,7 +362,8 @@ func (r *networkCallRule) Match(content []byte, ctx model.FileContext) []model.F
 	if !InScope(ctx) {
 		return nil
 	}
-	declared := isDocFile(ctx.Path) || isDeclarativeFile(ctx.Path)
+	declared := (isDocFile(ctx.Path) || isDeclarativeFile(ctx.Path)) &&
+		ctx.Analysis.Conditions["copilot_hook_command"].State != model.ContextKnown
 	var findings []model.Finding
 	lines := bytes.Split(content, []byte("\n"))
 	for i := 0; i < len(lines); i++ {

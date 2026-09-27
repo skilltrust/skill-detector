@@ -59,9 +59,12 @@ what the skill *claims* it needs.
 By default the scanner inspects only AI-agent configuration files: skill
 manifests (`SKILL.md`, `skill.yaml`), per-harness instruction files
 (`CLAUDE.md`, `AGENTS.md` — Codex CLI/OpenCode, `GEMINI.md`, `.cursorrules`,
-`.cursor/rules/*.mdc`, `.github/copilot-instructions.md`, `.windsurfrules`),
+`.cursor/rules/*.mdc`, `.github/copilot-instructions.md`,
+`.github/instructions/**/*.instructions.md`, `.github/agents/*.agent.md`, `.windsurfrules`),
 and MCP/settings configs (`.claude/settings.json`, `.mcp.json`,
-`.claude/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`) — plus arbitrary
+`.claude/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`), plus repository
+Copilot hooks (`.github/hooks/*.json`) and inline hooks in
+`.github/copilot/settings[.local].json` — plus arbitrary
 files inside `.claude/`, `.codex/`, `.opencode/`, `.cursor/`, `.gemini/`,
 `.windsurf/` directories, plus **anything under a directory containing a
 `SKILL.md`** — the whole skill subtree is in scope wherever that directory
@@ -74,10 +77,14 @@ inside one of them still creates no scope root.
 
 The content rules above (injection, access control, exfiltration, etc.) run
 uniformly across every harness's instruction files — the checks aren't
-Claude-specific. Parsing each harness's own *structural* config format
-(Codex `config.toml`, `opencode.json` permissions, Gemini CLI `settings.json`
-specifics, Copilot org policies) is on the roadmap; today only Claude Code's
-`.claude/settings.json` gets structural checks (SD-017..SD-020).
+Claude-specific. Copilot hook commands are decoded from version-1 event arrays;
+prompt text and agent/instruction prose are analyzed separately from metadata.
+Structurally invalid hook files and frontmatter fail without grades; rejected
+items are disclosed when valid hooks remain. Folder trust, path match, agent
+selection, effective managed policy and runtime execution are not inferred
+from a repository scan. Other
+Copilot settings and org policies are not assessed. Claude Code's
+`.claude/settings.json` retains its structural checks (SD-017..SD-020).
 
 ### What it does NOT check (by default)
 
