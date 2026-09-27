@@ -12,6 +12,7 @@ import (
 
 // mcpServer is one server entry in .mcp.json or settings.json mcpServers.
 type mcpServer struct {
+	Type     string   `json:"type"`
 	URL      string   `json:"url"`
 	Endpoint string   `json:"endpoint"`
 	Command  string   `json:"command"`
@@ -63,6 +64,11 @@ func mcpServersFor(content []byte, path string) map[string]mcpServer {
 	return decodeMCPServers(content)
 }
 
+func isClaudeSDKConfig(path string) bool {
+	clean := filepath.ToSlash(path)
+	return IsClaudeSettings(path) || filepath.Base(clean) == ".mcp.json" || filepath.Base(clean) == "managed-mcp.json" || strings.HasSuffix(clean, ".claude/mcp.json")
+}
+
 // packageRunners auto-fetch and execute a package from a public registry.
 //
 // G6 limitation: this matches literal command names only. `${VAR}` /
@@ -84,6 +90,9 @@ func (r *mcpExternalDomainRule) Match(content []byte, ctx model.FileContext) []m
 	servers := mcpServersFor(content, ctx.Path)
 	var findings []model.Finding
 	for name, srv := range servers {
+		if srv.Type == "sdk" && isClaudeSDKConfig(ctx.Path) {
+			continue
+		}
 		raw := srv.URL
 		if raw == "" {
 			raw = srv.Endpoint
@@ -127,6 +136,9 @@ func (r *mcpAutoInstallRule) Match(content []byte, ctx model.FileContext) []mode
 	servers := mcpServersFor(content, ctx.Path)
 	var findings []model.Finding
 	for name, srv := range servers {
+		if srv.Type == "sdk" && isClaudeSDKConfig(ctx.Path) {
+			continue
+		}
 		head := filepath.Base(strings.TrimSpace(srv.Command))
 		if !packageRunners[head] {
 			continue

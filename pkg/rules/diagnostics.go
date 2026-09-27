@@ -14,5 +14,9 @@ func ConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	return append(warnings, claudeWarnings...), nil
+	pluginWarnings, err := PluginMCPDiagnostics(content, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return append(append(warnings, claudeWarnings...), pluginWarnings...), nil
 }

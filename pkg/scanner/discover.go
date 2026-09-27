@@ -330,10 +330,16 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 
 		content, err := readFromRoot(osRoot, c.rel)
 		if err != nil {
+			if c.name == "managed-mcp.json" && (inAgentDir(c.rel) || skillRoot != "") {
+				return nil, stats, fmt.Errorf("discover: supplied managed MCP policy %s unreadable; effective policy unknown: %w", c.rel, err)
+			}
 			// Unreadable file — skip silently.
 			continue
 		}
 		if isBinary(content) {
+			if c.name == "managed-mcp.json" && (inAgentDir(c.rel) || skillRoot != "") {
+				return nil, stats, fmt.Errorf("discover: supplied managed MCP policy %s is binary; effective policy unknown", c.rel)
+			}
 			continue
 		}
 

@@ -176,15 +176,26 @@ func analyzedJSONMember(scope, key string) (canonical, childScope string) {
 	var names []string
 	switch scope {
 	case "root":
-		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox", "hooks", "allowedHttpHookUrls", "httpHookAllowedEnvVars"}
+		names = []string{"allowManagedPermissionRulesOnly", "permissions", "sandbox", "hooks", "allowedHttpHookUrls", "httpHookAllowedEnvVars", "strictKnownMarketplaces", "blockedMarketplaces", "allowManagedMcpServersOnly", "allowedMcpServers", "deniedMcpServers", "enabledPlugins", "pluginConfigs", "mcpServers", "plugins"}
 	case "permissions":
 		names = []string{"allow", "ask", "deny", "defaultMode"}
 	case "sandbox":
 		names = []string{"excludedCommands"}
+	case "mcpServers", "plugins", "pluginConfigs":
+		// These objects are keyed by user-supplied server/plugin names. A
+		// duplicate can hide a protective or active declaration after decode.
+		if scope == "mcpServers" {
+			return key, "mcpServer"
+		}
+		return key, ""
+	case "mcpServer":
+		names = []string{"type", "command", "args", "url", "endpoint"}
 	}
 	for _, name := range names {
 		if strings.EqualFold(key, name) {
 			if scope == "root" && (name == "permissions" || name == "sandbox") {
+				childScope = name
+			} else if scope == "root" && (name == "mcpServers" || name == "plugins" || name == "pluginConfigs") {
 				childScope = name
 			}
 			return name, childScope

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **ST-138, diagnostic change:** inventory supplied Claude marketplace/MCP
+  policy declarations, plugin installation and installed-commit evidence,
+  SDK MCP compatibility, instruction fallback/selection, `omitClaudeMd`,
+  cloud topology and scheduled task candidates without claiming runtime
+  enforcement or session activation. Untracked worktree and account-synced
+  skills remain unavailable unless supplied. SDK config entries no longer
+  produce SD-021/SD-024 executing-server findings; generic content URL
+  detection remains independent. Unreadable or malformed submitted managed
+  MCP policies return no graded result. Credentials in Git URLs, plugin names,
+  invalid commit values and install arguments are withheld from diagnostics.
+  Claude 2.1.268/271/273/274/275/277 are release anchors, not inferred
+  historical ranges. No host inventory reads, fixture execution or wire/schema
+  changes; JSON schema stays 1.5 and rule metadata/grades are unchanged.
 - **ST-137, no grading-policy change:** Claude command and HTTP hook
   diagnostics now preserve handler type, event and matcher context; distinguish
   matching, nonmatching, unknown, unsupported and legacy declarations; and
