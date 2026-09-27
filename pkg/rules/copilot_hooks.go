@@ -18,7 +18,7 @@ import (
 type CopilotHookPart struct {
 	Content string
 	Ext     string // shell command, prose prompt, or declared HTTP endpoint
-	Line    int    // source item start; projected content lines are relative to it
+	Line    int    // physical source item start (decoded newlines have no source line)
 	Limited bool   // direct-exec argument semantics were not modeled
 }
 
