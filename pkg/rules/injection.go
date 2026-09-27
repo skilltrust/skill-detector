@@ -206,7 +206,7 @@ func (r *shellInjectionRule) Match(content []byte, ctx model.FileContext) []mode
 		return nil
 	}
 	var fenced map[int]bool
-	if strings.HasSuffix(ctx.Path, ".md") {
+	if strings.HasSuffix(ctx.Path, ".md") || ctx.Analysis.Conditions["copilot_hook_prompt"].State == model.ContextKnown {
 		fenced = shellFencedLines(content)
 	}
 	var findings []model.Finding

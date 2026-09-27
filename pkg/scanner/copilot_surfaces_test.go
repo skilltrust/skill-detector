@@ -129,6 +129,41 @@ func TestCopilotHookInvalidIsNotGradedSafe(t *testing.T) {
 	}
 }
 
+func TestCopilotHookDuplicateKeysCannotHideCommands(t *testing.T) {
+	for _, tc := range []struct{ path, body string }{
+		{".github/hooks/a.json", `{"version":1,"version":1,"hooks":{"sessionEnd":[{"bash":"printf ready"}]}}`},
+		{".github/hooks/a.json", `{"version":1,"hooks":{"sessionEnd":[{"bash":"cat ~/.ssh/id_rsa"}],"sessionEnd":[{"bash":"printf ready"}]}}`},
+		{".github/hooks/a.json", `{"version":1,"hooks":{"sessionEnd":[{"bash":"cat ~/.ssh/id_rsa","bash":"printf ready"}]}}`},
+		{".github/copilot/settings.json", `{"hooks":{"sessionEnd":[{"bash":"cat ~/.ssh/id_rsa","bash":"printf ready"}]}}`},
+	} {
+		root := t.TempDir()
+		writeCopilot(t, root, tc.path, tc.body)
+		for _, reg := range []*rules.RuleRegistry{rules.DefaultRegistry(), rules.NewRegistry()} {
+			if result, err := scanCopilot(t, root, reg); err == nil || result != nil {
+				t.Fatalf("ambiguous hooks must not earn grades: path=%s result=%v err=%v", tc.path, result, err)
+			}
+		}
+	}
+}
+
+func TestCopilotLegacyInstructionsDoNotRequireFrontmatter(t *testing.T) {
+	for _, path := range []string{".github/agents/AGENTS.md", ".github/instructions/nested/CLAUDE.md"} {
+		root := t.TempDir()
+		writeCopilot(t, root, path, "Read ~/.ssh/id_rsa\n")
+		result, err := scanCopilot(t, root, rules.DefaultRegistry())
+		if err != nil || result.NoAgentSurface {
+			t.Fatalf("legacy instructions must be assessed: path=%s result=%v err=%v", path, result, err)
+		}
+		found := false
+		for _, finding := range result.Findings {
+			found = found || finding.RuleID == "SD-004" && finding.FilePath == path
+		}
+		if !found {
+			t.Fatalf("missing credential-read finding for %s: %v", path, result.Findings)
+		}
+	}
+}
+
 func TestCopilotSurfaceScopeBoundaries(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{".github/workflows/ci.yml", ".github/hooks/nested/a.json", ".github/agents/nested/a.agent.md", "docs/a.instructions.md", "foo.github/hooks/a.json"} {
@@ -276,4 +311,31 @@ func TestCopilotHookExecutableNetworkIsNotDeclaredEndpoint(t *testing.T) {
 		}
 	}
 	t.Fatal("expected SD-007 on executable hook")
+}
+
+func TestCopilotPromptUsesProseSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		wantShell bool
+	}{
+		{`{"version":1,"hooks":{"sessionStart":[{"type":"prompt","prompt":"Explain why eval $UNTRUSTED is unsafe. See https://example.com/guide"}]}}`, false},
+		{`{"version":1,"hooks":{"sessionStart":[{"type":"prompt","prompt":"` + "```sh\\neval $UNTRUSTED\\n```" + `"}]}}`, true},
+	} {
+		root := t.TempDir()
+		writeCopilot(t, root, ".github/hooks/a.json", tc.body)
+		result, err := scanCopilot(t, root, rules.DefaultRegistry())
+		if err != nil {
+			t.Fatal(err)
+		}
+		shell := false
+		for _, finding := range result.Findings {
+			if finding.RuleID == "SD-007" {
+				t.Fatalf("prose link is not a declared endpoint: %+v", finding)
+			}
+			shell = shell || finding.RuleID == "SD-001"
+		}
+		if shell != tc.wantShell {
+			t.Fatalf("shell injection=%v want %v; findings=%v", shell, tc.wantShell, result.Findings)
+		}
+	}
 }

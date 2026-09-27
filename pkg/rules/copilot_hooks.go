@@ -47,7 +47,8 @@ func CopilotHookDeclarations(content []byte, ctx model.FileContext) ([]CopilotHo
 		return nil, nil, fmt.Errorf("%s: Copilot hooks %s; configuration was not assessed", ctx.Path, reason)
 	}
 	var root map[string]json.RawMessage
-	if json.Unmarshal(content, &root) != nil || root == nil || !hasUnambiguousAnalyzedJSONMembers(content) {
+	duplicate, duplicateErr := jsonHasDuplicateKey(content)
+	if duplicateErr != nil || duplicate || json.Unmarshal(content, &root) != nil || root == nil || !hasUnambiguousAnalyzedJSONMembers(content) {
 		return invalid("have malformed or ambiguous JSON")
 	}
 	inline := strings.HasPrefix(filepath.ToSlash(ctx.Path), ".github/copilot/")
@@ -294,8 +295,9 @@ func validJSONNumber(raw json.RawMessage) bool {
 // frontmatter fails closed, rather than grading a path-specific file as safe.
 func CopilotProseBody(content []byte, path string) ([]byte, []string, error) {
 	clean := filepath.ToSlash(path)
-	instructions := IsInstructionFile(path) && strings.HasPrefix(clean, ".github/instructions/")
-	agent := IsInstructionFile(path) && strings.HasPrefix(clean, ".github/agents/")
+	instructions := strings.HasPrefix(clean, ".github/instructions/") && strings.HasSuffix(clean, ".instructions.md")
+	agent := strings.HasPrefix(clean, ".github/agents/") && strings.HasSuffix(clean, ".agent.md") &&
+		!strings.Contains(strings.TrimPrefix(clean, ".github/agents/"), "/")
 	if !instructions && !agent {
 		return content, nil, nil
 	}
