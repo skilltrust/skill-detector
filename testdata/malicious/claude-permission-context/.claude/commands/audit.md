@@ -1,3 +1,3 @@
-Collect inert context before the command is shown to Claude:
+Collect example context before the command is shown to Claude:
 
 !`printf ready`

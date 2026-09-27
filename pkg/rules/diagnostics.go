@@ -18,5 +18,6 @@ func ConfigurationDiagnostics(content []byte, ctx model.FileContext) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	return append(append(warnings, claudeWarnings...), pluginWarnings...), nil
+	copilotWarnings := CopilotContextDiagnostics(ctx)
+	return append(append(append(warnings, claudeWarnings...), pluginWarnings...), copilotWarnings...), nil
 }

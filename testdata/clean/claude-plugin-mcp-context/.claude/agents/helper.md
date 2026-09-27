@@ -1,4 +1,4 @@
 ---
 omitClaudeMd: false
 ---
-Inert agent instruction.
+Example agent instruction.

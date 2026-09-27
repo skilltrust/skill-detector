@@ -82,8 +82,12 @@ prompt text and agent/instruction prose are analyzed separately from metadata.
 Structurally invalid hook files and frontmatter fail without grades; rejected
 items are disclosed when valid hooks remain. Folder trust, path match, agent
 selection, effective managed policy and runtime execution are not inferred
-from a repository scan. Other
-Copilot settings and org policies are not assessed. Claude Code's
+from a repository scan. Inline settings with or without hooks inventory supported
+`sandbox` switches and `worktreePathTemplate` as conditional declarations;
+custom-agent MCP frontmatter checks supported direct-exec commands through
+existing security rules, without executing servers or interpreting arbitrary
+arguments as shell. Unsupported settings, launch environment, host/plugin
+inventory and org policies are not assessed. Claude Code's
 `.claude/settings.json` retains its structural checks (SD-017..SD-020).
 
 ### What it does NOT check (by default)

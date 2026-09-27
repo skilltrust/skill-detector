@@ -56,10 +56,18 @@ hooks schema. `rules.CopilotHookDeclarations` validates it and supplies only
 decoded command, prompt and HTTP endpoint values to content rules; dropped
 items and unsupported direct-exec argument semantics produce warnings.
 `rules.CopilotProseBody` validates path-instruction/agent frontmatter and
-passes only the body to rules. The scanner preserves source paths/lines while
-isolating raw metadata from rules and permission extraction. Copilot hook
-findings keep the deterministic floor and bypass optional verifier triage:
-decoded strings do not share the JSON source's physical line coordinates.
+passes only the body to prose rules; the context-aware parse also projects
+supported agent MCP direct-exec commands into content rules, leaving unknown
+argument semantics unresolved without expanding host environment variables.
+Inline settings without hooks are assessed only when supported sandbox or
+worktree fields are present. The scanner interprets only
+caller-supplied session cwd and submitted plugin-origin candidates, never
+launch cwd or host home, when annotating Copilot references. Internal
+`AnalysisContext` supplies optional version/source/action facts;
+`Scanner.Scan` supplies none. The scanner preserves source paths/lines while
+isolating raw metadata from rules and permission extraction. Copilot hook and
+agent MCP command findings keep the deterministic floor; optional verifier
+triage is skipped because projected content has different source coordinates.
 Structural errors return no graded result. Trust, selected agent, path match
 and effective policy are not inferred from repository placement.
 

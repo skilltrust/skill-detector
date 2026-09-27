@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -85,10 +86,40 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	}
 	submitted := make(map[string]bool, len(files))
 	for _, file := range files {
-		submitted[file.Path] = true
+		submitted[file.Path] = rules.InScope(file)
+	}
+	// A caller-supplied @file reference is only an inventory candidate. Never
+	// open it here: discovery already bounds readable files to the submission.
+	var copilotReferenceWarning string
+	if ref := analysis.Conditions["copilot_additional_mcp_config"]; ref.State == model.ContextKnown && strings.HasPrefix(ref.Value, "@") {
+		copilotReferenceWarning = "Copilot --additional-mcp-config @file: target unavailable; session cwd or submitted file unknown"
+		cwd := analysis.Conditions["copilot_session_cwd"]
+		name := strings.TrimPrefix(ref.Value, "@")
+		if cwd.State == model.ContextKnown && cwd.Value != "" && name != "" && !strings.HasPrefix(name, "~/") && !strings.HasPrefix(name, "/") && !strings.Contains(name, "${") && !strings.Contains(name, "\\") {
+			target := path.Clean(path.Join(cwd.Value, name))
+			if target != "." && target != ".." && !strings.HasPrefix(target, "../") && submitted[target] {
+				copilotReferenceWarning = "Copilot --additional-mcp-config @file: " + target + " is submitted relative to session cwd (not launch cwd); loading and runtime activation unverified"
+			}
+		}
 	}
 	for i := range files {
 		files[i].Analysis = fileAnalysisContext(analysis, files[i].Path)
+		if strings.HasPrefix(files[i].Path, ".github/agents/") && strings.HasSuffix(files[i].Path, ".agent.md") {
+			root := files[i].Analysis.Conditions["copilot_plugin_root"]
+			if root.State == model.ContextKnown {
+				conditions := make(map[string]model.ContextValue, len(files[i].Analysis.Conditions))
+				for name, fact := range files[i].Analysis.Conditions {
+					conditions[name] = fact
+				}
+				validRoot := root.Value != "" && !path.IsAbs(root.Value) && path.Clean(root.Value) == root.Value && root.Value != ".." && !strings.HasPrefix(root.Value, "../") && !strings.ContainsAny(root.Value, "$\\")
+				if validRoot && (submitted[path.Join(root.Value, "SKILL.md")] || submitted[path.Join(root.Value, "skill.yaml")] || submitted[path.Join(root.Value, ".github/plugin/plugin.json")]) {
+					conditions["copilot_plugin_root_in_submission"] = model.ContextValue{State: model.ContextKnown, Value: "true"}
+				} else {
+					conditions["copilot_plugin_root"] = model.ContextValue{State: model.ContextUnavailable}
+				}
+				files[i].Analysis.Conditions = conditions
+			}
+		}
 		if strings.HasSuffix(files[i].Path, "AGENTS.md") && rules.IsInstructionFile(files[i].Path) && files[i].Analysis.Conditions["claude_instructions"].State == model.ContextUnknown {
 			path := strings.TrimSuffix(files[i].Path, "AGENTS.md")
 			// This is only same-directory submitted evidence; ancestors, user
@@ -108,13 +139,21 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 
 	var findings []model.Finding
 	var warnings []string
+	if copilotReferenceWarning != "" {
+		for _, file := range files {
+			if rules.IsCopilotHookConfig(file.Path) || strings.HasPrefix(file.Path, ".github/agents/") && strings.HasSuffix(file.Path, ".agent.md") {
+				warnings = append(warnings, copilotReferenceWarning)
+				break
+			}
+		}
+	}
 	activeRules := make(map[string]bool)
 	assessedFiles := make([]model.FileContext, len(files))
 	for fileIndex, file := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		content, proseWarnings, err := rules.CopilotProseBody(file.Content, file.Path)
+		content, agentParts, proseWarnings, err := rules.CopilotProseBodyWithContext(file.Content, file.Path, file.Analysis)
 		if err != nil {
 			return nil, fmt.Errorf("scanner: %w", err)
 		}
@@ -132,6 +171,15 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 				return nil, fmt.Errorf("scanner: %w", err)
 			}
 			warnings = append(warnings, hookWarnings...)
+		}
+		if len(agentParts) > 0 {
+			parts = append(parts, agentParts...)
+			conditions := make(map[string]model.ContextValue, len(file.Analysis.Conditions)+1)
+			for key, value := range file.Analysis.Conditions {
+				conditions[key] = value
+			}
+			conditions["copilot_agent_mcp_projection"] = model.ContextValue{State: model.ContextKnown}
+			file.Analysis.Conditions = conditions
 		}
 		var assessedContent []string
 		for _, part := range parts {
@@ -358,7 +406,7 @@ func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, fil
 		// Hook findings have source coordinates in JSON, while their semantic
 		// projections do not. Never let a verifier suppress them using a
 		// misaligned synthetic file. Static findings remain intact.
-		if rules.IsCopilotHookConfig(p) {
+		if rules.IsCopilotHookConfig(p) || contentByPath[p].Analysis.Conditions["copilot_agent_mcp_projection"].State == model.ContextKnown {
 			continue
 		}
 		if err := tctx.Err(); err != nil {

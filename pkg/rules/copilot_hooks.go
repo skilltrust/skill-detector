@@ -35,6 +35,7 @@ var copilotHookEvents = map[string]bool{
 }
 
 var copilotAgentName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var copilotTemplatePlaceholder = regexp.MustCompile(`\{[^{}]+\}`)
 
 // CopilotHookDeclarations validates the documented v1 hook shape. Repository
 // files drop malformed items independently; inline settings reject the whole
@@ -44,7 +45,7 @@ func CopilotHookDeclarations(content []byte, ctx model.FileContext) ([]CopilotHo
 		return nil, nil, nil
 	}
 	invalid := func(reason string) ([]CopilotHookPart, []string, error) {
-		return nil, nil, fmt.Errorf("%s: Copilot hooks %s; configuration was not assessed", ctx.Path, reason)
+		return nil, nil, fmt.Errorf("%s: Copilot hooks %s; configuration was not assessed; active plugin state unknown on read/validation failure (Copilot 1.0.86 anchor; prior runtime state unavailable)", ctx.Path, reason)
 	}
 	var root map[string]json.RawMessage
 	duplicate, duplicateErr := jsonHasDuplicateKey(content)
@@ -62,8 +63,59 @@ func CopilotHookDeclarations(content []byte, ctx model.FileContext) ([]CopilotHo
 		return invalid("have invalid disableAllHooks")
 	}
 	var warnings []string
+	supportedSettings := false
 	if inline {
-		warnings = append(warnings, ctx.Path+": only inline hooks and disableAllHooks are assessed; other Copilot settings are not checked. Inline hooks are CLI-only; folder trust, effective settings source, installed version, session and managed policy remain unknown activation conditions")
+		warnings = append(warnings, ctx.Path+": supported sandbox/worktree fields and inline hooks when present are assessed; other Copilot settings are not checked. Inline hooks are CLI-only; folder trust, effective settings source, installed version, session and managed policy remain unknown activation conditions")
+		if raw, present := root["sandbox"]; present {
+			sandbox, ok := jsonObject(raw)
+			if !ok {
+				return invalid("have invalid sandbox settings")
+			}
+			for _, key := range []string{"allowBypass", "allowDevToolAccess"} {
+				if value, present := sandbox[key]; present {
+					if !validJSONBool(value) {
+						return invalid("have invalid sandbox " + key)
+					}
+					supportedSettings = true
+				}
+			}
+			if string(sandbox["allowBypass"]) == "true" {
+				if contextKnownIs(ctx.Analysis.DeclarationOrigin, "managed") && contextKnownIs(ctx.Analysis.Version, "1.0.85") && contextKnownIs(ctx.Analysis.Conditions["copilot_sandbox_disable"], "approved") {
+					warnings = append(warnings, ctx.Path+": supplied managed policy permits an approved session opt-out at Copilot 1.0.85; actual sandbox state and policy enforcement unverified")
+				} else {
+					warnings = append(warnings, ctx.Path+": candidate sandbox.allowBypass=true (Copilot 1.0.85 anchor); repository placement is not managed-policy evidence. A managed opt-out requires applicable policy and an approved session disable; unmanaged --yolo does not prove managed bypass")
+				}
+			} else if string(sandbox["allowBypass"]) == "false" {
+				warnings = append(warnings, ctx.Path+": sandbox.allowBypass=false declares no opt-out from this source; effective managed policy and runtime state remain unverified")
+			}
+			if string(sandbox["allowDevToolAccess"]) == "false" {
+				warnings = append(warnings, ctx.Path+": sandbox.allowDevToolAccess=false declares developer-tool grants off (Copilot 1.0.83 anchor); effective source, version and session remain unknown; this does not negate a separate credential-read finding")
+			} else if string(sandbox["allowDevToolAccess"]) == "true" {
+				warnings = append(warnings, ctx.Path+": sandbox.allowDevToolAccess=true declares developer-tool grants (Copilot 1.0.83 anchor); a grant alone is not evidence of credential access")
+			}
+		}
+		if raw, present := root["worktreePathTemplate"]; present {
+			if !validJSONString(raw) {
+				return invalid("have invalid worktreePathTemplate")
+			}
+			supportedSettings = true
+			var template string
+			_ = json.Unmarshal(raw, &template)
+			var found []string
+			for _, key := range []string{"repoPath", "repo", "branch", "branchSlug"} {
+				if strings.Contains(template, "{"+key+"}") {
+					found = append(found, key)
+				}
+			}
+			message := ctx.Path + ": worktreePathTemplate declares placeholders " + strings.Join(found, ", ") + " (Copilot 1.0.87-0 prerelease; stable behavior unresolved); substitutions are not expanded or treated as confinement; host home/environment unavailable"
+			for _, placeholder := range copilotTemplatePlaceholder.FindAllString(template, -1) {
+				if !slices.Contains([]string{"{repoPath}", "{repo}", "{branch}", "{branchSlug}"}, placeholder) {
+					message += "; unknown placeholders remain unresolved"
+					break
+				}
+			}
+			warnings = append(warnings, message)
+		}
 	} else {
 		warnings = append(warnings, ctx.Path+": repository hooks are candidates only; folder trust (CLI), installed version, session, disableAllHooks and managed hook policy remain unknown activation conditions")
 	}
@@ -73,6 +125,9 @@ func CopilotHookDeclarations(content []byte, ctx model.FileContext) ([]CopilotHo
 	if len(root["hooks"]) == 0 {
 		if !inline {
 			return invalid("require a hooks object")
+		}
+		if supportedSettings {
+			return nil, warnings, nil
 		}
 		return invalid("contain no supported inline hooks")
 	}
@@ -91,6 +146,19 @@ func CopilotHookDeclarations(content []byte, ctx model.FileContext) ([]CopilotHo
 	for _, event := range keys {
 		if !copilotHookEvents[event] {
 			return invalid("contain an unsupported hook event")
+		}
+		if action := ctx.Analysis.Conditions["copilot_action"]; contextKnownIs(action, "/clear") {
+			if event == "sessionEnd" || event == "SessionEnd" {
+				if contextKnownIs(ctx.Analysis.Version, "1.0.85") {
+					warnings = append(warnings, ctx.Path+": "+event+": /clear applies to this hook event at the Copilot 1.0.85 anchor; interactive session, trust and managed policy still unverified")
+				} else {
+					warnings = append(warnings, ctx.Path+": "+event+": version unresolved for /clear; Copilot 1.0.85 is the release anchor, not proof of this installed version or session activation")
+				}
+			} else {
+				warnings = append(warnings, ctx.Path+": "+event+": /clear does not establish applicability of this event; replacement session lifecycle was not assessed")
+			}
+		} else if action.State == model.ContextUnknown {
+			warnings = append(warnings, ctx.Path+": "+event+": session action unknown; /clear triggers sessionEnd at the Copilot 1.0.85 anchor, not every event")
 		}
 		raw := events[event]
 		eventOffset := bytes.Index(content, []byte(`"`+event+`"`))
@@ -220,17 +288,7 @@ func copilotHookItem(event string, fields map[string]json.RawMessage) ([]Copilot
 			}
 		}
 		if exec != "" {
-			cmd := exec
-			limited := false
-			switch filepath.Base(exec) {
-			case "cat", "sh", "bash", "powershell", "pwsh":
-				cmd += " " + strings.Join(args, " ")
-			case "printf", "echo":
-				// Arguments are data, not another shell command.
-			default:
-				limited = len(args) > 0
-			}
-			parts = append(parts, CopilotHookPart{Content: cmd, Ext: ".sh", Limited: limited})
+			parts = append(parts, copilotExecPart(exec, args))
 		} else {
 			if bash == "" && powershell == "" && fallback == "" {
 				return nil, false
@@ -286,6 +344,21 @@ func copilotHookItem(event string, fields map[string]json.RawMessage) ([]Copilot
 	}
 }
 
+// Direct-exec arguments are argv, not a shell program. Only model known
+// readers and shell interpreters; leave unknown executable semantics limited.
+func copilotExecPart(command string, args []string) CopilotHookPart {
+	part := CopilotHookPart{Content: command, Ext: ".sh"}
+	switch filepath.Base(command) {
+	case "cat", "sh", "bash", "powershell", "pwsh":
+		part.Content += " " + strings.Join(args, " ")
+	case "printf", "echo":
+		// Arguments are data, not another shell command.
+	default:
+		part.Limited = len(args) > 0
+	}
+	return part
+}
+
 func validJSONNumber(raw json.RawMessage) bool {
 	var value float64
 	return json.Unmarshal(raw, &value) == nil && string(raw) != "null"
@@ -293,16 +366,23 @@ func validJSONNumber(raw json.RawMessage) bool {
 
 // CopilotProseBody separates activation metadata from instructions. Invalid
 // frontmatter fails closed, rather than grading a path-specific file as safe.
-func CopilotProseBody(content []byte, path string) ([]byte, []string, error) {
-	clean := filepath.ToSlash(path)
+func CopilotProseBody(content []byte, filePath string) ([]byte, []string, error) {
+	body, _, warnings, err := CopilotProseBodyWithContext(content, filePath, model.AnalysisContext{})
+	return body, warnings, err
+}
+
+// CopilotProseBodyWithContext returns separately projected executable MCP
+// declarations alongside prose. The two-argument API remains source-compatible.
+func CopilotProseBodyWithContext(content []byte, filePath string, supplied model.AnalysisContext) ([]byte, []CopilotHookPart, []string, error) {
+	clean := filepath.ToSlash(filePath)
 	instructions := strings.HasPrefix(clean, ".github/instructions/") && strings.HasSuffix(clean, ".instructions.md")
 	agent := strings.HasPrefix(clean, ".github/agents/") && strings.HasSuffix(clean, ".agent.md") &&
 		!strings.Contains(strings.TrimPrefix(clean, ".github/agents/"), "/")
 	if !instructions && !agent {
-		return content, nil, nil
+		return content, nil, nil, nil
 	}
-	invalid := func() ([]byte, []string, error) {
-		return nil, nil, fmt.Errorf("%s: Copilot frontmatter malformed or unsupported; instructions were not assessed", path)
+	invalid := func() ([]byte, []CopilotHookPart, []string, error) {
+		return nil, nil, nil, fmt.Errorf("%s: Copilot frontmatter malformed or unsupported; instructions were not assessed", filePath)
 	}
 	if agent && !copilotAgentName.MatchString(strings.TrimSuffix(filepath.Base(clean), ".agent.md")) {
 		return invalid()
@@ -355,12 +435,99 @@ func CopilotProseBody(content []byte, path string) ([]byte, []string, error) {
 	}
 	var warning string
 	if instructions {
-		warning = path + ": applyTo is path-specific; matching target file, instruction selection and folder trust remain unknown"
+		warning = filePath + ": applyTo is path-specific; matching target file, instruction selection and folder trust remain unknown"
 	} else {
-		warning = path + ": agent selection and folder trust remain unknown; include-custom-instructions only controls repository instruction inheritance for subagents, not activation of this profile"
+		warning = filePath + ": agent selection and folder trust remain unknown; include-custom-instructions only controls repository instruction inheritance for subagents, not activation of this profile"
+	}
+	warnings := []string{warning}
+	var parts []CopilotHookPart
+	if agent {
+		if raw, present := fields["mcp-servers"]; present {
+			servers, ok := raw.(map[string]any)
+			if !ok {
+				return invalid()
+			}
+			names := make([]string, 0, len(servers))
+			for name := range servers {
+				names = append(names, name)
+			}
+			slices.Sort(names)
+			root := "PLUGIN_ROOT unresolved; caller cwd is not plugin provenance"
+			if contextKnownIs(supplied.Conditions["copilot_plugin_root_in_submission"], "true") {
+				root = "plugin-origin candidate within submission; caller cwd is not plugin provenance"
+			}
+			for _, name := range names {
+				rawServer := servers[name]
+				server, ok := rawServer.(map[string]any)
+				if !ok {
+					return invalid()
+				}
+				var values []string
+				if raw, exists := server["command"]; exists {
+					command, ok := raw.(string)
+					if !ok {
+						return invalid()
+					}
+					values = append(values, command)
+				}
+				if raw, exists := server["args"]; exists {
+					args, ok := raw.([]any)
+					if !ok {
+						return invalid()
+					}
+					for _, arg := range args {
+						value, ok := arg.(string)
+						if !ok {
+							return invalid()
+						}
+						values = append(values, value)
+					}
+				}
+				if len(values) == 0 {
+					warnings = append(warnings, filePath+": mcp-servers entry has no supported command/args to inspect; runtime server state unknown")
+				}
+				joined := strings.Join(values, " ")
+				if strings.Contains(joined, "${PLUGIN_ROOT}") {
+					warnings = append(warnings, filePath+": mcp-servers command/args use ${PLUGIN_ROOT}; "+root+". Server loading and agent selection unknown (Copilot 1.0.85 anchor)")
+				} else if strings.Contains(joined, "${") {
+					warnings = append(warnings, filePath+": mcp-servers command/args placeholder unresolved; no host environment expansion or server activation inferred")
+				}
+				if len(values) > 0 {
+					if command, ok := server["command"].(string); ok && command != "" {
+						part := copilotExecPart(command, values[1:])
+						part.Line = 1
+						if node := yamlMappingField(yamlMappingField(yamlMappingField(document.Content[0], "mcp-servers"), name), "command"); node != nil {
+							part.Line = node.Line + 1 // frontmatter starts after the opening ---
+						}
+						parts = append(parts, part)
+						warnings = append(warnings, filePath+": mcp-servers declaration inventoried; supported command content checked by security rules; no server executed")
+						if part.Limited {
+							warnings = append(warnings, filePath+": mcp-servers direct-exec arguments were not interpreted as shell; executable semantics remain unassessed")
+						}
+					} else {
+						warnings = append(warnings, filePath+": mcp-servers args have no supported command; command execution unassessed")
+					}
+				}
+			}
+		}
 	}
 	for i := 0; i <= end; i++ {
 		lines[i] = strings.Repeat("\n", strings.Count(lines[i], "\n"))
 	}
-	return []byte(strings.Join(lines, "")), []string{warning}, nil
+	return []byte(strings.Join(lines, "")), parts, warnings, nil
+}
+
+func yamlMappingField(node *yaml.Node, key string) *yaml.Node {
+	if node != nil && node.Kind == yaml.AliasNode {
+		node = node.Alias
+	}
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
 }

@@ -1,1 +1,1 @@
-Inert instruction candidate.
+Example instruction candidate.
