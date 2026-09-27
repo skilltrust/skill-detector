@@ -113,6 +113,10 @@ func TestClaudeAgentsFallbackVersionProvider(t *testing.T) {
 	if !strings.Contains(known, "also supplied") || !strings.Contains(known, "excludes AGENTS.md") || strings.Contains(known, "provider unknown") {
 		t.Fatal(known)
 	}
+	supported := pluginDiagnostics(t, path, "Inert", model.AnalysisContext{Version: knownPluginFact("2.1.277"), Provider: knownPluginFact("anthropic"), Conditions: map[string]model.ContextValue{"claude_instructions": knownPluginFact("absent")}})
+	if !strings.Contains(supported, "not one of the documented exclusions") || !strings.Contains(supported, "explicit selection remain unknown") || strings.Contains(supported, "excludes AGENTS.md") {
+		t.Fatal(supported)
+	}
 }
 
 func TestOmitClaudeMdKeepsManagedTier(t *testing.T) {
@@ -147,6 +151,9 @@ func TestCloudRepositorySettingsNeedTopologyEvidence(t *testing.T) {
 		if !strings.Contains(got, tc.want) || !strings.Contains(got, "do not by themselves establish active permissions") {
 			t.Fatal(got)
 		}
+	}
+	if got := pluginDiagnostics(t, path, `{"env":{"TOKEN":"synthetic-secret"}}`, model.AnalysisContext{}); !strings.Contains(got, "topology is unknown") || strings.Contains(got, "synthetic-secret") {
+		t.Fatal(got)
 	}
 }
 

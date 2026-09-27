@@ -113,4 +113,11 @@ func TestUnreadableManagedMCPDoesNotReturnClean(t *testing.T) {
 			t.Fatalf("duplicate server result=%v err=%v", result, err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "managed-mcp.json"), []byte(`{"mcpServers":{"demo":{"command":42}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err = s.Scan(context.Background(), dirInput(dir))
+	if err == nil || result != nil || !strings.Contains(err.Error(), "malformed server entries") {
+		t.Fatalf("malformed server result=%v err=%v", result, err)
+	}
 }

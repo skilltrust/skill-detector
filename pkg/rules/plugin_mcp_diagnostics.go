@@ -60,7 +60,16 @@ func PluginMCPDiagnostics(content []byte, ctx model.FileContext) ([]string, erro
 			return nil, fmt.Errorf("%s: supplied managed MCP policy has malformed or missing mcpServers; effective policy unknown", ctx.Path)
 		}
 		for _, raw := range servers {
-			if _, valid := jsonObject(raw); !valid {
+			server, valid := jsonObject(raw)
+			if !valid {
+				return nil, fmt.Errorf("%s: supplied managed MCP policy has malformed server entries; effective policy unknown", ctx.Path)
+			}
+			for _, key := range []string{"type", "command", "url", "endpoint"} {
+				if value, present := server[key]; present && !validJSONString(value) {
+					return nil, fmt.Errorf("%s: supplied managed MCP policy has malformed server entries; effective policy unknown", ctx.Path)
+				}
+			}
+			if value, present := server["args"]; present && !validJSONStringArray(value) {
 				return nil, fmt.Errorf("%s: supplied managed MCP policy has malformed server entries; effective policy unknown", ctx.Path)
 			}
 		}
@@ -85,7 +94,7 @@ func PluginMCPDiagnostics(content []byte, ctx model.FileContext) ([]string, erro
 			warnings = append(warnings, sdkMCPDiagnostics(root, ctx)...)
 		}
 		if managedMCP {
-			warnings = append(warnings, ctx.Path+": submitted managed-mcp.json is an exclusive-control declaration only if its managed provenance and runtime loading are established; unreadable or malformed managed policy cannot establish an effective allow verdict")
+			warnings = append(warnings, ctx.Path+": submitted managed-mcp.json is an exclusive-control candidate only if its managed provenance and runtime loading are established; partial field validation does not establish full schema validity. Unreadable or malformed managed policy cannot establish an effective allow verdict")
 		}
 	}
 	if inventory {
@@ -371,20 +380,21 @@ func instructionSelectionDiagnostics(root map[string]json.RawMessage, ctx model.
 }
 
 func cloudSettingsDiagnostics(root map[string]json.RawMessage, ctx model.FileContext) []string {
-	if _, hasPlugins := root["enabledPlugins"]; !hasPlugins {
-		if _, hasMarketplaces := root["extraKnownMarketplaces"]; !hasMarketplaces {
-			if _, hasPermissions := root["permissions"]; !hasPermissions {
-				if _, hasHooks := root["hooks"]; !hasHooks {
-					return nil
-				}
-			}
+	relevant := false
+	for _, key := range []string{"enabledPlugins", "extraKnownMarketplaces", "permissions", "hooks", "env"} {
+		if _, present := root[key]; present {
+			relevant = true
+			break
 		}
+	}
+	if !relevant {
+		return nil
 	}
 	topology := "unknown"
 	if contextIs(ctx.Analysis.Conditions["cloud_repositories"], "multiple") || contextIs(ctx.Analysis.Conditions["cloud_repositories"], "single") {
 		topology = ctx.Analysis.Conditions["cloud_repositories"].Value
 	}
-	return []string{ctx.Path + ": cloud repository topology is " + topology + "; per-repository plugins/marketplaces do not by themselves establish active permissions, hooks or env in multi-repository cloud sessions. Single-repository applicability, trust and effective source still require session evidence; the September 17 settings-doc edit does not establish an introduction version"}
+	return []string{ctx.Path + ": cloud repository topology is " + topology + "; per-repository plugins/marketplaces or project permissions/hooks/env declarations do not by themselves establish active permissions, hooks or env in multi-repository cloud sessions. Single-repository applicability, trust and effective source still require session evidence; the September 17 settings-doc edit does not establish an introduction version"}
 }
 
 func isClaudeAgentDefinition(path string) bool {
