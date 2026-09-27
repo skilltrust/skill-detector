@@ -1,1 +1,1 @@
-Inert Claude instruction.
+Example Claude instruction.

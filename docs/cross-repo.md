@@ -71,7 +71,7 @@ new scanner option, method argument, CLI flag or JSON field; the hosted scanner
 therefore has nothing to supply or persist, and runtime facts remain unknown.
 
 ST-137 adds `rules.SanitizeConfigurationForVerifier`, used by the scanner
-before invoking an optional verifier. Embedders that bypass `scanner.Scanner`
+before invoking an optional verifier. Embedders that do not use `scanner.Scanner`
 and send Claude hook/gateway configuration to another analyzer should apply
 the same boundary; header values and URL credentials/query data must not cross
 it. `ScanResult`, CLI JSON and schema version are unchanged.
@@ -86,6 +86,16 @@ additive `rules.CopilotHookDeclarations` and `CopilotProseBody` APIs are used by
 validated content, not raw JSON or frontmatter. No JSON shape, schema version,
 rule metadata or checksum changes. A hosted version pin alone cannot bring
 the new paths into a sparse materialization.
+
+ST-139 interprets version/source context in those same parsed Copilot files,
+including settings-only files with supported fields and validated agent MCP
+direct-exec commands. The supported path set and JSON wire shape do not
+expand. `Scanner.Scan` has no
+launch-environment or session-cwd input. Consumers must not present its
+conditional warnings as proof of effective managed policy, live plugin state,
+runtime trust or MCP server loading. A future caller that supplies the internal
+context seam must preserve ST-130 parser failures and keep all referenced
+files inside the submitted scan scope.
 
 ## A release is not done when the tag is cut
 

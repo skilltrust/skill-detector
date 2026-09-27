@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **ST-139, conditional Copilot diagnostics:** interpret documented
+  `COPILOT_ALLOW_ALL` spellings only from supplied launch context (only exact
+  `true` implies working-directory trust), inventory supported inline sandbox
+  switches and prerelease worktree-template placeholders, and annotate
+  `/clear` → `sessionEnd` at the 1.0.85 release anchor. Supplied
+  `--additional-mcp-config @file` references use session cwd within submitted
+  files; plugin-agent `${PLUGIN_ROOT}` remains unknown without a submitted
+  origin. Supported sandbox/worktree settings without hooks are assessed;
+  validated custom-agent MCP direct-exec commands reach existing security
+  rules, with unknown argument semantics disclosed. Invalid hook/frontmatter
+  files still yield no graded result; a 1.0.86 config failure cannot prove
+  existing plugins stopped. CLI/host launch context and unsupported settings
+  remain unavailable rather than certified safe. No host reads, execution,
+  path scope, wire/schema or rule-metadata changes; grades can change for
+  newly checked MCP commands. Schema stays 1.5.
 - **ST-130, scope/detection change:** inspect root `.github/hooks/*.json`,
   recursive path instructions, root custom-agent profiles and documented
   repository inline Copilot hooks. Validated version-1 hook commands, prompts
