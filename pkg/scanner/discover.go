@@ -7,6 +7,7 @@ import (
 	"os"
 	stdpath "path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	ignore "github.com/sabhiram/go-gitignore"
@@ -46,6 +47,8 @@ var alwaysSkipDirs = map[string]bool{
 	".next":        true,
 	".git":         true,
 }
+
+var detachedGitHEAD = regexp.MustCompile(`^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?\n?$`)
 
 // scannableExts defines file extensions that are relevant for security scanning.
 var scannableExts = map[string]bool{
@@ -207,6 +210,7 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 	// does not create a root, which is what keeps node_modules/ and
 	// vendor/ out.
 	skillRoots := make(map[string]bool)
+	bareConfigs := make(map[string]bool)
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -220,6 +224,13 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 		// Skip hardcoded noise dirs (always, regardless of options).
 		if d.IsDir() && path != root && alwaysSkipDirs[d.Name()] {
 			return filepath.SkipDir
+		}
+		// Once a bare config is located, never enumerate its object database.
+		if d.IsDir() && d.Name() == "objects" {
+			rel, relErr := filepath.Rel(root, filepath.Dir(path))
+			if relErr == nil && bareConfigs[rel] {
+				return filepath.SkipDir
+			}
 		}
 
 		// Honor .gitignore (best-effort; missing/broken file = no-op).
@@ -285,6 +296,31 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 		if err != nil {
 			return nil
 		}
+		if d.Name() == "config" && filepath.Dir(relPath) != "." {
+			dir := filepath.Dir(relPath)
+			head, headErr := osRoot.Lstat(filepath.Join(dir, "HEAD"))
+			objects, objectsErr := osRoot.Lstat(filepath.Join(dir, "objects"))
+			if headErr == nil && objectsErr == nil && (head.Mode()&fs.ModeSymlink != 0 || objects.Mode()&fs.ModeSymlink != 0) {
+				return fmt.Errorf("discover: nested Git signature at %s has unsupported symlink marker", dir)
+			}
+			if headErr == nil && objectsErr == nil && head.Mode().IsRegular() && objects.IsDir() {
+				f, openErr := osRoot.Open(filepath.Join(dir, "HEAD"))
+				if openErr != nil {
+					return fmt.Errorf("discover: unreadable nested bare Git HEAD at %s", dir)
+				}
+				data, readErr := io.ReadAll(io.LimitReader(f, 129))
+				_ = f.Close()
+				if readErr != nil || len(data) > 128 {
+					return fmt.Errorf("discover: invalid nested bare Git HEAD at %s", dir)
+				}
+				if strings.HasPrefix(string(data), "ref: refs/") || detachedGitHEAD.Match(data) {
+					if len(bareConfigs) >= 64 {
+						return fmt.Errorf("discover: more than 64 nested bare Git configs; inventory incomplete")
+					}
+					bareConfigs[dir] = true
+				}
+			}
+		}
 
 		// Record skill roots as the walk finds them. The extension gate
 		// below cannot run yet: WalkDir visits a directory's entries in
@@ -314,6 +350,7 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 	// TOCTOU and symlink-escape protection is unchanged; candidates are
 	// consumed in walk order, so the output order is too.
 	for _, c := range candidates {
+		bareConfig := c.name == "config" && bareConfigs[filepath.Dir(c.rel)]
 		skillRoot := nearestSkillRoot(c.rel, skillRoots)
 		if skillRoot != "" && inSkillRootExcludedDir(c.rel) {
 			skillRoot = ""
@@ -323,15 +360,35 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 		// have no conventional extension and are always in scope. Inside an
 		// agent config dir OR inside a skill root, also scan script
 		// languages and extensionless hook scripts.
-		if !scannableExts[c.ext] && !instructionDotfiles[c.name] {
+		if !bareConfig && !scannableExts[c.ext] && !instructionDotfiles[c.name] {
 			inWideScope := inAgentDir(c.rel) || skillRoot != ""
 			if !inWideScope || !agentDirExtraExts[c.ext] {
 				continue
 			}
 		}
 
-		content, err := readFromRoot(osRoot, c.rel)
+		var content []byte
+		if bareConfig {
+			info, statErr := osRoot.Lstat(c.rel)
+			if statErr != nil || !info.Mode().IsRegular() || info.Size() > 65536 {
+				return nil, stats, fmt.Errorf("discover: nested bare Git config %s unreadable or over 64 KiB", c.rel)
+			}
+			f, openErr := osRoot.Open(c.rel)
+			if openErr != nil {
+				return nil, stats, fmt.Errorf("discover: nested bare Git config %s unreadable", c.rel)
+			}
+			content, err = io.ReadAll(io.LimitReader(f, 65537))
+			_ = f.Close()
+			if err == nil && len(content) > 65536 {
+				return nil, stats, fmt.Errorf("discover: nested bare Git config %s exceeds 64 KiB", c.rel)
+			}
+		} else {
+			content, err = readFromRoot(osRoot, c.rel)
+		}
 		if err != nil {
+			if bareConfig {
+				return nil, stats, fmt.Errorf("discover: nested bare Git config %s unreadable: %w", c.rel, err)
+			}
 			if c.name == "managed-mcp.json" && (inAgentDir(c.rel) || skillRoot != "") {
 				return nil, stats, fmt.Errorf("discover: supplied managed MCP policy %s unreadable; effective policy unknown: %w", c.rel, err)
 			}
@@ -339,6 +396,9 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 			continue
 		}
 		if isBinary(content) {
+			if bareConfig {
+				return nil, stats, fmt.Errorf("discover: nested bare Git config %s is binary", c.rel)
+			}
 			if c.name == "managed-mcp.json" && (inAgentDir(c.rel) || skillRoot != "") {
 				return nil, stats, fmt.Errorf("discover: supplied managed MCP policy %s is binary; effective policy unknown", c.rel)
 			}
@@ -346,10 +406,11 @@ func discoverImpl(root string, opts DiscoverOptions) ([]model.FileContext, Disco
 		}
 
 		files = append(files, model.FileContext{
-			Path:      c.rel,
-			Ext:       c.ext,
-			Content:   content,
-			SkillRoot: skillRoot,
+			Path:                c.rel,
+			Ext:                 c.ext,
+			Content:             content,
+			SkillRoot:           skillRoot,
+			NestedBareGitConfig: bareConfig,
 		})
 	}
 

@@ -75,6 +75,16 @@ either). Pass `--scan-all` to stop honoring `.gitignore` and walk every other
 scannable file; the hardcoded skip-dirs above still apply, and a `SKILL.md`
 inside one of them still creates no scope root.
 
+A separate bounded check inspects a nested bare Git repository when its
+directory has a regular `HEAD` and `config`, an `objects/` directory and
+`core.bare=true`. It inventories command-valued `core.fsmonitor` and
+`diff.external`, without running Git, hooks or configured commands. At most
+64 candidates and 64 KiB per config are assessed; unsupported syntax, includes,
+symlink markers and over-limit configs fail the scan without grades. It never
+walks the object database, host/global Git configuration or excluded/ignored
+directories. A finding is conditional: repository contents alone cannot prove
+Git will load the config or that an affected agent/version will execute it.
+
 The content rules above (injection, access control, exfiltration, etc.) run
 uniformly across every harness's instruction files — the checks aren't
 Claude-specific. Copilot hook commands are decoded from version-1 event arrays;

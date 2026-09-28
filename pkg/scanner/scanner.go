@@ -276,7 +276,7 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 	// --fail-on-axis treats a missing axis as "nothing to compare".
 	var agentSurface int
 	for _, f := range files {
-		if rules.InScope(f) {
+		if rules.InScope(f) || f.NestedBareGitConfig {
 			agentSurface++
 		}
 	}
@@ -289,6 +289,10 @@ func (s *Scanner) run(ctx context.Context, root string, analysis model.AnalysisC
 		permissionFiles := make([]model.FileContext, len(assessedFiles))
 		copy(permissionFiles, assessedFiles)
 		for index := range permissionFiles {
+			if permissionFiles[index].NestedBareGitConfig {
+				permissionFiles[index].Content = nil // Git config is inventory, not an agent instruction.
+				continue
+			}
 			sanitizeCtx := permissionFiles[index]
 			if rules.IsCopilotHookConfig(sanitizeCtx.Path) {
 				sanitizeCtx.Path += ".sh"
@@ -381,7 +385,11 @@ func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, fil
 
 	contentByPath := make(map[string]model.FileContext, len(files))
 	for _, f := range files {
-		f.Content = rules.SanitizeConfigurationForVerifier(f.Content, f)
+		if f.NestedBareGitConfig {
+			f.Content = nil // Raw Git config must not cross the verifier boundary.
+		} else {
+			f.Content = rules.SanitizeConfigurationForVerifier(f.Content, f)
+		}
 		contentByPath[f.Path] = f
 	}
 
@@ -406,7 +414,7 @@ func (s *Scanner) applyTriage(ctx context.Context, findings []model.Finding, fil
 		// Hook findings have source coordinates in JSON, while their semantic
 		// projections do not. Never let a verifier suppress them using a
 		// misaligned synthetic file. Static findings remain intact.
-		if rules.IsCopilotHookConfig(p) || contentByPath[p].Analysis.Conditions["copilot_agent_mcp_projection"].State == model.ContextKnown {
+		if rules.IsCopilotHookConfig(p) || contentByPath[p].NestedBareGitConfig || contentByPath[p].Analysis.Conditions["copilot_agent_mcp_projection"].State == model.ContextKnown {
 			continue
 		}
 		if err := tctx.Err(); err != nil {

@@ -74,6 +74,14 @@ rule without a gate fires on every file with a matching extension, which is why
 the gate is a requirement rather than a convention. See
 [`architecture.md`](architecture.md).
 
+### Nested bare Git config
+
+A repository-contained directory with regular `HEAD` and `config` files, an
+`objects/` directory and `core.bare=true`. Discovery stamps this filesystem
+fact on `FileContext`. It is not an agent-instruction file and does not make
+other content rules run on Git metadata. A declared command is an inventory
+finding, not proof that a runtime loaded or executed it.
+
 ### Rule ID
 
 The stable identifier of a detection rule, of the form `SD-NNN` — `SD-001`,

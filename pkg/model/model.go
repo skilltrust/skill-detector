@@ -266,6 +266,9 @@ type FileContext struct {
 	// not reachable from ScanResult, so adding this field does not move
 	// model.SchemaVersion.
 	SkillRoot string
+	// NestedBareGitConfig is set only by discovery after verifying a nested
+	// bare-repository signature. It is not inferred from the file name alone.
+	NestedBareGitConfig bool
 	// Analysis contains supplied cross-file facts plus candidate facts derived
 	// from this file's placement. Rules must not replace unknown fields with
 	// process environment, host files, or claims made by repository content.

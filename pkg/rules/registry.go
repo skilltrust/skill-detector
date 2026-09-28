@@ -79,5 +79,6 @@ func DefaultRegistry() *RuleRegistry {
 	RegisterMCPRules(r)
 	RegisterReverseShellRules(r)
 	RegisterCodexRules(r)
+	RegisterNestedBareGitRules(r)
 	return r
 }
