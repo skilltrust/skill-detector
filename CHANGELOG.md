@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.1] - 2026-09-28
+
 - **ST-140, integration verification:** a mixed Claude/Codex/Copilot fixture
   confirms conditional diagnostics, protective-deny advice, permission/grade
   aggregation, deterministic Go/compiled-CLI output and synthetic secret-safe
@@ -10,7 +12,7 @@
   methodology now distinguishes declarations from effective runtime and names
   unavailable context. No new wire fields, schema bump, axis, exit-code or
   ruleset metadata change; fingerprint remains `a00e1d4179d5c4fc` on this
-  checkout. No new engine release or downstream pin movement in this change.
+  release. Downstream pins move in their own repositories.
 - **ST-139, conditional Copilot diagnostics:** interpret documented
   `COPILOT_ALLOW_ALL` spellings only from supplied launch context (only exact
   `true` implies working-directory trust), inventory supported inline sandbox
@@ -26,6 +28,9 @@
   remain unavailable rather than certified safe. No host reads, execution,
   path scope, wire/schema or rule-metadata changes; grades can change for
   newly checked MCP commands. Schema stays 1.5.
+
+## [0.12.0] - 2026-09-27
+
 - **ST-130, scope/detection change:** inspect root `.github/hooks/*.json`,
   recursive path instructions, root custom-agent profiles and documented
   repository inline Copilot hooks. Validated version-1 hook commands, prompts
