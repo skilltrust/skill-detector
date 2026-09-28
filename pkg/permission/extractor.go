@@ -61,6 +61,7 @@ var ruleCapabilities = map[string][]capability{
 	"SD-024": {{typ: TypeShellExec}},
 	"SD-025": {{typ: TypeShellExec}, {typ: TypeNetwork}},
 	"SD-026": {{typ: TypeShellExec}, {typ: TypeFilesystem}},
+	"SD-027": {}, // Static Git declaration; command execution is conditional.
 }
 
 // capabilityFreeRules are rules that describe a technique, a documentation gap

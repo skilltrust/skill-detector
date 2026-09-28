@@ -21,6 +21,7 @@ Input (directory or file path)
       • restricts to scannable extensions, flags binaries,
         follows in-tree symlinks through a scoped os.Root
       • records skill roots and stamps FileContext.SkillRoot
+      • stamps bounded nested bare Git configs and skips their object stores
   → Rule application                  pkg/rules
       • ConfigurationDiagnostics runs independent bounded analyzers first;
         Codex errors abort the scan, limitations append ScanResult.Warnings
@@ -50,6 +51,16 @@ Direct `Rule.Match` consumers must also call
 `rules.ConfigurationDiagnostics`: the rule interface has no error/warning
 channel. `CodexConfigDiagnostics` remains the bounded Codex analyzer behind
 that shared entry point. The scanner handles both.
+
+Nested bare Git config is a separate filesystem-classified inventory surface;
+it does not widen `rules.InScope` for unrelated content rules. Discovery reads
+only bounded `HEAD`/`config` markers through `os.Root`; the scanner counts a
+verified candidate as assessed and runs SD-027 only on that config. Invalid,
+included and oversized configs fail without grades. Raw config does not cross
+the verifier boundary. Hosted sparse fetch must fall back to a full tree for
+the `HEAD`/`config`/`objects` signature; fetching only config would lose the
+objects-directory evidence. A declaration does not prove Git auto-discovery
+or command execution.
 
 Copilot repository hook JSON is a separate v1 schema, not Claude's nested
 hooks schema. `rules.CopilotHookDeclarations` validates it and supplies only

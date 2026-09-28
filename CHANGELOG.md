@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **ST-131, bounded Git inventory:** SD-027 detects command-valued
+  `core.fsmonitor` and `diff.external` in repository-contained nested bare Git
+  config with a regular `HEAD`, an `objects/` directory and `core.bare=true`.
+  It reads at most 64 configs of 64 KiB each and does not run Git, helpers or
+  hooks. Malformed/unsupported config and symlink markers fail without a grade;
+  `.git`, hardcoded skip directories and gitignore keep their exclusions.
+  Findings are conditional inventory, not proof of activation or
+  CVE-2026-45033 exposure. The GitHub reviewed advisory's structured range
+  is Copilot CLI <=1.0.42 affected, 1.0.43 patched (its prose differs).
+  Hosted sparse PR fetch must use full extraction for the three-part bare
+  signature. Ruleset fingerprint moves to `eb11e25d39bc2c81`; JSON schema
+  remains 1.5.
+
 ## [0.12.1] - 2026-09-28
 
 - **ST-140, integration verification:** a mixed Claude/Codex/Copilot fixture

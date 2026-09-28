@@ -87,6 +87,14 @@ validated content, not raw JSON or frontmatter. No JSON shape, schema version,
 rule metadata or checksum changes. A hosted version pin alone cannot bring
 the new paths into a sparse materialization.
 
+ST-131 adds a bounded nested bare Git config class to discovery, SD-027 and
+`FileContext.NestedBareGitConfig`. Hosted sparse fetch must fall back to the
+full tarball for a `HEAD`/`config`/`objects` signature; a detector version pin
+alone cannot restore the omitted object-directory evidence. A candidate with
+symlink markers must not be treated as a successful sparse scan. Direct rule
+consumers must call `ConfigurationDiagnostics` to reject incomplete Git config
+instead of treating missing findings as safe. No JSON wire shape changes.
+
 ST-139 interprets version/source context in those same parsed Copilot files,
 including settings-only files with supported fields and validated agent MCP
 direct-exec commands. The supported path set and JSON wire shape do not
