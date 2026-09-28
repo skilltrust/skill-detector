@@ -90,6 +90,17 @@ arguments as shell. Unsupported settings, launch environment, host/plugin
 inventory and org policies are not assessed. Claude Code's
 `.claude/settings.json` retains its structural checks (SD-017..SD-020).
 
+Static findings describe submitted declarations, not effective enforcement.
+Supported schemas include Claude settings/hooks, Codex TOML and Copilot
+repository hooks, instructions and agents; applicability still depends on
+harness version, source precedence, provider, trust and session state. A
+repository scan cannot see unsupplied managed/user settings, account-synced
+skills, installed plugins, cloud state or referenced files outside the input.
+Warnings qualify grades when context is unknown; an A means no applicable
+finding in the files checked, not a clean running agent. Invalid analyzed
+configuration fails without a grade. Unreadable supported files are a known
+coverage gap, not evidence that they were checked.
+
 ### What it does NOT check (by default)
 
 - Source code files (`.ts`, `.py`, `.go`, etc.) — that's Snyk / Semgrep's lane.

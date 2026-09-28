@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **ST-140, integration verification:** a mixed Claude/Codex/Copilot fixture
+  confirms conditional diagnostics, protective-deny advice, permission/grade
+  aggregation, deterministic Go/compiled-CLI output and synthetic secret-safe
+  reporting. The hosted sparse/full and finding/render boundaries were checked
+  against both the current v0.12.0 pin and the local ST-139 detector; public
+  methodology now distinguishes declarations from effective runtime and names
+  unavailable context. No new wire fields, schema bump, axis, exit-code or
+  ruleset metadata change; fingerprint remains `a00e1d4179d5c4fc` on this
+  checkout. No new engine release or downstream pin movement in this change.
 - **ST-139, conditional Copilot diagnostics:** interpret documented
   `COPILOT_ALLOW_ALL` spellings only from supplied launch context (only exact
   `true` implies working-directory trust), inventory supported inline sandbox
